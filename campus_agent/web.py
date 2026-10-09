@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from .core import MockConnector, TZ, recommend
 from . import llm
+from . import passport
 from .services import extract_tasks, retrieve
 from .storage import Store
 
@@ -37,14 +38,6 @@ def uid():
 
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
-
-def hash_password(value, salt=None):
-    salt = salt or secrets.token_hex(16)
-    hashed = hashlib.scrypt(value.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
-    return salt + ':' + hashed
-
-def password_matches(value, stored):
-    return hmac.compare_digest(hash_password(value, stored.split(':')[0]), stored)
 
 class RequestGuard:
     """Bound request bytes before FastAPI parsing and reject cross-origin/remote requests."""
@@ -116,7 +109,7 @@ def create_app(data_dir=None):
         with store.connect() as db:
             row = db.execute('SELECT s.*, u.username FROM sessions s JOIN users u ON u.id=s.owner WHERE token=? AND expires>?', (digest(token), time.time())).fetchone()
         if not row:
-            raise HTTPException(401, '请先登录本地账号')
+            raise HTTPException(401, '请先用校园通行证登录')
         if mutate and not hmac.compare_digest(request.headers.get('x-csrf-token', ''), row['csrf']):
             raise HTTPException(403, '会话校验失败，请刷新页面')
         return dict(row)
@@ -203,7 +196,7 @@ def create_app(data_dir=None):
             response = JSONResponse({'ok': True})
             response.delete_cookie('campus_session', path='/')
             return response
-        if action not in ('login', 'register'):
+        if action != 'login':
             raise HTTPException(404)
         key = request.client.host
         with attempts_lock:
@@ -212,31 +205,33 @@ def create_app(data_dir=None):
                 raise HTTPException(429, '尝试过于频繁，请一分钟后再试')
             attempts[key] = recent + [time.time()]
         data = await payload(request)
-        username, password = data.get('username', ''), data.get('password', '')
-        if not isinstance(username, str) or not re.fullmatch(r'[A-Za-z0-9_\-]{3,32}', username):
-            raise HTTPException(400, '用户名使用 3–32 位英文字母、数字、下划线或短横线')
-        if not isinstance(password, str) or not 10 <= len(password) <= 128:
-            raise HTTPException(400, '密码需要 10–128 个字符')
+        student_id, password = data.get('student_id', ''), data.get('password', '')
+        if not isinstance(student_id, str) or not re.fullmatch(r'[A-Za-z0-9]{4,20}', student_id):
+            raise HTTPException(400, '请输入正确的学号（4–20 位字母或数字）')
+        if not isinstance(password, str) or not 1 <= len(password) <= 128:
+            raise HTTPException(400, '请输入统一身份认证密码')
+        # 校园通行证认证：密码只在 passport.login 的内存中用于向 CAS 换一次性票，
+        # 绝不落库/落盘/写日志。放到线程池执行，避免阻塞事件循环；失败只尝试一次。
+        try:
+            identity = await run_in_threadpool(passport.login, student_id, password)
+        except passport.PassportError as exc:
+            raise HTTPException(401, str(exc))
+        student_id = identity.student_id
         with store.connect() as db:
-            row = db.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
-            if action == 'register':
-                if row:
-                    raise HTTPException(409, '用户名已存在')
+            row = db.execute('SELECT id FROM users WHERE username=?', (student_id,)).fetchone()
+            if row:
+                owner = row['id']
+            else:
                 owner = uid()
                 try:
-                    db.execute('INSERT INTO users VALUES(?,?,?)', (owner, username, hash_password(password)))
+                    db.execute('INSERT INTO users(id,username) VALUES(?,?)', (owner, student_id))
                 except sqlite3.IntegrityError:
-                    raise HTTPException(409, '用户名已存在')
-            else:
-                # Perform a hash even for an unknown username.
-                hashed = row['password'] if row else '0'*32 + ':' + '0'*128
-                if not password_matches(password, hashed) or not row:
-                    raise HTTPException(401, '用户名或密码不正确')
-                owner = row['id']
+                    owner = db.execute('SELECT id FROM users WHERE username=?', (student_id,)).fetchone()['id']
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
             db.execute('INSERT INTO sessions VALUES(?,?,?,?)', (digest(token), owner, csrf, time.time()+43200))
-        response = JSONResponse({'username': username, 'csrf': csrf})
+        store.log(owner, 'auth.login', 'ok', now())
+        response = JSONResponse({'username': student_id, 'csrf': csrf})
         response.set_cookie('campus_session', token, max_age=43200, httponly=True, samesite='strict', path='/')
         return response
 
