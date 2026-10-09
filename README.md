@@ -19,17 +19,19 @@
 - 单份/全部资料删除，级联清理片段与待办；脱敏操作日志。
 - 保留阶段 0 的 CLI、Mock Connector 和活动冲突规则。
 
-## 启动
+## 下载后使用（v0.2.1）
 
-安装 Python 3.10+，在项目根目录执行：
+每位同学都可以在自己的电脑运行，不需要开发者电脑在线。当前是本地应用，不是共享的在线网站；账号、资料和模型配置各自独立。
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m campus_agent.server
-```
+1. 安装 **Python 3.10+，推荐 3.12**（Windows 安装时勾选 Add Python to PATH）。
+2. 在 GitHub 点击 **Code → Download ZIP** 并完整解压；开发者也可 `git clone https://github.com/cmy173/campus-agent.git`。
+3. **Windows：双击 `start.cmd`。macOS/Linux：在项目目录执行 `sh start.sh`。**
+4. 首次启动自动创建 `.venv` 并联网安装依赖，随后自动打开网页。保留启动窗口，Ctrl+C 停止。
+5. 创建自己的本地账号，点击“体验演示资料”。不需要 API Key 即可使用本地检索；校园平台自动同步尚未实现。
 
-打开 **http://127.0.0.1:8765**，创建本地账号，点击“体验演示资料”。不要使用校园密码。后续可运行 `./start.ps1`，Ctrl+C 停止。详细的模型配置、备份和常见限制见 [本地运行说明](docs/local-setup.md)。
+之后仍使用同一启动入口。通用命令为 `python launch.py`（macOS/Linux 使用 `python3`）。端口占用时使用 `python launch.py --port 8766`；无需自动打开浏览器时添加 `--no-browser`。
+
+首次需要联网下载依赖；安装成功后，本地检索无需模型服务。OpenAI 问答需自行配置，说明见 [本地运行说明](docs/local-setup.md)。此版本在 Windows 做全新安装验证，macOS/Linux 提供启动入口但尚未实机验证。
 
 ## 当前状态
 

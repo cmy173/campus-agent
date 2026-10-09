@@ -1,8 +1,25 @@
 # 本地运行与 OpenAI 配置
 
-适用版本：v0.2。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
+适用版本：v0.2.1。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
 
-## 首次安装
+## 推荐启动方式
+
+从 GitHub 下载 ZIP 后完整解压，再启动。Windows 双击根目录 `start.cmd`；macOS/Linux 执行 `sh start.sh`。先安装 Python 3.10+（推荐 3.12），无需预装 Git、Node 或开发工具。
+
+启动器自动创建本项目 `.venv` 并安装固定版本依赖。成功后记录依赖清单指纹；依赖清单变化时重新安装。启动窗口需保持打开，Ctrl+C 停止。每台电脑使用自己的 data 目录和账号，校园通行证不是本地账号。
+
+排错：
+- 找不到 Python：安装 Python 并启用 PATH，重新打开终端。
+- 依赖下载失败：检查网络，再次启动会重试，不会标记为安装成功。
+- Linux 缺少 venv/ensurepip：通过发行版包管理器安装对应 Python 的 venv 支持。
+- 环境损坏：先尝试 `python launch.py --repair`；若虚拟环境已失效，停止应用后删除 `.venv` 再启动，保留 `data`。
+- 端口占用：`python launch.py --port 8766`；启动器不会擅自结束其他程序。
+- 网页打不开：查看启动窗口错误；服务关闭后本地网址无法访问。
+- PowerShell 脚本被限制：使用 `start.cmd`，不必修改系统执行策略。
+
+升级前先停止程序并备份 data。Git 用户拉取更新后重新启动；ZIP 用户将新版本解压到新目录，再复制自己的 data（以及自行设置的配置）到新目录，不要拷贝旧 `.venv`。
+
+## 手动安装（可选）
 
 ```powershell
 python -m venv .venv
