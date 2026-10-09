@@ -2,7 +2,7 @@
 
 登录入口见 [通行证与离线缓存](passport-login.md)：直接使用浙大通行证登录，程序自动获取教务信息；已有本机会话默认展示本人缓存。校园密码不保存，也不作为本地密码哈希；请勿通过 GitHub issue、配置文件或聊天发送给协作者。
 
-适用版本：v0.2。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
+适用版本：整合预览版。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
 
 学业日历的程序校历读取需要安装更新后的 requirements.txt：PDF 渲染依赖 pypdfium2，Windows 本机识别依赖 PyWinRT 和系统可用的中文 OCR 语言。语言包不可用、非 Windows 或来源解析失败时，仍可使用同学期缓存或默认日期展示课表、今日课程与成绩概览；不会发送校历给外部模型。校历核对的适用范围见 [学业界面说明](academic-ui.md)。
 
@@ -10,7 +10,26 @@ ETA 基本信息适配新增 cryptography 依赖。已有环境更新后执行 `
 
 修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-10.timetable-cache` 表示已加载本次课表缓存保留与学期记录合并（包含此前登录与学籍修复）。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。
 
-## 首次安装
+适用版本：v0.2.1。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
+
+## 推荐启动方式
+
+从 GitHub 下载 ZIP 后完整解压，再启动。Windows 双击根目录 `start.cmd`；macOS/Linux 执行 `sh start.sh`。先安装 Python 3.10+（推荐 3.12），无需预装 Git、Node 或开发工具。
+
+启动器自动创建本项目 `.venv` 并安装固定版本依赖。成功后记录依赖清单指纹；依赖清单变化时重新安装。启动窗口需保持打开，Ctrl+C 停止。每台电脑使用自己的 data 目录和账号，校园通行证不是本地账号。
+
+排错：
+- 找不到 Python：安装 Python 并启用 PATH，重新打开终端。
+- 依赖下载失败：检查网络，再次启动会重试，不会标记为安装成功。
+- Linux 缺少 venv/ensurepip：通过发行版包管理器安装对应 Python 的 venv 支持。
+- 环境损坏：先尝试 `python launch.py --repair`；若虚拟环境已失效，停止应用后删除 `.venv` 再启动，保留 `data`。
+- 端口占用：`python launch.py --port 8766`；启动器不会擅自结束其他程序。
+- 网页打不开：查看启动窗口错误；服务关闭后本地网址无法访问。
+- PowerShell 脚本被限制：使用 `start.cmd`，不必修改系统执行策略。
+
+升级前先停止程序并备份 data。Git 用户拉取更新后重新启动；ZIP 用户将新版本解压到新目录，再复制自己的 data（以及自行设置的配置）到新目录，不要拷贝旧 `.venv`。
+
+## 手动安装（可选）
 
 ```powershell
 python -m venv .venv

@@ -21,17 +21,20 @@
 - “我的学业”页：通行证登录时自动获取课表、基本信息及全部可见成绩；ETA 个人基本信息和教务个人页补充学院、专业、班级及年级，逐字段记录来源与时间，失败保留缓存。支持续传、学期筛选、按账号保存和断开清除，校园密码与 cookie 不落盘。主会话在进程内为本科教务与 ETA 即时换票。见 [通行证与离线缓存](docs/passport-login.md)。
 - 学业可视化：今日课程与通知待办、周课表、按学期均绩和分页成绩详情。日期按学校校历、同学期缓存、默认推算逐级降级，校历不可用也可显示今日课程和日期日历；推算会标注来源，当前官方自动校历适配主校区本科秋冬学期，见 [学业界面说明](docs/academic-ui.md)。
 
-## 启动
+## 下载后使用（v0.2.1）
 
-安装 Python 3.10+，在项目根目录执行：
+每位同学都可以在自己的电脑运行，不需要开发者电脑在线。当前是本地应用，不是共享的在线网站；账号、资料和模型配置各自独立。
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m campus_agent.server
-```
+1. 安装 **Python 3.10+，推荐 3.12**（Windows 安装时勾选 Add Python to PATH）。
+2. 在 GitHub 点击 **Code → Download ZIP** 并完整解压；开发者也可 `git clone https://github.com/cmy173/campus-agent.git`。
+3. **Windows：双击 `start.cmd`。macOS/Linux：在项目目录执行 `sh start.sh`。**
+4. 首次启动自动创建 `.venv` 并联网安装依赖，随后自动打开网页。保留启动窗口，Ctrl+C 停止。
+5. 可选择“本地试用 / 注册”体验资料检索，或使用通行证登录并同步本人教务信息。真实账号适配仍需本人验证，不需要 API Key 即可试用。
 
 打开 **http://127.0.0.1:8765**，使用浙大通行证登录，程序自动获取教务信息；已有浏览器会话默认显示离线缓存。旧版本地账号从“旧版本地资料登录”进入，可在设置中绑定通行证。后续可运行 `./start.ps1`，Ctrl+C 停止。详细的模型配置、备份和常见限制见 [本地运行说明](docs/local-setup.md)。
+之后仍使用同一启动入口。通用命令为 `python launch.py`（macOS/Linux 使用 `python3`）。端口占用时使用 `python launch.py --port 8766`；无需自动打开浏览器时添加 `--no-browser`。
+
+首次需要联网下载依赖；安装成功后，本地检索无需模型服务。OpenAI 问答需自行配置，说明见 [本地运行说明](docs/local-setup.md)。此版本在 Windows 做全新安装验证，macOS/Linux 提供启动入口但尚未实机验证。
 
 ## 当前状态
 
