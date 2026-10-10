@@ -1,6 +1,14 @@
 # 本地运行与 OpenAI 配置
 
+登录入口见 [通行证与离线缓存](passport-login.md)：直接使用浙大通行证登录，程序自动获取教务信息；已有本机会话默认展示本人缓存。校园密码不保存，也不作为本地密码哈希；请勿通过 GitHub issue、配置文件或聊天发送给协作者。
+
 适用版本：v0.2。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
+
+学业日历的程序校历读取需要安装更新后的 requirements.txt：PDF 渲染依赖 pypdfium2，Windows 本机识别依赖 PyWinRT 和系统可用的中文 OCR 语言。语言包不可用、非 Windows 或来源解析失败时，仍可使用同学期缓存或默认日期展示课表、今日课程与成绩概览；不会发送校历给外部模型。校历核对的适用范围见 [学业界面说明](academic-ui.md)。
+
+ETA 基本信息适配新增 cryptography 依赖。已有环境更新后执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`，再重启服务并刷新页面。
+
+修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-10.timetable-cache` 表示已加载本次课表缓存保留与学期记录合并（包含此前登录与学籍修复）。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。
 
 ## 首次安装
 
@@ -10,7 +18,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m campus_agent.server
 ```
 
-打开 http://127.0.0.1:8765 ，创建独立的本地账号。不要使用校园密码。后续可运行 `./start.ps1` 或最后一条 Python 命令；Ctrl+C 停止服务。端口冲突时追加 `--port 8766`，并打开对应地址。
+打开 http://127.0.0.1:8765 ，在通行证表单登录并按需手填验证码，登录时自动获取信息；下次打开优先显示本浏览器原账号的缓存。旧本地账号从“旧版本地资料登录”进入。后续可运行 `./start.ps1` 或最后一条 Python 命令；Ctrl+C 停止服务。端口冲突时追加 `--port 8766`，并打开对应地址。
 
 macOS/Linux 对应使用 `python3 -m venv .venv` 和 `.venv/bin/python`。本次未在这两个系统实际运行。
 
@@ -18,7 +26,7 @@ macOS/Linux 对应使用 `python3 -m venv .venv` 和 `.venv/bin/python`。本次
 
 ## 验证第一个闭环
 
-1. 创建本地账号，进入“我的资料”，导入演示资料。
+1. 通行证登录或恢复已有缓存后，进入“我的资料”，导入演示资料。
 2. 等待状态从“等待解析”变成“已整理”。
 3. 在校园助手询问“实验报告截止时间”，点击引用查看第 2 行原文。
 4. 进入“待办与截止”，核对时间后保存，或改为“已完成”。
