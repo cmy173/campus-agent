@@ -22,3 +22,4 @@ jobs:
       - run: node --check campus_agent/static/campus.js
       - run: node --check campus_agent/static/academics.js
       - run: node --check campus_agent/static/passport.js
+      - run: node tests/frontend-auth.test.cjs

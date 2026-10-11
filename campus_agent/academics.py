@@ -138,8 +138,8 @@ def agenda(section, calendars, selected_day=None, term_key=None):
                 continue
             matches = week_matches(row, week)
             if not row.get('weeks') and not row.get('odd_even'):
-                matches = True
-                assumptions.append('周次缺失，按本季每周展示')
+                unknown.add(index)
+                continue  # Missing weeks are not evidence of a weekly class.
             if (not season_text or any(c not in '秋冬春夏短' for c in season_text)
                     or not periods or not re.fullmatch(r'[1-7]', weekday) or matches is None
                     or periods[1] > len(config['period_times'])):

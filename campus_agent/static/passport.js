@@ -9,14 +9,14 @@ function renderAccountMode(){
   $('auth-cache-back').classList.toggle('hidden',!loggedIn);
 }
 function passportFormMode(){
-  const legacy=authMode==='login';
-  $('auth-title').textContent=legacy?'旧版本地资料登录':passportLinkLegacy?'验证通行证并绑定当前资料':'登录浙大通行证';
-  $('auth-description').textContent=legacy?'仅用于打开旧版本地账号的资料，请输入原本地密码。进入后可在设置中绑定通行证。':'登录后自动读取本人基本信息、课表和成绩。密码仅用于本次认证；本浏览器默认恢复已有账号的离线缓存，有效期 30 天。退出登录会关闭此入口。';
-  $('auth-username-label').textContent=legacy?'原本地用户名':'通行证账号';
-  $('auth-password-label').textContent=legacy?'原本地密码':'通行证密码';
+  const legacy=authMode!=='passport',register=authMode==='register';
+  $('auth-title').textContent=register?'创建本地试用账号':legacy?'本地资料登录':passportLinkLegacy?'验证通行证并绑定当前资料':'登录浙大通行证';
+  $('auth-description').textContent=legacy?'本地账号用于资料检索和演示，不验证校园身份。请设置独立密码，不要使用校园密码；以后可绑定通行证。':'登录后自动读取本人基本信息、课表和成绩。密码仅用于本次认证；本浏览器默认恢复已有账号的离线缓存，有效期 30 天。退出登录会关闭此入口。';
+  $('auth-username-label').textContent=legacy?'本地用户名':'通行证账号';
+  $('auth-password-label').textContent=legacy?'本地密码':'通行证密码';
   $('username').maxLength=legacy?32:128;$('password').minLength=legacy?10:1;
-  $('auth-submit').textContent=legacy?'打开旧版资料':'登录并获取信息';
-  $('auth-switch').textContent=legacy?'返回通行证登录':'旧版本地资料登录';
+  $('auth-submit').textContent=register?'创建并试用':legacy?'打开本地资料':'登录并获取信息';
+  $('auth-switch').textContent=legacy?'返回通行证登录':'本地资料登录';
   $('auth-refresh').classList.toggle('hidden',legacy);$('auth-captcha').classList.add('hidden');
   $('auth-cache-back').classList.toggle('hidden',!loggedIn);$('auth-error').textContent='';
 }
@@ -37,12 +37,12 @@ $('auth-switch').onclick=()=>{passportPreparation++;passportFlow='';$('password'
 $('auth-refresh').onclick=()=>preparePassport();
 $('auth-cache-back').onclick=()=>{passportPreparation++;passportFlow='';$('password').value='';$('auth-captcha-image').removeAttribute('src');$('auth-dialog').close();};
 $('auth-form').onsubmit=async e=>{
-  e.preventDefault();const legacy=authMode==='login';if(!legacy&&!passportFlow)return;
+  e.preventDefault();const legacy=authMode!=='passport',register=authMode==='register';if(!legacy&&!passportFlow)return;
   const body={username:$('username').value.trim(),password:$('password').value};
   if(!legacy)Object.assign(body,{flow_id:passportFlow,authcode:$('authcode').value.trim(),link_legacy:passportLinkLegacy});
   $('password').value='';passportFlow='';$('auth-submit').disabled=true;$('auth-refresh').disabled=true;$('auth-switch').disabled=true;
   $('auth-error').textContent=legacy?'正在打开旧版资料…':'正在验证通行证并获取信息；请稍候…';
-  try{const me=await api(legacy?'/api/auth/login':'/api/auth/passport/login',{method:'POST',json:body});$('authcode').value='';$('auth-captcha-image').removeAttribute('src');await signedIn(me);}
+  try{const me=await api(legacy?'/api/auth/'+authMode:'/api/auth/passport/login',{method:'POST',json:body});$('authcode').value='';$('auth-captcha-image').removeAttribute('src');await signedIn(me);}
   catch(err){$('auth-error').textContent=typeof campusFailureText==='function'?campusFailureText(err.detail||{message:err.message}):err.message;}
   finally{body.password='';$('auth-submit').disabled=!legacy&&!passportFlow;$('auth-refresh').disabled=false;$('auth-switch').disabled=false;}
 };
@@ -69,3 +69,8 @@ const bindingButton=el('button','将旧版资料绑定到通行证','secondary')
 const originalRenderAccountMode=renderAccountMode;
 renderAccountMode=function(){originalRenderAccountMode();bindingButton.classList.toggle('hidden',accountMode!=='legacy'||!loggedIn);};
 api('/api/me').then(signedIn).catch(()=>{if(!$('auth-dialog').open)showAuth();});
+
+const localTrial=el('button','本地试用 / 注册','text-button');
+localTrial.type='button';
+localTrial.onclick=()=>{passportPreparation++;passportFlow='';passportLinkLegacy=false;authMode='register';$('password').value='';passportFormMode();$('auth-submit').disabled=false;};
+$('auth-switch').parentElement.append(localTrial);

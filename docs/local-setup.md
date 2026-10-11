@@ -10,7 +10,9 @@ ETA 基本信息适配新增 cryptography 依赖。已有环境更新后执行 `
 
 修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-10.timetable-cache` 表示已加载本次课表缓存保留与学期记录合并（包含此前登录与学籍修复）。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。
 
-适用版本：v0.2.1。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
+
+
+本次整合另提供“本地试用 / 注册”，可在不认证校园身份的情况下试用资料功能。
 
 ## 推荐启动方式
 

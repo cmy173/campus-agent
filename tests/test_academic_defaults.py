@@ -72,10 +72,8 @@ class DefaultCalendarTests(unittest.TestCase):
         self.assertEqual(config['exchanges'],{})
         result = agenda({'terms':[term]}, {'2026/1|秋':config}, '2026-10-09')
         self.assertTrue(result['dated'])
-        self.assertEqual(result['events'][0]['time'],'08:00–09:35')
-        self.assertTrue(result['events'][0]['provisional'])
-        self.assertEqual(len(result['events'][0]['assumptions']),2)
-        self.assertEqual(result['events'][0]['name'],ROW['name'])
+        self.assertEqual(result['events'], [])
+        self.assertEqual(result['unplaced'][0]['name'], ROW['name'])
 
     def test_exact_cache_keeps_dates_but_other_year_only_supplies_times(self):
         term = {'year':'2026','semester':'3','term':'秋冬'}
