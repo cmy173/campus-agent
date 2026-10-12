@@ -1,4 +1,6 @@
-# Campus Agent
+# Campus Agent · 0.3.0-pilot.1
+
+本轮试点范围与本人验证步骤见 [试点验收](docs/pilot-acceptance.md)。
 
 校园平台统一服务、公开通知摘要接入、网络策略与新增连接器开发说明见 [连接器指南](docs/connectors.md)。本轮真实公共验证与校园账号验证边界分别记录，不将合成测试作为真实接入证据。
 
@@ -28,7 +30,7 @@
 每位同学都可以在自己的电脑运行，不需要开发者电脑在线。当前是本地应用，不是共享的在线网站；账号、资料和模型配置各自独立。
 
 1. 安装 **Python 3.10+，推荐 3.12**（Windows 安装时勾选 Add Python to PATH）。
-2. 在 GitHub 切换到 **feature/campus-integration** 分支，再点击 **Code → Download ZIP** 并完整解压；开发者也可 `git clone --branch feature/campus-integration https://github.com/cmy173/campus-agent.git`。
+2. 在 GitHub 切换到 **feature/pilot-readiness** 分支，再点击 **Code → Download ZIP** 并完整解压；开发者也可 `git clone --branch feature/pilot-readiness https://github.com/cmy173/campus-agent.git`。
 3. **Windows：双击 `start.cmd`。macOS/Linux：在项目目录执行 `sh start.sh`。**
 4. 首次启动自动创建 `.venv` 并联网安装依赖，随后自动打开网页。保留启动窗口，Ctrl+C 停止。
 5. 可选择“本地试用 / 注册”体验资料检索，或使用通行证登录并同步本人教务信息。真实账号适配仍需本人验证，不需要 API Key 即可试用。

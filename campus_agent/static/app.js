@@ -1,5 +1,9 @@
 "use strict";
 const $ = id => document.getElementById(id);
+fetch('/api/health').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(r=>{
+  $('release-version').textContent=r.version;
+  $('release-version').title=r.channel+' · '+r.campus_connector_revision;
+}).catch(()=>{$('release-version').textContent='版本信息不可用';});
 let csrf = '', loggedIn = false, authMode = 'passport', accountMode='offline', taskFilter = 'pending', documents = [], tasks = [], timer, sessionEpoch = 0;
 const titles = {home:'校园助手',library:'我的资料',tasks:'待办与截止',activities:'活动探索',settings:'隐私与设置',campus:'我的学业'};
 function el(tag, text, className) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(className) node.className = className; return node; }

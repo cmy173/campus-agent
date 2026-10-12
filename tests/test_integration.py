@@ -9,6 +9,15 @@ from test_academics import CONFIG, ROW, COURSES
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_release_identity_is_available_without_login(self):
+        from campus_agent.version import VERSION, CHANNEL
+        with TemporaryDirectory() as folder, TestClient(create_app(folder), base_url='http://127.0.0.1') as client:
+            response = client.get('/api/health')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['version'], VERSION)
+            self.assertEqual(response.json()['channel'], CHANNEL)
+            self.assertIn('release-version', client.get('/').text)
+
     def test_new_local_user_can_register_without_campus_network(self):
         with TemporaryDirectory() as folder, TestClient(create_app(folder), base_url='http://127.0.0.1') as client:
             client.headers['X-Campus-Request'] = '1'

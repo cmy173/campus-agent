@@ -204,7 +204,8 @@ def create_app(data_dir=None):
     @app.get('/api/health')
     def health():
         from .campus import CONNECTOR_REVISION
-        return {'status': 'ok', 'mode': 'local-retrieval', 'version': '0.2.0',
+        from .version import VERSION, CHANNEL
+        return {'status': 'ok', 'mode': 'local-retrieval', 'version': VERSION, 'channel': CHANNEL,
                 'campus_connector_revision': CONNECTOR_REVISION}
 
     @app.post('/api/auth/{action}')
