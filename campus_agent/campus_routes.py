@@ -11,6 +11,8 @@ from .campus import CampusError, CampusManager
 from .academic_defaults import SEMESTER_PATTERN
 from .core import TZ
 from datetime import datetime
+from pydantic import ValidationError
+from .connector_contracts import UserContext, NoticesQuery
 
 
 def install_campus_routes(app, store, authenticate):
@@ -53,6 +55,56 @@ def install_campus_routes(app, store, authenticate):
     async def status(request: Request):
         owner = authenticate(request)['owner']
         return await run_in_threadpool(manager.status, owner)
+
+    @app.get('/api/campus/connectors')
+    async def connectors(request: Request):
+        context = UserContext(authenticate(request)['owner'])
+        return await run_in_threadpool(manager.service.connection_status, context)
+
+    @app.get('/api/campus/notices')
+    async def notices(request: Request):
+        # Notification consumers read offline; remote reads require explicit sync.
+        context = UserContext(authenticate(request)['owner'])
+        result = await run_in_threadpool(manager.service.query, 'notices', NoticesQuery(), context)
+        return result.model_dump(mode='json')
+
+    @app.get('/api/campus/query/{capability}')
+    async def query_capability(capability: str, request: Request):
+        context = UserContext(authenticate(request)['owner'])
+        params = dict(request.query_params)
+        platform = params.pop('platform', None)
+        if capability == 'notices' and 'limit' in params and re.fullmatch(r'[0-9]{1,2}', params['limit']):
+            params['limit'] = int(params['limit'])
+        try:
+            result = await run_in_threadpool(manager.service.query, capability, params, context, platform=platform)
+        except (ValidationError, ValueError, TypeError):
+            raise HTTPException(400, '能力查询参数无效') from None
+        return result.model_dump(mode='json')
+
+    @app.post('/api/campus/sync/{capability}')
+    async def sync_capability(capability: str, request: Request):
+        context = UserContext(authenticate(request, True)['owner'])
+        data = await payload(request)
+        if set(data) - {'query', 'platform'} or not isinstance(data.get('query', {}), dict):
+            raise HTTPException(400, '只接受 query 与已注册 platform')
+        platform = data.get('platform')
+        if platform is not None and not isinstance(platform, str):
+            raise HTTPException(400, 'platform 必须为字符串')
+        try:
+            result = await run_in_threadpool(manager.service.sync, capability, data.get('query', {}), context, platform=platform)
+        except (ValidationError, ValueError, TypeError):
+            raise HTTPException(400, '能力同步参数无效') from None
+        store.log(context.owner, 'campus.capability_sync', result.error.code.value if result.error else 'ok', datetime.now(TZ).isoformat())
+        return result.model_dump(mode='json')
+
+    @app.post('/api/campus/disconnect/{platform}')
+    async def disconnect_platform(platform: str, request: Request):
+        context = UserContext(authenticate(request, True)['owner'])
+        try:
+            return await run_in_threadpool(manager.service.disconnect, platform, context)
+        except CampusError as exc:
+            from .connector_contracts import standard_error
+            raise HTTPException(409, standard_error(exc).model_dump(mode='json')) from None
 
     @app.post('/api/campus/prepare')
     async def prepare(request: Request):

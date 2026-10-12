@@ -8,7 +8,7 @@
 
 ETA 基本信息适配新增 cryptography 依赖。已有环境更新后执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`，再重启服务并刷新页面。
 
-修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-10.timetable-cache` 表示已加载本次课表缓存保留与学期记录合并（包含此前登录与学籍修复）。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。
+修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-12.custom-status` 表示已加载统一服务及通行证 Cookie/关闭恢复修复。再按 Ctrl+Shift+R 强制刷新浏览器。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。启动前可设置 `$env:CAMPUS_NETWORK_POLICY='system'` 跟随系统代理，或 `'direct'` 保持原直连策略；只影响校园请求，仍依赖系统路由。详情见 [连接器指南](connectors.md)。
 
 
 

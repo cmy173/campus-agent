@@ -12,6 +12,7 @@ const get = id => {if(!nodes.has(id))nodes.set(id,element());return nodes.get(id
 let trial, sent, signed;
 get('auth-switch').parentElement.append = node => {trial=node};
 const ctx = vm.createContext({
+  AbortController,setTimeout,clearTimeout,
   $:get, el:(_tag,text)=>element(text), authMode:'passport', loggedIn:false,
   accountMode:'offline', sessionEpoch:0,
   api:(path,opts)=> {

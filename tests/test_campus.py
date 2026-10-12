@@ -316,6 +316,32 @@ class CampusWebTests(unittest.TestCase):
         self.assertFalse(resumed['auto_continue']);self.assertFalse(resumed['can_resume'])
         self.assertEqual(len(resumed['snapshot']['sync_progress']['pending']),0)
 
+    def test_custom_status_pauses_without_skipping_term_or_expiring_sessions(self):
+        self.connect()
+        fake=next(iter(self.manager.states.values()))['client']
+        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
+        first=self.sync().json()
+        before=self.client.post('/api/campus/sync',json={'resume':True}).json()['snapshot']['courses']
+        for code in ('UPSTREAM_STATUS_UNKNOWN','UPSTREAM_ERROR'):
+            error=CampusError(code,'未知校方响应',{'http_status':921,'reason':'HTTP_CUSTOM_STATUS'})
+            with patch.object(fake,'timetable',side_effect=error) as sent:
+                result=self.sync().json()
+            self.assertEqual(sent.call_count,1)
+            self.assertFalse(result['auto_continue']);self.assertTrue(result['can_resume'])
+            self.assertEqual(len(result['snapshot']['sync_progress']['pending']),8)
+            self.assertEqual(result['snapshot']['sync_progress']['failed'],[])
+            self.assertEqual(result['snapshot']['sync_progress']['completed'],0)
+            self.assertEqual(len(result['snapshot']['courses']['data']),len(before['data']))
+            self.assertTrue(result['connected']);self.assertFalse(fake.closed)
+            self.assertFalse(result['snapshot']['grades']['stale'])
+            codes={w['code'] for w in result['snapshot']['warnings']}
+            self.assertIn('CUSTOM_STATUS_PAUSED',codes);self.assertNotIn('SERVER_ERRORS_PAUSED',codes)
+        self.client.post('/api/campus/sync',json={'resume':True})
+        final=self.client.post('/api/campus/sync',json={'resume':True}).json()
+        self.assertEqual(final['snapshot']['sync_progress']['completed'],8)
+        self.assertTrue(final['snapshot']['courses']['complete'])
+        self.assertFalse(any(w['code'] in ('UPSTREAM_STATUS_UNKNOWN','CUSTOM_STATUS_PAUSED') for w in final['snapshot']['warnings']))
+
     def test_one_slow_semester_keeps_cache_and_does_not_block_later_terms(self):
         self.connect();self.sync()
         fake=next(iter(self.manager.states.values()))['client']
@@ -503,6 +529,20 @@ def cookie(name, domain, value='synthetic-cookie', path='/'):
 
 
 class CampusProtocolTests(unittest.TestCase):
+    def test_custom_json_http_status_is_not_inferred_from_body_or_reported_as_server_failure(self):
+        client=CampusClient()
+        raw=b'{"message":"ticket=SECRET Cookie=SECRET","code":921}'
+        with patch.object(client,'request',return_value=(921,{'Content-Type':'application/json'},raw)):
+            with self.assertRaises(CampusError) as caught:
+                client.timetable('2025-2026','2|\u590f')
+        self.assertEqual(caught.exception.code,'UPSTREAM_STATUS_UNKNOWN')
+        diagnostic=caught.exception.diagnostic
+        self.assertEqual(diagnostic['reason'],'HTTP_CUSTOM_STATUS')
+        self.assertEqual(diagnostic['http_status'],921)
+        self.assertEqual(diagnostic['content_kind'],'json')
+        self.assertEqual(diagnostic['query_year'],'2025-2026')
+        self.assertNotIn('SECRET',json.dumps(caught.exception.public()))
+
     def test_http_error_metadata_precedes_body_decode_and_preserves_query_contract(self):
         from campus_agent.campus import TIMETABLE
         client=CampusClient()

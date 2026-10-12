@@ -34,6 +34,11 @@ CREATE INDEX IF NOT EXISTS ix_task_document ON tasks(document);
 CREATE TABLE IF NOT EXISTS campus_snapshots (
  owner TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
  snapshot TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS connector_cache (
+ owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ platform TEXT NOT NULL, capability TEXT NOT NULL, scope TEXT NOT NULL,
+ result TEXT NOT NULL,
+ PRIMARY KEY(owner, platform, capability, scope));
 """
 
 class Store:

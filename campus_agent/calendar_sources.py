@@ -18,7 +18,8 @@ from urllib.parse import urljoin, urlsplit, parse_qs
 import urllib.error
 import urllib.request
 
-from .campus import CampusError, _NoRedirect, plain
+from .campus_common import CampusError, _Text, plain
+from .campus_network import build_opener, READ_BUDGET
 from .core import TZ
 
 CATALOG = 'https://ugrs.zju.edu.cn/28218/list1.htm'
@@ -149,16 +150,14 @@ def teaching_changes(html, year):
 def plain_blocks(html):
     html = re.sub(r'</(?:p|div|h\d|li|tr)>|<br\s*/?>', '\n', html, flags=re.I)
     # plain() truncates individual fields; this is a bounded public document, not a field.
-    from .campus import _Text
     return ''.join(_Text(html).parts).strip()
 
 
 class CalendarClient:
-    def __init__(self):
+    def __init__(self, policy=None):
         self.cache = {}
         self.lock = threading.Lock()
-        # Use the same direct campus route as login and academic data requests.
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        self.opener = build_opener(policy)
 
     def read(self, url, form=None, limit=2_000_000):
         try:
@@ -182,6 +181,7 @@ class CalendarClient:
         if remaining <= 0:
             raise CampusError('CALENDAR_TIMEOUT', '校历读取超时，暂保留星期课表')
         try:
+            READ_BUDGET.take(parsed.hostname)
             with self.opener.open(urllib.request.Request(url, data=form, headers={'User-Agent': 'CampusAgent/0.3'}),
                                   timeout=min(12, remaining)) as response:
                 raw = response.read(limit+1)
