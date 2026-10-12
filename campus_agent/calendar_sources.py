@@ -157,7 +157,8 @@ class CalendarClient:
     def __init__(self):
         self.cache = {}
         self.lock = threading.Lock()
-        self.opener = urllib.request.build_opener(_NoRedirect())
+        # Use the same direct campus route as login and academic data requests.
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
     def read(self, url, form=None, limit=2_000_000):
         try:

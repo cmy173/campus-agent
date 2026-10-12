@@ -217,7 +217,10 @@ class _CampusCookiePolicy(DefaultCookiePolicy):
 class CampusClient:
     def __init__(self):
         self.jar = CookieJar(policy=_CampusCookiePolicy())
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect())
+        # Campus services must use the local campus/VPN route, not an OS/env HTTP proxy.
+        # This is scoped to this client; it cannot override TUN/system routing.
+        self.opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect())
         self.execution = ''
         self.authenticated = False
         self.passport_authenticated = False
