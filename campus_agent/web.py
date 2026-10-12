@@ -128,6 +128,7 @@ def create_app(data_dir=None):
 
     campus = install_campus_routes(app, store, user)
     app.state.campus = campus
+    app.state.campus_service = campus.service
     from .passport_routes import install_passport_routes
     close_passport_flows = install_passport_routes(app, store, campus, user, hash_password)
 

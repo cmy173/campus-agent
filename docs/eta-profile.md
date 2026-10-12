@@ -31,7 +31,7 @@ ETA 数据接口上限单独调整为 8,000,000 字节，允许编码表单和�
 
 页面展开“同步诊断”后可点击“复制诊断”，复制的仍只有上述安全元数据。浏览器不允许复制时，可选中文字手动复制。双数字学期编码（如 1|0、2|0、3|0）保留教务原值查询；不按数字组合猜季节，日期优先采用页面季学期名称。
 
-字段不齐时生成 PROFILE_PARTIAL，诊断包含是否执行实际值请求及六个字段的 available/unavailable 状态，不包含字段值。页面区分来源失败、接口没有返回可识别字段和未读取来源。诊断增加运行连接器版本 connector_revision 与同步记录版本 sync_revision；旧记录不会因查看被改写，新运行版本与缓存版本不同会提示重新登录更新。`/api/health` 的 campus_connector_revision 可确认重启后加载的版本。当前版本为 `2026-10-10.timetable-cache`。
+字段不齐时生成 PROFILE_PARTIAL，诊断包含是否执行实际值请求及六个字段的 available/unavailable 状态，不包含字段值。页面区分来源失败、接口没有返回可识别字段和未读取来源。诊断增加运行连接器版本 connector_revision 与同步记录版本 sync_revision；旧记录不会因查看被改写，新运行版本与缓存版本不同会提示重新登录更新。`/api/health` 的 campus_connector_revision 可确认重启后加载的版本。当前版本为 `2026-10-12.custom-status`，ETA 协议移至 `connectors/profile_protocol.py`，统一基本信息能力见 [连接器指南](connectors.md)。
 
 官网还支持竖线组合 fieldCode（例如 bmdm|zydm|nj|bjdm）。连接器按定义顺序匹配完整 defaultLabel 路径、实际值中的配对显示名或 options 的对应子路径，拆出学院、专业、年级和班级；拒绝错位标签，不把未识别的单位/专业/班级代码当名称。支持表单内 data/formData/values/curDatas 值。因此 data_request=false 也可能是正常内联表单，不能单凭它认定漏请求。部分字段诊断新增 schema_shape，只含组/字段数量、六个标准字段的映射及值/标签类型，不含源字段名或内容。
 

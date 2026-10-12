@@ -24,398 +24,18 @@ import urllib.request
 from .core import TZ
 from .academic_defaults import academic_year, semester_order, SEMESTER_PATTERN, fallback_terms, resolve_calendar, calendar_family, merge_term_catalog
 from .campus_profiles import ETA_SERVICE, PROFILE_KEYS, basic_fields, eta_profile, zdbk_profile
+from .campus_repository import SnapshotRepository, SQLiteCacheRepository
 
-CAS = 'https://zjuam.zju.edu.cn/cas/'
-BASE = 'https://zdbk.zju.edu.cn/jwglxt/'
-SERVICE = BASE + 'xtgl/login_ssologin.html'
-MENU = BASE + 'xtgl/index_cxLeafGnmkdm.html'
-TIMETABLE = BASE + 'kbcx/xskbcx_cxXsKb.html'
-TIMETABLE_INDEX = BASE + 'kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default'
-GRADES = BASE + 'cxdy/xscjcx_cxXscjIndex.html?doType=query&gnmkdm=N5083'
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36 CampusAgent/0.3'
-CONNECTOR_REVISION = '2026-10-10.timetable-cache'
+from .campus_common import CampusError, _Text, plain, decode_page
+from .campus_endpoints import *
+from .campus_endpoints import _REQUEST_STAGES, _JSON_PATHS
+from .campus_network import CampusTransport, check_url, _NoRedirect, _transport_failure
+from .connectors.zdbk_protocol import ZdbkProtocol, _TermOptions, _field, normalize_profile, normalize_course, normalize_grade
 
-_REQUEST_STAGES = {
-    ('zjuam.zju.edu.cn', '/cas/login'): ('cas_login', '校园认证'),
-    ('zjuam.zju.edu.cn', '/cas/v2/getPubKey'): ('cas_key', '认证公钥'),
-    ('zjuam.zju.edu.cn', '/cas/kaptcha'): ('cas_captcha', '登录验证码'),
-    ('zdbk.zju.edu.cn', urlsplit(SERVICE).path): ('service_login', '教务登录'),
-    ('zdbk.zju.edu.cn', urlsplit(MENU).path): ('menu', '教务菜单'),
-    ('zdbk.zju.edu.cn', urlsplit(TIMETABLE_INDEX).path): ('terms', '学期列表'),
-    ('zdbk.zju.edu.cn', urlsplit(TIMETABLE).path): ('timetable', '课表'),
-    ('zdbk.zju.edu.cn', urlsplit(GRADES).path): ('grades', '成绩'),
-    ('zdbk.zju.edu.cn', '/jwglxt/kaptcha'): ('timetable_captcha', '教务验证码'),
-}
-_JSON_PATHS = {urlsplit(url).path for url in (MENU, TIMETABLE, GRADES)}
+from .campus_auth import CampusAuthentication, _Inputs, encrypt_password
 
 
-def _transport_failure(exc):
-    """Classify by type/code only: exception text may contain proxy secrets or tickets."""
-    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
-    if isinstance(reason, ssl.SSLCertVerificationError):
-        return 'TLS_CERTIFICATE', 'TLS 证书校验失败；请检查系统时间、证书信任及代理配置'
-    if isinstance(reason, ssl.SSLError):
-        return 'TLS_HANDSHAKE', 'TLS 连接失败或被中断；请核对同一网络下官方教务网页是否可用'
-    if isinstance(reason, TimeoutError):
-        return 'TIMEOUT', '请求超时；请核对官方教务网页是否可用，再手动重试'
-    if isinstance(reason, socket.gaierror):
-        return 'DNS', '域名解析失败；请检查本机 DNS 和网络连接'
-    if isinstance(reason, (http.client.HTTPException, EOFError)):
-        return 'HTTP_INTERRUPTED', 'HTTP 响应中断或格式异常；本次未确认查询结果'
-    if isinstance(reason, (ConnectionResetError, ConnectionAbortedError)):
-        return 'CONNECTION_RESET', '连接被中断；请核对学校服务、网络及代理状态'
-    if isinstance(reason, ConnectionRefusedError):
-        return 'CONNECTION_REFUSED', '连接被拒绝；请核对学校服务、网络及代理状态'
-    return 'NETWORK', '连接失败；请检查本机网络及代理，教务网可能需要校园网或学校 VPN'
-
-
-class CampusError(Exception):
-    def __init__(self, code, message, diagnostic=None):
-        super().__init__(message)
-        self.code = code
-        self.diagnostic = diagnostic
-
-    def public(self):
-        result = {'code': self.code, 'message': str(self)}
-        if self.diagnostic:
-            result['diagnostic'] = self.diagnostic
-        return result
-
-
-class _Inputs(HTMLParser):
-    def __init__(self, text):
-        super().__init__()
-        self.values = {}
-        self.feed(text)
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == 'input' and attrs.get('name'):
-            self.values[attrs['name']] = attrs.get('value', '')
-
-
-class _Text(HTMLParser):
-    def __init__(self, text):
-        super().__init__()
-        self.parts = []
-        self.feed(text)
-
-    def handle_data(self, data):
-        self.parts.append(data)
-
-
-class _TermOptions(HTMLParser):
-    """Read the authenticated page's actual options, never guess enrollment years."""
-    def __init__(self, text):
-        super().__init__()
-        self.options = {'xnm': [], 'xqm': []}
-        self.select = None
-        self.option = None
-        self.feed(text)
-        self.finish_option()
-
-    def finish_option(self):
-        if self.select and self.option is not None:
-            self.options[self.select].append(self.option)
-        self.option = None
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == 'select':
-            self.finish_option()
-            self.select = next((attrs.get(key) for key in ('id', 'name')
-                                if attrs.get(key) in self.options), None)
-        elif tag == 'option' and self.select:
-            # HTML permits an omitted </option>; the next option implicitly closes it.
-            self.finish_option()
-            self.option = {'value': attrs.get('value', ''), 'label': '', 'selected': 'selected' in attrs}
-
-    def handle_data(self, data):
-        if self.option is not None:
-            self.option['label'] += data
-
-    def handle_endtag(self, tag):
-        if tag == 'option' and self.select and self.option is not None:
-            self.finish_option()
-        elif tag == 'select':
-            self.finish_option()
-            self.select = self.option = None
-
-
-def plain(value):
-    if value is None:
-        return ''
-    return unescape(''.join(_Text(str(value)).parts)).strip()[:500]
-
-
-def decode_page(raw, headers):
-    """Preserve school option characters; never replace undecodable query values."""
-    content_type=next((str(v) for k,v in headers.items() if k.lower()=='content-type'),'')
-    meta=raw[:4096].decode('ascii','ignore')
-    declared=re.search(r'charset\s*=\s*[\"\']?([A-Za-z0-9_-]+)',content_type,re.I)
-    if not declared:declared=re.search(r'charset\s*=\s*[\"\']?([A-Za-z0-9_-]+)',meta,re.I)
-    aliases={'utf-8':'utf-8-sig','utf8':'utf-8-sig','gbk':'gb18030','gb2312':'gb18030','gb18030':'gb18030'}
-    first=aliases.get(declared[1].lower()) if declared else None
-    for encoding in dict.fromkeys([first,'utf-8-sig','gb18030']):
-        if not encoding:continue
-        try:return raw.decode(encoding).strip(),encoding
-        except UnicodeError:pass
-    raise CampusError('PROTOCOL_CHANGED','校园页面编码无法识别，未用损坏字符查询',{'reason':'TEXT_ENCODING'})
-
-
-def encrypt_password(password, modulus, exponent):
-    """Match the official browser's reversed, chunked single-byte RSA protocol.
-
-    Its legacy BigInt routine is ambiguous for code units above 255. Refuse
-    unsupported passwords explicitly rather than attempt a different encoding.
-    """
-    if not all(isinstance(x, str) and re.fullmatch(r'[0-9a-fA-F]{1,1024}', x) for x in (modulus, exponent)):
-        raise CampusError('PROTOCOL_CHANGED', '校园认证公钥格式发生变化')
-    n, e = int(modulus, 16), int(exponent, 16)
-    if n < 3 or e < 3:
-        raise CampusError('PROTOCOL_CHANGED', '校园认证公钥无效')
-    if any(ord(char) > 255 for char in password):
-        raise CampusError('UNSUPPORTED_PASSWORD', '当前连接暂不支持含中文或其他多字节字符的密码，请使用官方教务页面')
-    chunk_size = 2 * ((n.bit_length()-1) // 16)
-    if chunk_size < 2:
-        raise CampusError('PROTOCOL_CHANGED', '校园认证公钥长度不符合约定')
-    reversed_bytes = bytes(ord(char) for char in reversed(password))
-    chunks = []
-    for offset in range(0, len(reversed_bytes), chunk_size):
-        value = int.from_bytes(reversed_bytes[offset:offset+chunk_size], 'little')
-        encrypted = pow(value, e, n)
-        # Browser biToHex emits whole 16-bit digits, not modulus-length padding.
-        width = max(4, ((encrypted.bit_length()+15)//16)*4)
-        chunks.append(format(encrypted, 'x').zfill(width))
-    return ' '.join(chunks)
-
-
-def check_url(url):
-    try:
-        parsed = urlsplit(url)
-        port = parsed.port
-    except ValueError:
-        raise CampusError('UNSAFE_REDIRECT', '校园服务返回了无效的跳转地址') from None
-    if (parsed.scheme != 'https' or parsed.hostname not in ('zjuam.zju.edu.cn', 'zdbk.zju.edu.cn', 'eta.zju.edu.cn')
-            or port not in (None, 443) or parsed.username or parsed.password or parsed.fragment):
-        raise CampusError('UNSAFE_REDIRECT', '校园服务返回了不受支持的跳转地址')
-    return url
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-class _CampusCookiePolicy(DefaultCookiePolicy):
-    def return_ok(self, cookie, request):
-        if cookie.name.lower() == 'iplanetdirectorypro' and urlsplit(request.full_url).hostname != 'zjuam.zju.edu.cn':
-            return False
-        return super().return_ok(cookie, request)
-
-
-class CampusClient:
-    def __init__(self):
-        self.jar = CookieJar(policy=_CampusCookiePolicy())
-        # Campus services must use the local campus/VPN route, not an OS/env HTTP proxy.
-        # This is scoped to this client; it cannot override TUN/system routing.
-        self.opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect())
-        self.execution = ''
-        self.authenticated = False
-        self.passport_authenticated = False
-        self.eta_authenticated = False
-        self.deadline = float('inf')
-        self.last_request = 0
-        self.term_warnings = []
-        self.modules = []
-
-    def start_operation(self):
-        self.deadline = time.monotonic() + 45
-
-    def close(self):
-        self.jar.clear()
-        self.execution = ''
-        self.authenticated = False
-        self.passport_authenticated = False
-        self.eta_authenticated = False
-        self.modules = []
-
-    def request_navigation(self, url):
-        """Consume status/cookies/Location; an SSO landing body is not data."""
-        return self.request(url, read_body=False)
-
-    def request(self, url, form=None, *, read_body=True):
-        check_url(url)
-        parsed = urlsplit(url)
-        stage, label = _REQUEST_STAGES.get((parsed.hostname, parsed.path), ('campus', '校园服务'))
-        if parsed.hostname == 'eta.zju.edu.cn':
-            stage, label = 'profile_eta', 'ETA 基本信息'
-        elif parsed.path.startswith(('/jwglxt/xsxxxggl/', '/jwglxt/xjgl/')):
-            stage, label = 'profile_zdbk', '教务基本信息'
-        # Never retain query strings, form contents, request/response headers, or bodies.
-        diagnostic = {'stage': stage, 'method': 'GET' if form is None else 'POST', 'host': parsed.hostname}
-        if stage != 'campus':
-            diagnostic['path'] = parsed.path
-        wait = max(0, self.last_request + .5 - time.monotonic())
-        if wait:
-            time.sleep(wait)
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
-            raise CampusError('OPERATION_TIMEOUT', label + '：本次操作已超过时限，请稍后手动重试',
-                              diagnostic | {'reason': 'OPERATION_DEADLINE'})
-        self.last_request = time.monotonic()
-        started = self.last_request
-        headers = {'User-Agent': USER_AGENT, 'Accept': '*/*', 'Referer': BASE + 'xtgl/index_initMenu.html'}
-        if parsed.hostname == 'eta.zju.edu.cn':
-            # The ETA frontend uses Axios without X-Requested-With. A CAS
-            # callback is a navigation, not an AJAX/data request.
-            is_api = parsed.path.startswith('/zftal-xgxt-web/') and parsed.path != urlsplit(ETA_SERVICE).path
-            headers.update({'Referer': 'https://eta.zju.edu.cn/' if is_api else 'https://zjuam.zju.edu.cn/',
-                            'Accept': 'application/json, text/plain, */*' if is_api else
-                                      'text/html, application/xhtml+xml, */*; q=0.8'})
-        data = None
-        if form is not None:
-            data = urlencode(form).encode('utf-8')
-            headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
-            if parsed.hostname == 'eta.zju.edu.cn':
-                headers['Origin'] = 'https://eta.zju.edu.cn'
-            if parsed.hostname == 'zdbk.zju.edu.cn' and parsed.path in _JSON_PATHS:
-                headers['X-Requested-With'] = 'XMLHttpRequest'
-                headers['Accept'] = 'application/json, text/javascript, */*; q=0.01'
-        req = urllib.request.Request(url, data=data, headers=headers)
-        try:
-            try:
-                request_timeout=20 if stage in ('timetable','profile_eta') else 12
-                response = self.opener.open(req, timeout=min(request_timeout, remaining))
-            except urllib.error.HTTPError as exc:
-                response = exc
-            with response:
-                if parsed.hostname == 'eta.zju.edu.cn' and response.code in (901, 922, 429):
-                    reason = 'HTTP_RATE_LIMIT' if response.code == 429 else 'HTTP_ACCESS_REJECTED'
-                    raise CampusError('ETA_ACCESS_REJECTED',
-                        f'ETA 返回访问拒绝响应（HTTP {response.code}），已停止该来源请求；保留缓存并继续教务查询。可在 ETA 官网核对访问情况',
-                        diagnostic | {'reason': reason, 'http_status': response.code,
-                                      'elapsed_ms': round((time.monotonic()-started)*1000)})
-                raw = b''
-                if read_body:
-                    # ETA forms include option dictionaries and an encoded envelope.
-                    # The larger cap applies only to its data APIs, not other sites.
-                    limit = 8_000_000 if parsed.hostname == 'eta.zju.edu.cn' and is_api else 2_000_000
-                    raw = response.read(limit+1)
-                    if len(raw) > limit:
-                        mime = next((v for k,v in response.headers.items() if k.lower() == 'content-type'), '').split(';')[0].lower()
-                        kind = 'json' if mime == 'application/json' else 'html' if mime in ('text/html','application/xhtml+xml') else 'text' if mime.startswith('text/') else 'other'
-                        raise CampusError('RESPONSE_TOO_LARGE', label + f'：接口响应超过 {limit//1_000_000} MB 上限，已保留缓存',
-                            diagnostic | {'reason': 'RESPONSE_LIMIT', 'http_status': response.code, 'limit_bytes': limit,
-                                          'observed_bytes': len(raw), 'content_kind': kind,
-                                          'elapsed_ms': round((time.monotonic()-started)*1000)})
-                return response.code, dict(response.headers), raw
-        except (urllib.error.URLError, OSError, http.client.HTTPException, EOFError) as exc:
-            reason, message = _transport_failure(exc)
-            diagnostic |= {'reason': reason, 'elapsed_ms': round((time.monotonic()-started)*1000)}
-            raise CampusError('NETWORK_ERROR', label + '：' + message, diagnostic) from None
-
-    def prepare(self):
-        status, _, raw = self.request(CAS + 'login')
-        if status != 200:
-            raise CampusError('UPSTREAM_ERROR', f'校园登录页暂不可用（HTTP {status}）')
-        self.execution = _Inputs(raw.decode('utf-8', 'replace')).values.get('execution', '')
-        if not self.execution:
-            raise CampusError('PROTOCOL_CHANGED', '校园登录页缺少表单令牌，暂无法登录')
-
-    def captcha(self, kind):
-        url = CAS + 'kaptcha' if kind == 'cas' else BASE + 'kaptcha'
-        status, headers, raw = self.request(url + '?' + urlencode({'time': int(time.time()*1000)}))
-        mime = next((v for k, v in headers.items() if k.lower() == 'content-type'), '').split(';')[0].lower()
-        if status in (301, 302, 303, 401, 403):
-            raise CampusError('SESSION_EXPIRED', '校园会话已失效，请重新登录')
-        if status != 200 or mime not in ('image/png', 'image/jpeg', 'image/gif') or len(raw) > 150_000:
-            raise CampusError('CAPTCHA_UNAVAILABLE', '暂时无法获取验证码，请刷新登录流程')
-        return 'data:' + mime + ';base64,' + base64.b64encode(raw).decode('ascii')
-
-    def login(self, username, password, authcode=''):
-        self.authenticate_passport(username, password, authcode)
-        self.connect_zdbk()
-
-    def authenticate_passport(self, username, password, authcode=''):
-        if not self.execution:
-            raise CampusError('FLOW_EXPIRED', '请先准备校园登录')
-        status, _, raw = self.request(CAS + 'v2/getPubKey')
-        try:
-            key = json.loads(raw)
-            if status != 200 or not isinstance(key, dict):
-                raise ValueError()
-            encrypted = encrypt_password(password, key['modulus'], key['exponent'])
-        except (ValueError, KeyError, TypeError):
-            raise CampusError('PROTOCOL_CHANGED', '校园认证公钥响应不符合约定') from None
-        status, _, raw = self.request(CAS + 'login', {
-            'username': username, 'password': encrypted, 'execution': self.execution,
-            '_eventId': 'submit', 'authcode': authcode,
-        })
-        self.execution = ''
-        # A redirect alone is not successful authentication.
-        if status not in (200, 302, 303) or not any(
-                c.name == 'iPlanetDirectoryPro' and c.value and not c.is_expired() for c in self.jar):
-            text = raw.decode('utf-8', 'replace')
-            if '验证码' in text or 'captcha' in text.lower():
-                raise CampusError('CAS_REJECTED', '校园认证未通过，请核对账号、密码及验证码后重新准备登录')
-            raise CampusError('CAS_REJECTED', '校园认证未通过，请在官方登录页核对账号状态后重试')
-        self.passport_authenticated = True
-
-    def service_callback(self, service_name):
-        # Add future sites through reviewed adapters, never caller-supplied URLs.
-        services = {'zdbk': SERVICE, 'eta': ETA_SERVICE}
-        if service_name not in services:
-            raise CampusError('UNSUPPORTED_SERVICE', '此校园网站尚未接入')
-        if not self.passport_authenticated:
-            raise CampusError('SESSION_EXPIRED', '通行证会话已失效，请重新登录')
-        service = services[service_name]
-        status, headers, _ = self.request(CAS + 'login?' + urlencode({'service': service}))
-        if service_name == 'eta' and status in (401, 403):
-            raise CampusError('SERVICE_ACCESS_REJECTED', '认证服务未允许本次 ETA 换票，保留已有教务会话')
-        if status in (200, 401, 403):
-            self.passport_authenticated = False
-            raise CampusError('SESSION_EXPIRED', '通行证会话已失效，请重新登录；已缓存资料仍可查看')
-        location = next((v for k, v in headers.items() if k.lower() == 'location'), '')
-        callback = urljoin(CAS + 'login', location)
-        parsed = urlsplit(callback)
-        expected = urlsplit(service)
-        # ETA registers an HTTP service identifier. Only the identical callback is
-        # eligible for upgrade; the ticket is never transmitted over HTTP.
-        if service_name == 'eta' and parsed.scheme == 'http' and parsed.netloc == expected.netloc and parsed.path == expected.path:
-            callback = parsed._replace(scheme='https').geturl()
-        parsed = urlsplit(check_url(callback))
-        if (status not in (302, 303) or parsed.hostname != expected.hostname
-                or parsed.path != expected.path or not parse_qs(parsed.query).get('ticket')):
-            raise CampusError('SERVICE_LOGIN_FAILED', '校园认证未能换取对应网站的票据')
-        return callback
-
-    def connect_zdbk(self):
-        self.authenticated = False
-        callback = self.service_callback('zdbk')
-        for _ in range(8):
-            status, headers, raw = self.request(callback)
-            if status in (301, 302, 303, 307, 308):
-                location = next((v for k, v in headers.items() if k.lower() == 'location'), '')
-                callback = check_url(urljoin(callback, location))
-                if not location or urlsplit(callback).hostname != 'zdbk.zju.edu.cn':
-                    raise CampusError('SERVICE_LOGIN_FAILED', '教务网未建立有效会话')
-                continue
-            if status != 200:
-                raise CampusError('SERVICE_LOGIN_FAILED', '教务网登录暂不可用')
-            break
-        else:
-            raise CampusError('SERVICE_LOGIN_FAILED', '教务网登录跳转次数超限')
-        # Probe an authenticated read endpoint; JS patch/landing pages are insufficient.
-        menu = self.json_request(MENU, {'doType': ''})
-        if not isinstance(menu, dict) or not isinstance(menu.get('result'), list) or not menu['result']:
-            raise CampusError('UNSUPPORTED_ACCOUNT', '未能验证本科教务网权限；当前连接仅支持本科生')
-        # Keep the CAS master session in memory; only service tickets are single-use.
-        # The cookie policy prevents sending the master cookie to service hosts.
-        self.authenticated = True
-        self.modules = menu['result']
-
+class CampusClient(CampusAuthentication, CampusTransport, ZdbkProtocol):
     def profiles(self, expected_id=''):
         """Independent, bounded sources. An ETA failure does not expire ZDBK."""
         records, warnings = [], []
@@ -456,188 +76,6 @@ class CampusClient:
         finally:
             self.deadline = deadline
         return records, warnings
-
-    def page_request(self, url, form=None):
-        status, headers, raw = self.request(url, form)
-        parsed=urlsplit(url)
-        stage=_REQUEST_STAGES.get((parsed.hostname,parsed.path),('campus',''))[0]
-        diagnostic={'stage':stage,'method':'GET' if form is None else 'POST','host':parsed.hostname,'http_status':status}
-        if stage!='campus':diagnostic['path']=parsed.path
-        if stage=='timetable' and isinstance(form,dict):
-            if re.fullmatch(SEMESTER_PATTERN,str(form.get('xqm',''))):diagnostic['query_semester']=form['xqm']
-            if academic_year(form.get('xnm','')):diagnostic['query_year']=str(form['xnm'])
-        mime=next((str(v) for k,v in headers.items() if k.lower()=='content-type'),'').split(';')[0].lower()
-        diagnostic['content_kind']='json' if mime=='application/json' else 'html' if mime in ('text/html','application/xhtml+xml') else 'other'
-        if status in (301,302,303,307,308,401):
-            raise CampusError('SESSION_EXPIRED','校园会话已失效，请手动重新登录',diagnostic|{'reason':'HTTP_AUTH'})
-        if status in (403,429,901,922):
-            raise CampusError('ACCESS_REJECTED',f'校园服务拒绝本次请求（HTTP {status}），请使用官方页面核对',diagnostic|{'reason':'HTTP_ACCESS'})
-        if status!=200:
-            raise CampusError('UPSTREAM_ERROR',f'校园查询暂不可用（HTTP {status}）',diagnostic|{'reason':'HTTP_STATUS'})
-        try:text,encoding=decode_page(raw,headers)
-        except CampusError as exc:
-            raise CampusError(exc.code,str(exc),diagnostic|{'reason':'TEXT_ENCODING'}) from None
-        self.page_encoding=encoding
-        if re.search(r'name=[\"\']execution[\"\']|/cas/login|统一身份认证|浙大通行证', text):
-            raise CampusError('SESSION_EXPIRED', '校园会话已失效，请手动重新登录',diagnostic|{'reason':'LOGIN_PAGE'})
-        if 'captcha_error' in text:
-            raise CampusError('CAPTCHA_REQUIRED', '教务网需要验证码，请填写后重新同步',diagnostic|{'reason':'CAPTCHA_HINT'})
-        if '没有访问权限' in text or '无访问权限' in text:
-            raise CampusError('ACCESS_REJECTED', '教务网返回“没有访问权限”，请核对官方页面权限与请求适配；未认定为会话失效')
-        self.last_page_diagnostic=diagnostic|{'page_encoding':encoding}
-        return text
-
-    def json_request(self, url, form):
-        text = self.page_request(url, form)
-        try:
-            value = json.loads(text)
-        except ValueError:
-            raise CampusError('PROTOCOL_CHANGED', '校园查询返回了非 JSON 内容，无法确认结果',
-                              getattr(self,'last_page_diagnostic',{})|{'reason':'NON_JSON'}) from None
-        if isinstance(value, dict) and (value.get('success') is False or
-                value.get('error') not in (None,False,0,'','0','false','False')):
-            parsed=urlsplit(url)
-            stage=_REQUEST_STAGES.get((parsed.hostname,parsed.path),('campus',''))[0]
-            error=value.get('error')
-            diagnostic={'stage':stage,'method':'POST','host':parsed.hostname,'reason':'UPSTREAM_REJECTED',
-                'http_status':200,'upstream_flags':{'success_false':value.get('success') is False,
-                    'error_kind':'object' if isinstance(error,dict) else 'list' if isinstance(error,list)
-                    else 'string' if isinstance(error,str) else 'boolean' if isinstance(error,bool)
-                    else 'missing' if error is None else 'number' if isinstance(error,(int,float)) else 'other'},
-                'response_shape':{k:'list' if isinstance(value.get(k),list) else 'missing' if k not in value else 'other'
-                                  for k in ('kbList','items','xsxx')}}
-            if stage!='campus':diagnostic['path']=parsed.path
-            if stage=='timetable' and re.fullmatch(SEMESTER_PATTERN,str(form.get('xqm',''))):
-                diagnostic['query_semester']=form['xqm']
-                if academic_year(form.get('xnm','')):diagnostic['query_year']=str(form['xnm'])
-            messages=' '.join(str(value.get(k,'')) for k in ('msg','message','error'))
-            if re.search(r'验证码|captcha',messages,re.I):
-                raise CampusError('CAPTCHA_REQUIRED','教务查询要求验证码，请填写后再同步',diagnostic|{'reason':'CAPTCHA_HINT'})
-            if re.search(r'无访问权限|没有访问权限|权限不足',messages):
-                raise CampusError('ACCESS_REJECTED','教务查询提示权限不足，已保留缓存',diagnostic|{'reason':'PERMISSION_HINT'})
-            raise CampusError('UPSTREAM_ERROR', '校园查询返回错误，未更新本地数据',diagnostic)
-        return value
-
-    def terms(self):
-        self.term_warnings = []
-        options = _TermOptions(self.page_request(TIMETABLE_INDEX)).options
-        years, semesters, unsupported, shapes = {}, {}, [], []
-        for option in options['xnm']:
-            value = option['value']
-            year = academic_year(value)
-            if year:
-                years[year] = option
-        for option in options['xqm']:
-            value = option['value']
-            label = re.sub(r'\s+', '', plain(option['label'])).strip(' -—')
-            # Ignore explicit aggregate/placeholder options; never query them as one semester.
-            if not value or value in ('0', '-1') or re.fullmatch(
-                    r'(?:请选择(?:学期)?|选择学期|全部(?:学期|学年)?|所有(?:学期|学年)?|全学年|全年|全学期)', label):
-                continue
-            # The school's literal option is already the query contract. Numeric codes are
-            # opaque identifiers, not a reason to guess/rewrite their calendar semantics.
-            if re.fullmatch(SEMESTER_PATTERN, value):
-                semesters[value] = option
-            else:
-                unsupported.append(value if re.fullmatch(r'-?\d{1,4}', value) else '<非数值编码>')
-                # Describe an unfamiliar option without publishing a token or label.
-                shapes.append({'length': min(len(value), 128), 'has_pipe': '|' in value,
-                               'has_season': any(c in value for c in '秋冬春夏'), 'selected': option['selected'],
-                               'components': [{'length': min(len(part),128),
-                                   'kind': 'digits' if re.fullmatch(r'[0-9]+',part) else
-                                           'letters' if re.fullmatch(r'[A-Za-z]+',part) else
-                                           'empty' if not part else 'replacement' if '\ufffd' in part else
-                                           'cjk' if re.fullmatch(r'[\u4e00-\u9fff]+',part) else 'other'} for part in value.split('|')[:4]],
-                               'page_encoding':getattr(self,'page_encoding','unknown')})
-        if unsupported:
-            self.term_warnings = [{'code': 'UNSUPPORTED_TERM_OPTIONS', 'stage': 'terms',
-                'message': '部分学期选项暂无法查询（' + '、'.join(sorted(set(unsupported))) +
-                           '）；继续同步可查询学期，课表范围不标记为完整',
-                'diagnostic': {'stage': 'terms', 'reason': 'UNSUPPORTED_TERM_OPTIONS',
-                               'semester_codes': sorted(set(unsupported)), 'option_shapes': shapes[:20]}}]
-        if not years or not semesters or len(years)*len(semesters) > 180:
-            codes = sorted({o['value'] if re.fullmatch(r'-?\d{1,4}', o['value']) else '<非数值编码>'
-                            for o in options['xqm'] if o['value']})
-            raise CampusError('TERM_DISCOVERY_FAILED', '无法确认教务网可查询的学期范围，未推断全部课表',
-                              {'stage': 'terms', 'reason': 'TERM_OPTIONS', 'semester_codes': codes, 'option_shapes': shapes[:20]})
-        terms = [{'year': y, 'query_year': years[y]['value'], 'semester': s, 'range_source': 'page',
-                  'term': (plain(years[y]['label']) or y) + ' · ' + (plain(semesters[s]['label']) or '学期编码 ' + s),
-                  'current': years[y]['selected'] and semesters[s]['selected']}
-                 for y in years for s in semesters]
-        return sorted(terms, key=lambda t: (t['current'], t['year'], semester_order(t['semester'])), reverse=True)
-
-    def timetable(self, year, semester, captcha=''):
-        payload = self.json_request(TIMETABLE, {'xnm': year, 'xqm': semester, 'captcha_value': captcha})
-        if not isinstance(payload, dict) or not isinstance(payload.get('kbList'), list):
-            raise CampusError('PROTOCOL_CHANGED', '课表响应缺少 kbList，未更新本地数据')
-        if len(payload['kbList']) > 1000:
-            raise CampusError('PROTOCOL_CHANGED', '课表数据规模或格式不符合约定')
-        profile = normalize_profile(payload.get('xsxx')) or normalize_profile(payload)
-        rows, skipped = [], 0
-        self.timetable_warnings = []
-        for row in payload['kbList']:
-            if isinstance(row, dict) and _field(row, 'sfyjskc') == '1':
-                continue
-            try:
-                if not isinstance(row, dict):
-                    raise CampusError('PROTOCOL_CHANGED', '无效课程条目')
-                rows.append(normalize_course(row))
-            except CampusError:
-                skipped += 1
-        if skipped:
-            self.timetable_warnings = [{'code': 'PARTIAL_TIMETABLE',
-                'message': f'{skipped} 条课程缺少可用字段，已保留其余课程及原缓存，未标记完整', 'skipped': skipped}]
-            if not rows:
-                raise CampusError('PROTOCOL_CHANGED', '本学期没有可解析课程，保留上次课表并继续其他学期')
-        return profile, rows
-
-    def grades(self):
-        collected, seen, total = [], set(), None
-        for page in range(1, 21):
-            payload = self.json_request(GRADES, {'queryModel.currentPage': page,
-                'queryModel.showCount': 100, 'queryModel.sortName': 'xkkh', 'queryModel.sortOrder': 'asc'})
-            if not isinstance(payload, dict) or not isinstance(payload.get('items'), list):
-                raise CampusError('PROTOCOL_CHANGED', '成绩响应缺少 items，未更新本地数据')
-            rows = payload['items']
-            if len(rows) > 2000 or any(not isinstance(row, dict) for row in rows):
-                raise CampusError('PROTOCOL_CHANGED', '成绩数据规模或格式不符合约定')
-            count = payload.get('totalCount', payload.get('records'))
-            if count is not None:
-                try:
-                    total = int(count)
-                    if total < 0:
-                        raise ValueError()
-                except (ValueError, TypeError):
-                    raise CampusError('PROTOCOL_CHANGED', '成绩总数格式不符合约定') from None
-            fresh = 0
-            for row in rows:
-                fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-                if fingerprint not in seen:
-                    seen.add(fingerprint)
-                    collected.append(normalize_grade(row))
-                    fresh += 1
-            if total is not None and len(collected) >= total:
-                return collected, True, total
-            if not rows or (len(rows) < 100 and total is None):
-                return collected, total is None or len(collected) >= total, total
-            if not fresh or len(collected) >= 2000:
-                break
-        return collected, False, total
-
-
-def _field(row, *names):
-    for name in names:
-        if name in row and row[name] is not None:
-            return plain(row[name])
-    return ''
-
-
-def normalize_profile(row):
-    if not isinstance(row, dict):
-        return None
-    result = basic_fields(row)
-    return result if result['student_id'] and result['name'] else None
-
 
 def stale_profile(snapshot):
     profile = snapshot.get('profile')
@@ -706,39 +144,18 @@ def refresh_profile(snapshot, client, warnings):
         client.start_operation()
 
 
-def normalize_course(row):
-    # Some ZDBK versions encode display columns in kcb instead of separate fields.
-    block = [plain(x).replace('zwf', '').strip() for x in re.split(r'<br\s*/?>', str(row.get('kcb') or ''), flags=re.I)]
-    name = _field(row, 'kcmc') or (block[0] if block else '')
-    if not name:
-        raise CampusError('PROTOCOL_CHANGED', '课表条目缺少课程名称，未更新本地数据')
-    return {'name': name, 'code': _field(row, 'kch', 'kch_id'),
-            'teacher': _field(row, 'xm', 'jsxm') or (block[2] if len(block) > 2 else ''),
-            'location': _field(row, 'cdmc') or (block[3] if len(block) > 3 else ''),
-            'weekday': _field(row, 'xqj'), 'periods': _field(row, 'jcs', 'jc'),
-            'start_period': _field(row, 'djj'), 'duration': _field(row, 'skcd'),
-            'weeks': _field(row, 'zcd'), 'season': _field(row, 'xxq'), 'odd_even': _field(row, 'dsz')}
-
-
-def normalize_grade(row):
-    name = _field(row, 'kcmc')
-    if not name:
-        raise CampusError('PROTOCOL_CHANGED', '成绩条目缺少课程名称，未更新本地数据')
-    selection = _field(row, 'xkkh')
-    match = re.match(r'^\(([^)]+)\)-([^-]+)-', selection)
-    return {'name': name, 'code': _field(row, 'kch') or (match[2] if match else ''),
-            'term': match[1] if match else _field(row, 'xnmmc', 'xnm'),
-            'score': _field(row, 'cj'), 'credits': _field(row, 'xf'), 'gpa': _field(row, 'jd')}
-
-
 class CampusManager:
     """Serialize all operations per local owner, including disconnect and deletion."""
     def __init__(self, store, client_factory=CampusClient):
         from .calendar_sources import CalendarClient
         self.store, self.factory = store, client_factory
+        self.repository = SnapshotRepository(store)
+        self.capability_repository = SQLiteCacheRepository(store)
         self.calendar_client = CalendarClient()
         self.states, self.locks = {}, {}
         self.guard = threading.Lock()
+        from .campus_service import CampusService
+        self.service = CampusService(self, self.capability_repository)
 
     def lock(self, owner):
         with self.guard:
@@ -753,14 +170,51 @@ class CampusManager:
         return state
 
     def _snapshot(self, owner):
-        with self.store.connect() as db:
-            row = db.execute('SELECT snapshot FROM campus_snapshots WHERE owner=?', (owner,)).fetchone()
-        return json.loads(row['snapshot']) if row else {'profile': None, 'courses': None, 'grades': None}
+        return self.repository.read(owner)
 
     def _save(self, owner, snapshot):
-        with self.store.connect() as db:
-            db.execute('INSERT INTO campus_snapshots(owner,snapshot) VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET snapshot=excluded.snapshot',
-                       (owner, json.dumps(snapshot, ensure_ascii=False)))
+        self.repository.write(owner, snapshot)
+
+    def connector_session(self, platform, owner):
+        state = self._state(owner)
+        if not state:
+            raise CampusError('AUTH_REQUIRED', '请登录校园通行证')
+        client = state['client']
+        if platform == 'zdbk' and not state.get('connected'):
+            raise CampusError('AUTH_REQUIRED', '请连接教务站点')
+        if platform == 'eta' and not (getattr(client, 'passport_authenticated', False) or getattr(client, 'eta_authenticated', False)):
+            raise CampusError('AUTH_EXPIRED', '请重新登录通行证')
+        if platform not in ('zdbk', 'eta'):
+            raise CampusError('UNSUPPORTED', '尚未注册此站点的会话认证流程')
+        client.expected_identity = state.get('identity') or (self._snapshot(owner).get('profile') or {}).get('data', {}).get('student_id', '')
+        return client
+
+    def platform_status(self, platform, owner):
+        state = self._state(owner)
+        client = state['client'] if state else None
+        connected = bool(client and (state.get('connected') if platform == 'zdbk'
+            else getattr(client,'eta_authenticated',False) if platform == 'eta' else False))
+        return {'connected':connected, 'can_connect':platform in ('zdbk','eta') and
+                bool(client and getattr(client,'passport_authenticated',False))}
+
+    def expire_platform(self, platform, owner):
+        state = self._state(owner)
+        if not state:
+            return
+        if platform not in ('zdbk', 'eta'):
+            return
+        client = state['client']
+        host = {'zdbk':'zdbk.zju.edu.cn', 'eta':'eta.zju.edu.cn'}[platform]
+        jar = getattr(client, 'jar', ())
+        for cookie in list(jar):
+            if cookie.domain.lstrip('.').lower() == host:
+                jar.clear(cookie.domain, cookie.path, cookie.name)
+        if platform == 'zdbk':
+            state['connected'] = False
+            state.pop('sync_job', None)
+            client.authenticated = False
+        else:
+            client.eta_authenticated = False
 
     def status(self, owner):
         with self.lock(owner):
@@ -775,8 +229,28 @@ class CampusManager:
 
     def academic_view(self, owner, day=None, term=None):
         from .academics import agenda, grade_summary
+        from .connector_contracts import UserContext, CoursesQuery, GradesQuery
         with self.lock(owner):
             snapshot = self._snapshot(owner)
+            context = UserContext(owner)
+            courses = self.service.query('courses', CoursesQuery(), context)
+            grades = self.service.query('grades', GradesQuery(), context)
+            # Preserve term catalog/calendar semantics while reading records through the service.
+            course_section = dict(snapshot.get('courses') or {})
+            course_section.update(data=courses.records, complete=courses.completeness == 'complete',
+                                  stale=courses.freshness != 'fresh', fetched_at=courses.fetched_at)
+            known = {(t['year'],t['semester']):dict(t) for t in course_section.get('terms', [])}
+            for row in courses.records:
+                key = (row.get('year'),row.get('semester'))
+                if all(key):
+                    known.setdefault(key, {'year':key[0], 'semester':key[1], 'term':row.get('term','')})
+            course_section['terms'] = []
+            for (year,semester), term_record in known.items():
+                result = self.service.query('courses', CoursesQuery(year=year,semester=semester), context)
+                course_section['terms'].append(term_record | {'data':result.records,
+                    'stale':result.freshness != 'fresh', 'fetched_at':result.fetched_at})
+            grade_section = {'data':grades.records, 'complete':grades.completeness == 'complete',
+                             'stale':grades.freshness != 'fresh', 'fetched_at':grades.fetched_at}
             calendars = {k: v | {'stale': v.get('stale', False) or bool(v.get('fetched_at') and
                 (datetime.now(TZ)-datetime.fromisoformat(v['fetched_at'])).total_seconds() > 6*3600)}
                 for k, v in snapshot.get('calendars', {}).items()}
@@ -784,9 +258,9 @@ class CampusManager:
                 resolved = resolve_calendar(record, calendars)
                 if resolved:
                     calendars[record['year']+'/'+record['semester']] = resolved
-            return {'agenda': agenda(snapshot.get('courses'), calendars, day, term),
-                    'today_agenda': agenda(snapshot.get('courses'), calendars),
-                    'grades': grade_summary(snapshot.get('grades'))}
+            return {'agenda': agenda(course_section if courses.fetched_at else None, calendars, day, term),
+                    'today_agenda': agenda(course_section if courses.fetched_at else None, calendars),
+                    'grades': grade_summary(grade_section if grades.fetched_at else None)}
 
     def calendar(self, owner, year, semester, refresh=False):
         with self.lock(owner):
@@ -847,8 +321,8 @@ class CampusManager:
                 raise
             state.update(connected=True, expires=time.monotonic()+3600, flow='')
             # A new passport may represent another student: never mix old snapshots.
-            with self.store.connect() as db:
-                db.execute('DELETE FROM campus_snapshots WHERE owner=?', (owner,))
+            self.repository.delete(owner)
+            self.capability_repository.delete(owner)
             return self.status(owner)
 
     def adopt_passport(self, owner, client):
@@ -882,12 +356,12 @@ class CampusManager:
                 snapshot['attempted_at'] = datetime.now(TZ).isoformat()
                 snapshot['sync_revision'] = CONNECTOR_REVISION
                 # ETA can remain available even when undergraduate services fail.
-                if getattr(state['client'], 'passport_authenticated', False):
+                if getattr(state['client'], 'passport_authenticated', False) or getattr(state['client'], 'eta_authenticated', False):
                     state['client'].start_operation()
                     refresh_profile(snapshot, state['client'], snapshot['warnings'])
                 self._save(owner, snapshot)
                 if exc.code == 'SESSION_EXPIRED':
-                    self.disconnect(owner)
+                    self.expire_platform('zdbk', owner)
                 return self.status(owner) | {'auto_continue': False}
             return self.sync(owner)
 
@@ -929,8 +403,26 @@ class CampusManager:
                 # Grades have no academic-year filter and are independent of discovery.
                 try:
                     grades, complete, total = client.grades()
-                    snapshot['grades'] = {'data': grades, 'fetched_at': datetime.now(TZ).isoformat(), 'stale': False,
-                                          'complete': complete, 'total': total}
+                    old_grades = previous_grades or {}
+                    if not grades and old_grades.get('data'):
+                        snapshot['grades'] = old_grades | {'stale':True, 'complete':False,
+                            'attempted_at':datetime.now(TZ).isoformat()}
+                        warnings.append({'code':'EMPTY_GRADES_CACHE','stage':'grades',
+                            'message':'成绩返回空列表，保留上次成绩与原获取时间'})
+                    else:
+                        if not complete:
+                            identity = lambda r: (r.get('selection_id') or '',r.get('term'),r.get('code'),r.get('name'))
+                            merged = {identity(r):r | {'stale':True,'fetched_at':r.get('fetched_at',old_grades.get('fetched_at'))}
+                                      for r in old_grades.get('data', [])}
+                            for row in grades:
+                                key = identity(row)
+                                if row.get('selection_id'):
+                                    merged.pop(('',*key[1:]),None)
+                                merged[key] = row
+                            grades = list(merged.values())
+                        snapshot['grades'] = {'data': grades, 'fetched_at': datetime.now(TZ).isoformat(),
+                                              'stale': any(r.get('stale',False) for r in grades),
+                                              'complete': complete, 'total': total}
                     if not complete:
                         warnings.append({'code': 'INCOMPLETE_GRADES', 'message': '成绩未获取完整，请以官方成绩单为准'})
                 except CampusError as exc:
@@ -997,6 +489,14 @@ class CampusManager:
                     profile, courses = client.timetable(term.get('query_year', term['year']), term['semester'], captcha)
                     server_failures=0
                     timeout_failures=0
+                    # A manual retry may resolve the custom response for this
+                    # still-pending term; do not leave it as a current failure.
+                    def unresolved(warning):
+                        status=(warning.get('diagnostic') or {}).get('http_status',0)
+                        return not (warning.get('stage') == 'timetable' and warning.get('term') == term['term'] and
+                                    (warning.get('code') == 'UPSTREAM_STATUS_UNKNOWN' or isinstance(status,int) and status >= 600))
+                    warnings=[w for w in warnings if unresolved(w)]
+                    job['warnings']=[w for w in job['warnings'] if unresolved(w)]
                     row_warnings = list(getattr(client, 'timetable_warnings', []))
                     warnings.extend(w | {'stage': 'timetable', 'term': term['term']} for w in row_warnings)
                     job['warnings'].extend(w | {'stage': 'timetable', 'term': term['term']} for w in row_warnings)
@@ -1036,11 +536,16 @@ class CampusManager:
                     job['completed'] += 1
                 except CampusError as exc:
                     warnings.append(exc.public() | {'stage': 'timetable', 'term': term['term']})
-                    if exc.code in ('PROTOCOL_CHANGED', 'UPSTREAM_ERROR'):
+                    status=(exc.diagnostic or {}).get('http_status',0)
+                    if exc.code == 'UPSTREAM_STATUS_UNKNOWN' or isinstance(status,int) and status >= 600:
+                        job['warnings'].append(exc.public() | {'stage':'timetable', 'term':term['term']})
+                        warnings.append({'code':'CUSTOM_STATUS_PAUSED','stage':'timetable',
+                            'message':'教务返回未识别的自定义响应，暂停自动续传；当前学期仍待查询，保留会话和缓存，可稍后手动继续'})
+                        halted = True
+                    elif exc.code in ('PROTOCOL_CHANGED', 'UPSTREAM_ERROR'):
                         job['warnings'].append(exc.public() | {'stage': 'timetable', 'term': term['term']})
                         job['failed'].append(job['pending'].pop(0))
-                        status=(exc.diagnostic or {}).get('http_status',0)
-                        server_failures=server_failures+1 if isinstance(status,int) and status>=500 else 0
+                        server_failures=server_failures+1 if isinstance(status,int) and 500 <= status <= 599 else 0
                         if server_failures>=3:
                             warnings.append({'code':'SERVER_ERRORS_PAUSED','stage':'timetable',
                                 'message':'教务服务连续三次返回服务器错误，已暂停自动续传；已有资料和待查询学期保留，可稍后继续'})
@@ -1078,8 +583,7 @@ class CampusManager:
                 snapshot['grades'] = previous_grades
                 if previous_grades:
                     previous_grades['stale'] = True
-                client.close()
-                self.states.pop(owner, None)
+                self.expire_platform('zdbk', owner)
             snapshot['attempted_at'] = fetched
             snapshot['sync_revision'] = CONNECTOR_REVISION
             snapshot['warnings'] = warnings
@@ -1092,8 +596,17 @@ class CampusManager:
             if state:
                 state['client'].close()
             if delete:
-                with self.store.connect() as db:
-                    db.execute('DELETE FROM campus_snapshots WHERE owner=?', (owner,))
+                self.repository.delete(owner)
+                self.capability_repository.delete(owner)
+
+    def disconnect_client(self, owner, client):
+        """A cancelled flow cannot revoke a newer connection for the same owner."""
+        with self.lock(owner):
+            state = self._state(owner)
+            if state and state['client'] is client:
+                self.disconnect(owner)
+            else:
+                client.close()
 
     def close(self):
         for owner in list(self.states):

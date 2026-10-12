@@ -1,5 +1,21 @@
 # 本地 REST API
 
+教务未知自定义 HTTP 响应（如尚未核实语义的 921）在旧同步诊断中标记 UPSTREAM_STATUS_UNKNOWN，reason=HTTP_CUSTOM_STATUS，并立即暂停而保留当前 pending 学期。仅 500–599 计入 SERVER_ERRORS_PAUSED；当前版本 `2026-10-12.custom-status`。新统一结果对此仍用 PROTOCOL_CHANGED 表示响应无法确认，不把状态码猜成限流、认证失效或服务器宕机。
+
+通行证取消入口 POST `/api/auth/passport/cancel`，JSON `{"flow_id":"当前浏览器流程"}`。需要既有同源请求头，绑定该浏览器的流程 Cookie；已签发会话的迟到取消还核对对应本机会话摘要。只撤销此流程，不删除已有资料；其他浏览器或无效流程不能取消。认证失败响应新增安全分类 AUTH_CONTEXT_INVALID/CAPTCHA_REQUIRED/ACCESS_REJECTED/RATE_LIMITED，取消为 FLOW_CANCELLED；不回显校方正文或凭据。详见 [通行证失败恢复](passport-login.md)。
+
+2026-10-12 新增统一校园能力入口，旧接口保持兼容：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/campus/connectors` | 已注册能力、认证/权限、分页/增量声明和内存会话状态 |
+| GET | `/api/campus/query/{capability}` | 缓存查询；参数由各能力严格校验，身份取服务端会话 |
+| POST | `/api/campus/sync/{capability}` | 显式远端读取；JSON `{"query":{},"platform":"zdbk_public"}`，需要 CSRF |
+| GET | `/api/campus/notices` | 公开教务通知摘要的离线业务入口 |
+| POST | `/api/campus/disconnect/{platform}` | 清该站点会话并保留缓存及上传资料 |
+
+新结果统一含 records/source/platform/fetched_at/last_attempt_at/freshness/completeness/next_cursor/warnings/error。平台失败可返回 HTTP 200 的带缓存结果，必须检查 `error.code` 与完整性；参数错误为 HTTP 400，本地认证/CSRF 仍为 401/403。只有 `sync` 请求网络，过期 `query` 不自动登录。能力、查询范围、错误码、元数据语义及调用示例见 [连接器指南](connectors.md)。未实现的能力返回 UNSUPPORTED，不转为任意网络请求。
+
 v0.2 仅允许回环地址访问，无 CORS。写请求需 `X-Campus-Request: 1`；已登录写请求还需 `X-CSRF-Token`，从登录或 `/api/me` 获取。会话 cookie 为 HttpOnly、SameSite=Strict；新通行证登录的本机会话最多 30 天，旧本地接口 12 小时。校园会话只在进程内最多一小时。
 
 | 方法 / 路径 | 功能 |

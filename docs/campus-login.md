@@ -1,5 +1,7 @@
 # 校园通行证与本科教务信息
 
+2026-10-12 自定义响应修复：HTTP 921 尚无校方公开语义证据，不能按 `>=500` 误标服务器错误。当前版本 `2026-10-12.custom-status` 对未知响应立即暂停，保留当前待查询学期、会话和缓存；稍后手动继续成功时清掉已解决的该学期异常。真实根因需核对同网络下官网同一学期查询或取得校方错误定义，本次仅修复本地分类与续传，不宣称解决上游 921。
+
 更新：2026-10-10。本机只读连接已通过协议、合成响应及浏览器验证，并完成一次本人测试账号联调：六项基本信息及 21 个可查询学期读取成功。接口仍可能超时、拒绝访问或改变开放范围，程序保留已有缓存；不代表所有账号、网络或正式校园接入均已验收。
 
 ## 使用
@@ -32,7 +34,7 @@ SQLite `campus_snapshots` 按本地账号隔离，数据库当前未加密。校
 
 ## 实现与协议依据
 
-`campus.py` 负责 HTTP、CAS、数据标准化和会话/快照管理；`campus_profiles.py` 负责个人信息来源与 ETA 编码适配；`campus_routes.py` 负责认证、CSRF、参数校验和按账号限流；`static/campus.js` 负责校园页面。新表以 `CREATE TABLE IF NOT EXISTS` 加入已有数据库，不更改既有资料模型。标准库 CookieJar 按域和路径维护 cookie，固定 User-Agent；只访问 HTTPS 的 `zjuam.zju.edu.cn`、`zdbk.zju.edu.cn` 与 `eta.zju.edu.cn`，逐跳验证目标，不接受用户或模型传入的 URL。
+2026-10-12：`campus.py` 保留兼容导入、会话生命周期与原批次编排；CAS 实现在 `campus_auth.py`，网络策略在 `campus_network.py`，平台解析在 `connectors/`，缓存通过 `campus_repository.py`。`campus_profiles.py` 仅为兼容导入。统一服务、字段契约、范围缓存、通知摘要和验证边界见 [连接器指南](connectors.md)。`campus_routes.py` 继续负责本地认证和 HTTP 参数转换；`static/campus.js` 保持现有展示。新表以 `CREATE TABLE IF NOT EXISTS` 加入已有数据库。Cookie 发送按站点隔离，CAS 主 Cookie 只发认证域；保留 HTTPS、固定可信站点及逐跳校验，不接受用户或模型传入 URL。
 
 认证顺序：获取 execution → 同会话获取公钥 → 加密并提交一次密码 → 确认有效 CAS cookie → 保留内存主会话并即时换取教务 service ticket → 验证回调域名、路径及票据 → 建立站点会话 → 用教务只读菜单接口验证权限。单独的 302、cookie 或 JS 补丁页不作为登录成功依据。
 

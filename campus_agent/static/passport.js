@@ -1,5 +1,30 @@
 "use strict";
 let passportFlow='',passportPreparation=0,passportLinkLegacy=false,campusPassportReady=false;
+let passportController=null,passportBusy=false,passportSubmittingFlow='';
+let passportCancellation=Promise.resolve();
+async function cancelPassportRequest(flow){
+  if(!flow)return;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+  try{await api('/api/auth/passport/cancel',{method:'POST',json:{flow_id:flow},signal:controller.signal});}
+  catch(_){}finally{clearTimeout(timer);}
+}
+function resetPassportAttempt(cancelRemote=true){
+  const flow=passportSubmittingFlow||passportFlow;
+  passportPreparation++;passportController?.abort();passportController=null;
+  passportBusy=false;passportSubmittingFlow='';passportFlow='';
+  $('password').value='';$('authcode').value='';$('auth-captcha-image').removeAttribute('src');
+  $('auth-submit').disabled=false;$('auth-refresh').disabled=false;$('auth-switch').disabled=false;
+  if(cancelRemote&&flow)passportCancellation=passportCancellation.then(()=>cancelPassportRequest(flow));
+}
+function cancelPassportAuth(){
+  resetPassportAttempt();$('auth-error').textContent='';$('auth-dialog').close();
+}
+async function passportRequest(path,options,timeout){
+  const controller=new AbortController();passportController=controller;
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{return await api(path,{...options,signal:controller.signal});}
+  finally{clearTimeout(timer);if(passportController===controller)passportController=null;}
+}
 function renderAccountMode(){
   $('account-mode').textContent=accountMode==='passport'?'通行证会话 · 本机缓存':accountMode==='legacy'?'旧版资料账号':'离线缓存 · 获取时间见来源';
   let banner=$('account-session-banner');
@@ -7,6 +32,7 @@ function renderAccountMode(){
   banner.replaceChildren();banner.classList.toggle('hidden',!loggedIn);
   if(loggedIn){banner.append(el('span',accountMode==='offline'?'正在查看此账号的离线缓存。校园会话需重新登录，缓存不代表最新教务信息。':accountMode==='legacy'?'正在查看旧版本地资料。可在设置中验证通行证并绑定，保留原有资料。':'通行证已验证；登录时自动获取信息，查询失败时保留原缓存。'));const b=el('button',accountMode==='legacy'?'绑定通行证':accountMode==='passport'?'更新信息':'登录更新','text-button');b.onclick=()=>accountMode==='passport'?campusAction(async epoch=>resumeCampusResult(await api('/api/campus/reconnect',{method:'POST'}),epoch)):showPassportAuth(accountMode==='legacy');banner.append(b);}
   $('auth-cache-back').classList.toggle('hidden',!loggedIn);
+  $('login-open').classList.toggle('hidden',loggedIn);$('logout').classList.toggle('hidden',!loggedIn);
 }
 function passportFormMode(){
   const legacy=authMode!=='passport',register=authMode==='register';
@@ -22,29 +48,37 @@ function passportFormMode(){
 }
 function showPassportAuth(linkLegacy=false){
   // Several expired local API requests may arrive together. Prepare one browser-bound flow.
-  if($('auth-dialog').open&&authMode==='passport'&&!linkLegacy&&(passportFlow||$('auth-submit').disabled))return;
+  if($('auth-dialog').open&&authMode==='passport'&&!linkLegacy&&(passportFlow||passportBusy))return;
+  resetPassportAttempt();
   passportLinkLegacy=linkLegacy;authMode='passport';passportFlow='';$('password').value='';
   passportFormMode();if(!$('auth-dialog').open)$('auth-dialog').showModal();preparePassport();
 }
-async function preparePassport(){
-  const serial=++passportPreparation;passportFlow='';$('auth-submit').disabled=true;$('auth-refresh').disabled=true;
-  $('auth-error').textContent='正在准备通行证认证…';$('auth-captcha-image').removeAttribute('src');$('authcode').value='';
-  try{const r=await api('/api/auth/passport/prepare',{method:'POST',json:{}});if(serial!==passportPreparation||authMode!=='passport')return;passportFlow=r.flow_id;$('auth-captcha').classList.toggle('hidden',!r.captcha);if(r.captcha)$('auth-captcha-image').src=r.captcha;$('auth-error').textContent='';}
-  catch(e){if(serial===passportPreparation&&authMode==='passport')$('auth-error').textContent=typeof campusFailureText==='function'?campusFailureText(e.detail||{message:e.message}):e.message;}
-  finally{if(serial===passportPreparation&&authMode==='passport'){$('auth-submit').disabled=!passportFlow;$('auth-refresh').disabled=false;}}
+async function preparePassport(errorMessage=''){
+  resetPassportAttempt();const serial=passportPreparation;passportBusy=true;
+  $('auth-submit').disabled=true;$('auth-refresh').disabled=true;
+  $('auth-error').textContent=errorMessage||'正在准备通行证认证…';
+  try{await passportCancellation;if(serial!==passportPreparation||authMode!=='passport')return;const r=await passportRequest('/api/auth/passport/prepare',{method:'POST',json:{}},45000);if(serial!==passportPreparation||authMode!=='passport')return;passportFlow=r.flow_id;$('auth-captcha').classList.toggle('hidden',!r.captcha);if(r.captcha)$('auth-captcha-image').src=r.captcha;$('auth-error').textContent=errorMessage?errorMessage+' 已准备新的登录流程，请重新填写密码和验证码。':'';}
+  catch(e){if(serial===passportPreparation&&authMode==='passport')$('auth-error').textContent=(errorMessage?errorMessage+' ':'')+(e.name==='AbortError'?'准备登录超时，请刷新或关闭后重试。':typeof campusFailureText==='function'?campusFailureText(e.detail||{message:e.message}):e.message);}
+  finally{if(serial===passportPreparation&&authMode==='passport'){passportBusy=false;$('auth-submit').disabled=!passportFlow;$('auth-refresh').disabled=false;$('auth-switch').disabled=false;}}
 }
-$('auth-switch').onclick=()=>{passportPreparation++;passportFlow='';$('password').value='';authMode=authMode==='passport'?'login':'passport';passportLinkLegacy=false;passportFormMode();$('auth-submit').disabled=false;if(authMode==='passport')preparePassport();};
+$('auth-switch').onclick=()=>{resetPassportAttempt();authMode=authMode==='passport'?'login':'passport';passportLinkLegacy=false;passportFormMode();if(authMode==='passport')preparePassport();};
 $('auth-refresh').onclick=()=>preparePassport();
-$('auth-cache-back').onclick=()=>{passportPreparation++;passportFlow='';$('password').value='';$('auth-captcha-image').removeAttribute('src');$('auth-dialog').close();};
+$('auth-cache-back').onclick=cancelPassportAuth;
+$('auth-cancel').onclick=cancelPassportAuth;
+$('login-open').onclick=()=>showPassportAuth();
 $('auth-form').onsubmit=async e=>{
-  e.preventDefault();const legacy=authMode!=='passport',register=authMode==='register';if(!legacy&&!passportFlow)return;
+  e.preventDefault();const legacy=authMode!=='passport';if(passportBusy||(!legacy&&!passportFlow))return;
+  const serial=++passportPreparation;passportBusy=true;
   const body={username:$('username').value.trim(),password:$('password').value};
   if(!legacy)Object.assign(body,{flow_id:passportFlow,authcode:$('authcode').value.trim(),link_legacy:passportLinkLegacy});
+  passportSubmittingFlow=passportFlow;
   $('password').value='';passportFlow='';$('auth-submit').disabled=true;$('auth-refresh').disabled=true;$('auth-switch').disabled=true;
   $('auth-error').textContent=legacy?'正在打开旧版资料…':'正在验证通行证并获取信息；请稍候…';
-  try{const me=await api(legacy?'/api/auth/'+authMode:'/api/auth/passport/login',{method:'POST',json:body});$('authcode').value='';$('auth-captcha-image').removeAttribute('src');await signedIn(me);}
-  catch(err){$('auth-error').textContent=typeof campusFailureText==='function'?campusFailureText(err.detail||{message:err.message}):err.message;}
-  finally{body.password='';$('auth-submit').disabled=!legacy&&!passportFlow;$('auth-refresh').disabled=false;$('auth-switch').disabled=false;}
+  try{const me=await passportRequest(legacy?'/api/auth/'+authMode:'/api/auth/passport/login',{method:'POST',json:body},legacy?30000:180000);body.password='';if(serial!==passportPreparation)return;passportSubmittingFlow='';passportBusy=false;$('authcode').value='';$('auth-captcha-image').removeAttribute('src');await signedIn(me);}
+  catch(err){if(serial!==passportPreparation)return;body.password='';const message=err.name==='AbortError'?'登录等待超时，已停止等待；请稍后重新准备登录。':typeof campusFailureText==='function'?campusFailureText(err.detail||{message:err.message}):err.message;$('auth-error').textContent=message;passportBusy=false;
+    if(!legacy&&authMode==='passport'&&$('auth-dialog').open)await preparePassport(message);
+  }
+  finally{body.password='';if(serial===passportPreparation){passportBusy=false;passportSubmittingFlow='';$('auth-submit').disabled=!legacy&&!passportFlow;$('auth-refresh').disabled=false;$('auth-switch').disabled=false;}}
 };
 async function resumeCampusResult(result,epoch){
   let r=result;
@@ -72,5 +106,5 @@ api('/api/me').then(signedIn).catch(()=>{if(!$('auth-dialog').open)showAuth();})
 
 const localTrial=el('button','本地试用 / 注册','text-button');
 localTrial.type='button';
-localTrial.onclick=()=>{passportPreparation++;passportFlow='';passportLinkLegacy=false;authMode='register';$('password').value='';passportFormMode();$('auth-submit').disabled=false;};
+localTrial.onclick=()=>{resetPassportAttempt();passportLinkLegacy=false;authMode='register';passportFormMode();};
 $('auth-switch').parentElement.append(localTrial);

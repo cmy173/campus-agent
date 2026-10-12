@@ -1,9 +1,11 @@
 """Synthetic passport identity, automatic sync, migration and offline authorization."""
 from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import json
 import time
+import threading
 import unittest
 
 from fastapi.testclient import TestClient
@@ -157,3 +159,78 @@ class PassportTests(unittest.TestCase):
         self.assertEqual(self.login(username='bad/name').status_code,400)
         self.assertEqual(self.login().status_code,429)
         self.assertEqual(self.client.get('/static/passport.js').status_code,200)
+
+    def test_cancel_prepared_flow_closes_it_and_never_submits_password(self):
+        fake=self.prepare()
+        response=self.client.post('/api/auth/passport/cancel',json={'flow_id':self.flow})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(fake.closed)
+        self.assertEqual(fake.password_submissions,0)
+        self.assertEqual(self.login().status_code,409)
+        self.assertEqual(self.client.get('/api/me').status_code,401)
+
+    def test_different_browser_cannot_cancel_another_login(self):
+        self.prepare()
+        other=self.stack.enter_context(TestClient(self.app,base_url='http://127.0.0.1'))
+        other.headers['X-Campus-Request']='1'
+        self.assertEqual(other.post('/api/auth/passport/cancel',json={'flow_id':self.flow}).status_code,409)
+        self.accept(self.login())
+
+    def test_cancel_during_authentication_never_binds_account_or_creates_session(self):
+        fake=self.prepare()
+        entered,release=threading.Event(),threading.Event()
+        original=fake.authenticate_passport
+        def waiting(*args):
+            entered.set()
+            if not release.wait(5):raise RuntimeError('Synthetic test timed out')
+            original(*args)
+        fake.authenticate_passport=waiting
+        cancel=self.stack.enter_context(TestClient(self.app,base_url='http://127.0.0.1'))
+        cancel.headers['X-Campus-Request']='1';cancel.cookies.update(self.client.cookies)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(self.login)
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertEqual(cancel.post('/api/auth/passport/cancel',json={'flow_id':self.flow}).status_code,200)
+            finally:release.set()
+            response=future.result(timeout=5)
+        self.assertEqual(response.json()['detail']['code'],'FLOW_CANCELLED')
+        self.assertTrue(fake.closed)
+        self.assertEqual(fake.password_submissions,1)
+        with self.app.state.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0],0)
+
+    def test_cancel_during_first_sync_preserves_previous_local_session_and_documents(self):
+        self.accept(self.client.post('/api/auth/register',json={'username':'legacy','password':'independent-local-password'}))
+        self.client.post('/api/documents',content=b'keep my local file',headers={'X-Filename':'local.txt','Content-Type':'application/octet-stream'})
+        fake=self.prepare()
+        entered,release=threading.Event(),threading.Event()
+        def waiting():
+            entered.set()
+            if not release.wait(5):raise RuntimeError('Synthetic test timed out')
+        fake.connect_zdbk=waiting
+        cancel=self.stack.enter_context(TestClient(self.app,base_url='http://127.0.0.1'))
+        cancel.headers['X-Campus-Request']='1';cancel.cookies.update(self.client.cookies)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(self.login)
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertEqual(cancel.post('/api/auth/passport/cancel',json={'flow_id':self.flow}).status_code,200)
+            finally:release.set()
+            response=future.result(timeout=5)
+        self.assertEqual(response.json()['detail']['code'],'FLOW_CANCELLED')
+        self.assertEqual(self.client.get('/api/me').json()['username'],'legacy')
+        self.assertEqual(len(self.client.get('/api/documents').json()),1)
+        self.assertTrue(fake.closed)
+        with self.app.state.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0],1)
+
+    def test_late_cancel_revokes_only_session_issued_by_this_flow(self):
+        fake=self.prepare();self.accept(self.login())
+        response=self.client.post('/api/auth/passport/cancel',json={'flow_id':self.flow})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(fake.closed)
+        self.assertEqual(self.client.get('/api/me').status_code,401)
+        with self.app.state.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM campus_snapshots').fetchone()[0],1)
