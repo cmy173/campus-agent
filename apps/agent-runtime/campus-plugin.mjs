@@ -2,9 +2,10 @@ import { LlmAdapter, attributionHeaders } from '@deepseek-ai/dsh-llm';
 import { Service } from '@deepseek-ai/cordis';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mountControls } from './campus-control.mjs';
 
 export const name = 'campus';
-export const inject = ['tools', 'llm', 'shellEnv'];
+export const inject = ['tools', 'llm', 'shellEnv', 'agents', 'subagents'];
 
 async function bridge(path, payload, signal) {
   const base = process.env.CAMPUS_BRIDGE_URL;
@@ -15,7 +16,9 @@ async function bridge(path, payload, signal) {
     body: JSON.stringify(payload),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error?.message || 'Campus bridge request failed');
+  if (!response.ok) throw Object.assign(new Error(value.error?.message || 'Campus bridge request failed'), {
+    code: value.error?.code, retryable: value.error?.retryable,
+  });
   return value;
 }
 
@@ -51,6 +54,15 @@ export async function apply(ctx) {
     resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python) }),
   }));
   const inventory = await bridge('/api/v1/agent/internal/schemas', {});
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (!exec.name.startsWith('campus_')) {
+      await bridge('/api/v1/agent/internal/tool-lease', {
+        conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(exec.agent.session.id),
+        call_id: String(exec.agent.session.id) + ':' + String(exec.callId), name: exec.name,
+      }, exec.signal);
+    }
+    return next();
+  });
   // The registry owns tool availability. Domain validation stays in the campus
   // bridge; a global campus-only guard would block upstream and MCP tools.
   for (const spec of inventory) {
@@ -85,17 +97,67 @@ export async function apply(ctx) {
   }
   ctx.effect(() => ctx.llm.registerAdapter(['campus-model'], new CampusModelAdapter()));
   ctx.on('llm/stream', async function* (options, next) {
-    if (options.provider !== 'campus-model') {
-      await bridge('/api/v1/agent/internal/model-lease', {
-        conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId),
-      }, options.signal);
+    const conversation_id = process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId);
+    try {
+      if (options.provider !== 'campus-model') {
+        await bridge('/api/v1/agent/internal/model-lease', { conversation_id }, options.signal);
+      }
+      for await (const chunk of next()) {
+        if (options.provider !== 'campus-model' && chunk.type === 'finish' && ['error', 'aborted'].includes(chunk.reason?.kind)) {
+          const failure = nativeModelFailure(chunk.reason.failure);
+          if (chunk.reason.kind === 'error' && chunk.reason.failure?.code !== 'IMAGE_OFFLOAD_REQUIRED' && !options.signal?.aborted) {
+            try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure }); }
+            catch { /* Keep the upstream failure authoritative when journaling is unavailable. */ }
+          }
+          // The upstream session log also records finish chunks. Preserve error
+          // classification/retry timing while discarding untrusted remote text.
+          const original = chunk.reason.failure ?? { code: 'ABORTED' };
+          yield { ...chunk, reason: { ...chunk.reason, failure: {
+            code: original.code, message: chunk.reason.kind === 'aborted' ? '本轮模型请求已停止。' : failure.message,
+            ...(Number.isInteger(original.status) ? { status: original.status } : {}),
+            ...(Number.isFinite(original.providerRetryAfterMs) ? { providerRetryAfterMs: original.providerRetryAfterMs } : {}),
+            // Image compaction uses this public recovery hint to retry the same
+            // request. Redacting diagnostic text must not disable recovery.
+            ...(Number.isSafeInteger(original.offloadImages) && original.offloadImages > 0
+              ? { offloadImages: original.offloadImages } : {}),
+          } } };
+          continue;
+        }
+        yield chunk;
+      }
+    } catch (error) {
+      if (options.provider !== 'campus-model' && !options.signal?.aborted) {
+        const failure = nativeModelFailure(error);
+        try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure }); }
+        catch { /* A stopped turn cannot create new runtime-authorized events. */ }
+      }
+      throw error;
     }
-    yield* next();
   });
   // This service appears only after schemas and adapters are registered. SDK
   // initialization must wait for it; async plugin apply alone is not a fence.
+  await mountControls(ctx, bridge);
   class CampusReady extends Service {
     constructor(context) { super(context, 'campusReady'); }
   }
   new CampusReady(ctx);
+}
+
+/** Never copy a remote response body or provider exception into the app journal. */
+export function nativeModelFailure(error) {
+  const mapped = {
+    AUTH: ['PROVIDER_AUTH_FAILED', 'DeepSeek 服务拒绝了凭据，请检查模型密钥与权限。', false],
+    RATE_LIMIT: ['PROVIDER_RATE_LIMITED', 'DeepSeek 服务限流，请稍后重试。', true],
+    TIMEOUT: ['PROVIDER_TIMEOUT', 'DeepSeek 模型请求超时，可重试或调整运行预算。', true],
+    TRANSPORT: ['PROVIDER_UNREACHABLE', '无法连接 DeepSeek 模型服务，请检查网络。', true],
+    MALFORMED_RESPONSE: ['PROVIDER_INVALID_RESPONSE', 'DeepSeek 返回的流式响应格式不完整。', true],
+    STREAM_CLOSED: ['PROVIDER_INVALID_RESPONSE', 'DeepSeek 流式响应提前结束。', true],
+    EMPTY_RESPONSE: ['PROVIDER_INVALID_RESPONSE', 'DeepSeek 没有返回可用回答。', true],
+    PROVIDER_CHANGED: ['PROVIDER_CHANGED', '模型配置已变化，请新建对话。', false],
+    BUDGET_EXCEEDED: ['BUDGET_EXCEEDED', '本轮模型调用达到配置预算。', false],
+    CONSENT_REQUIRED: ['CONSENT_REQUIRED', '尚未同意向当前模型发送对话。', false],
+  };
+  const [code, message, retryable] = mapped[error?.code] ??
+    ['PROVIDER_HTTP_ERROR', 'DeepSeek 模型调用未完成，请检查模型配置与服务状态。', true];
+  return { code, message, retryable };
 }

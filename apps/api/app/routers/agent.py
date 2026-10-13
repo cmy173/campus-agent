@@ -63,6 +63,23 @@ class ModelLeaseRequest(tools.Input):
     conversation_id: str = Field(min_length=1, max_length=128)
 
 
+class NativeToolLeaseRequest(ModelLeaseRequest):
+    call_id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=128)
+
+
+class ControlAddressRequest(ModelLeaseRequest):
+    url: str = Field(pattern=r'^http://127\.0\.0\.1:\d{1,5}$')
+
+
+class ModelErrorRequest(ModelLeaseRequest):
+    code: Literal['PROVIDER_AUTH_FAILED', 'PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT',
+                  'PROVIDER_UNREACHABLE', 'PROVIDER_INVALID_RESPONSE', 'PROVIDER_HTTP_ERROR',
+                  'PROVIDER_CHANGED', 'BUDGET_EXCEEDED', 'CONSENT_REQUIRED']
+    message: str = Field(min_length=1, max_length=512)
+    retryable: bool
+
+
 class SearchTestRequest(tools.Input):
     provider_id: str | None = Field(default=None, min_length=1, max_length=128)
 
@@ -224,6 +241,21 @@ def cancel_turn(turn_id: str, owner: str = Depends(browser_owner)):
     return runtime.store.turn(turn_id)
 
 
+@router.post('/turns/{turn_id}/subagents/{child_id}/interrupt')
+def interrupt_child(turn_id: str, child_id: str, req: tools.Empty, owner: str = Depends(browser_owner)):
+    runtime, _ = owned_turn(turn_id, owner)
+    return runtime.interrupt_child(turn_id, child_id)
+
+
+@router.post('/internal/control-address')
+def internal_control_address(req: ControlAddressRequest, authority=Depends(runtime_authority), authorization: str = Header()):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    runtime.register_controls(turn['id'], req.url, authorization[7:])
+    return {'ok': True}
+
+
 @router.post("/internal/schemas")
 def internal_schemas(req: tools.Empty, authority=Depends(runtime_authority)):
     return tools.schemas()
@@ -286,4 +318,23 @@ def internal_model_lease(req: ModelLeaseRequest, authority=Depends(runtime_autho
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
     model.validated_config(db, conversation['settings'])
     runtime.store.reserve_model(turn['id'])
+    return {'ok': True}
+
+
+@router.post('/internal/tool-lease')
+def internal_tool_lease(req: NativeToolLeaseRequest, authority=Depends(runtime_authority)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id'] or req.name.startswith('campus_'):
+        raise ApiError(403, 'RUNTIME_DENIED', '通用工具租约不属于指定会话或工具类别')
+    with runtime.call_lock(turn['id']):
+        runtime.store.reserve_native_tool(turn['id'], req.call_id, req.name)
+    return {'ok': True}
+
+
+@router.post('/internal/model-error')
+def internal_model_error(req: ModelErrorRequest, authority=Depends(runtime_authority)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    runtime.store.event(turn['id'], 'model_error', req.model_dump(exclude={'conversation_id'}))
     return {'ok': True}

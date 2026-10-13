@@ -6,13 +6,14 @@ export interface ToolActivity {
   callId: string
   name: string
   label: string
-  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  status: 'running' | 'stopping' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   arguments: string
   output: string
 }
 
 export interface ChildActivity {
   id: string
+  label?: string
   status: ToolActivity['status']
   output: string
 }
@@ -51,6 +52,7 @@ function stoppedStatus(status: AgentTurn['status']): ToolActivity['status'] {
 export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
   const tools = new Map<string, ToolActivity>()
   const children = new Map<string, ChildActivity>()
+  const childLabels = new Map<string, string>()
   const domainCalls = new Set(events.filter(e => e.kind === 'tool_result').map(e => string(e.data.call_id)))
   let progressText = ''
   for (const item of events) {
@@ -58,7 +60,14 @@ export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
       const event = record(item.data.event)
       const data = record(event.data)
       const sessionId = string(item.data.session_id) || turn.conversation_id
-      if (event.type === 'tool/call') {
+      if (event.type === 'subagent/catalog') {
+        const id = string(data.childId), label = string(data.label)
+        if (id && label) {
+          childLabels.set(id, label)
+          const child = children.get(id)
+          if (child) children.set(id, { ...child, label })
+        }
+      } else if (event.type === 'tool/call') {
         const callId = string(data.callId)
         if (!callId) continue
         const name = string(data.name) || 'unknown'
@@ -72,8 +81,10 @@ export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
         const id = sessionId + ':' + callId
         const activity = tools.get(id) ?? { id, sessionId, callId, name: 'unknown',
           label: '工具结果', arguments: '', output: '', status: 'running' as const }
-        tools.set(id, { ...activity, status: message.isError || data.error ? 'failed' : 'completed',
-          output: contentText(message.content) || string(record(data.error).reason) })
+        const output = contentText(message.content) || string(record(data.error).reason)
+        const cancelled = ['ABORTED', 'CANCELLED'].includes(string(record(data.error).code)) ||
+          (message.isError && ['subagent', 'subagent_fork'].includes(activity.name) && output.trim() === 'Error: subagent run was cancelled')
+        tools.set(id, { ...activity, status: cancelled ? 'cancelled' : message.isError || data.error ? 'failed' : 'completed', output })
       } else if (event.type === 'assistant/message' && sessionId === turn.conversation_id) {
         progressText = contentText(record(data.message).content)
       }
@@ -81,13 +92,17 @@ export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
       const id = string(item.data.childSessionId)
       if (!id) continue
       const status = item.kind === 'subagent.started' ? 'running' :
-        item.data.status === 'ok' ? 'completed' : item.data.status === 'cancelled' || item.data.stopReason === 'interrupted' ? 'cancelled' : 'failed'
-      children.set(id, { id, status, output: contentText(item.data.lastAssistantMessage) })
+        item.data.status === 'ok' ? 'completed' : item.data.status === 'cancelled' || ['interrupted', 'aborted'].includes(string(item.data.stopReason)) ? 'cancelled' : 'failed'
+      children.set(id, { id, label: childLabels.get(id) ?? children.get(id)?.label, status, output: contentText(item.data.lastAssistantMessage) })
+    } else if (item.kind === 'subagent.stop_requested') {
+      const id = string(item.data.childSessionId)
+      const child = children.get(id)
+      if (child?.status === 'running') children.set(id, { ...child, status: 'stopping' })
     }
   }
   const terminal = !['queued', 'running'].includes(turn.status)
   const settle = <T extends { status: ToolActivity['status'] }>(activity: T): T =>
-    terminal && activity.status === 'running' ? { ...activity, status: stoppedStatus(turn.status) } : activity
+    terminal && ['running', 'stopping'].includes(activity.status) ? { ...activity, status: stoppedStatus(turn.status) } : activity
   return {
     tools: [...tools.values()].filter(t => !(t.name.startsWith('campus_') &&
       (domainCalls.has(t.callId) || domainCalls.has(t.id)))).map(settle),

@@ -53,6 +53,9 @@ class Store:
               turn_id TEXT NOT NULL REFERENCES turns(id), call_id TEXT NOT NULL,
               request_hash TEXT NOT NULL, result TEXT NOT NULL,
               PRIMARY KEY(turn_id, call_id));
+            CREATE TABLE IF NOT EXISTS native_tool_leases (
+              turn_id TEXT NOT NULL REFERENCES turns(id), call_id TEXT NOT NULL,
+              name TEXT NOT NULL, PRIMARY KEY(turn_id, call_id));
             """)
 
     @contextmanager
@@ -170,6 +173,22 @@ class Store:
         items = [{"seq": r["seq"], "kind": r["kind"], "data": json.loads(r["data"]), "created_at": r["created_at"]} for r in rows]
         return {"items": items, "next_cursor": items[-1]["seq"] if items else after}
 
+    def child(self, tid: str, child_id: str) -> dict:
+        with self.connection() as db:
+            rows = db.execute("SELECT kind,data FROM events WHERE turn_id=? AND kind IN ('subagent.started','subagent.finished') ORDER BY seq", (tid,)).fetchall()
+        child = None
+        for row in rows:
+            data = json.loads(row['data'])
+            if data.get('childSessionId') != child_id:
+                continue
+            if row['kind'] == 'subagent.started':
+                child = {'parent_id': data['parentSessionId'], 'finished': False}
+            elif child:
+                child['finished'] = True
+        if child is None:
+            raise ApiError(404, 'NOT_FOUND', '本轮没有这个子任务')
+        return child
+
     def reserve_model(self, tid: str):
         with self.connection() as db:
             changed = db.execute("UPDATE turns SET model_calls=model_calls+1 WHERE id=? AND status='running' AND model_calls<?", (tid, self.limits.model_calls)).rowcount
@@ -179,7 +198,7 @@ class Store:
     def cached_call(self, tid: str, call_id: str, request: dict) -> dict | None:
         with self.connection() as db:
             row = db.execute("SELECT * FROM tool_calls WHERE turn_id=? AND call_id=?", (tid, call_id)).fetchone()
-            count = db.execute("SELECT COUNT(*) FROM tool_calls WHERE turn_id=?", (tid,)).fetchone()[0]
+            count = self._tool_count(db, tid)
         if row:
             if row["request_hash"] != digest(encoded(request)):
                 raise ApiError(409, "IDEMPOTENCY_CONFLICT", "工具调用 ID 已用于不同参数")
@@ -187,6 +206,25 @@ class Store:
         if count >= self.limits.tool_calls:
             raise ApiError(409, "BUDGET_EXCEEDED", "本轮工具调用达到上限")
         return None
+
+    @staticmethod
+    def _tool_count(db, tid: str) -> int:
+        return db.execute('SELECT (SELECT COUNT(*) FROM tool_calls WHERE turn_id=?) + '
+                          '(SELECT COUNT(*) FROM native_tool_leases WHERE turn_id=?)', (tid, tid)).fetchone()[0]
+
+    def reserve_native_tool(self, tid: str, call_id: str, name: str):
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT name FROM native_tool_leases WHERE turn_id=? AND call_id=?', (tid, call_id)).fetchone()
+            if row:
+                if row['name'] != name:
+                    raise ApiError(409, 'IDEMPOTENCY_CONFLICT', '通用工具调用 ID 已用于不同工具')
+                return
+            if not db.execute("SELECT 1 FROM turns WHERE id=? AND status='running'", (tid,)).fetchone():
+                raise ApiError(409, 'TURN_STOPPED', '本轮已停止')
+            if self._tool_count(db, tid) >= self.limits.tool_calls:
+                raise ApiError(409, 'BUDGET_EXCEEDED', '本轮工具调用达到配置上限')
+            db.execute('INSERT INTO native_tool_leases VALUES (?,?,?)', (tid, call_id, name))
 
     def cache_call(self, tid: str, call_id: str, request: dict, result: dict):
         with self.connection() as db:

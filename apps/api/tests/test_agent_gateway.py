@@ -70,6 +70,54 @@ def internal(client, token, path, data):
     return client.post("/api/v1/agent/internal/" + path, headers={"Authorization": "Bearer " + token}, json=data)
 
 
+def test_native_and_domain_tools_share_budget_and_replay(gateway):
+    client, runtime, tokens, _ = gateway
+    runtime.store.limits = RunLimits(tool_calls=2)
+    cid = conversation(client)
+    tid = turn(client, cid)
+    token = tokens[tid]
+    lease = {'conversation_id': cid, 'call_id': 'child:one', 'name': 'read'}
+    assert internal(client, token, 'tool-lease', lease).status_code == 200
+    domain = {'conversation_id': cid, 'call_id': 'domain-two', 'name': 'courses.list', 'arguments': {}}
+    domain_result = internal(client, token, 'tool', domain).json()
+    assert domain_result['status'] == 'partial' and domain_result['error'] is None
+    assert domain_result['data']['items'][0]['id'] == 'course_a'
+    assert internal(client, token, 'tool-lease', lease).status_code == 200
+    assert internal(client, token, 'tool', domain).json() == domain_result
+    assert internal(client, token, 'tool-lease', lease | {'call_id': 'other', 'name': 'write'}).json()['error']['code'] == 'BUDGET_EXCEEDED'
+    assert internal(client, token, 'tool-lease', lease | {'name': 'write'}).json()['error']['code'] == 'IDEMPOTENCY_CONFLICT'
+    assert internal(client, token, 'tool-lease', lease | {'conversation_id': 'other'}).status_code == 403
+    assert internal(client, token, 'tool-lease', lease | {'name': 'campus_courses_list'}).status_code == 403
+
+
+def test_child_controls_are_owned_and_do_not_claim_quiescence(gateway, monkeypatch):
+    client, runtime, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    token = tokens[tid]
+    registered = internal(client, token, 'control-address', {'conversation_id': cid, 'url': 'http://127.0.0.1:19192'})
+    assert registered.status_code == 200
+    assert internal(client, token, 'control-address', {'conversation_id': 'other', 'url': 'http://127.0.0.1:19192'}).status_code == 403
+    assert internal(client, token, 'control-address', {'conversation_id': cid, 'url': 'https://example.com'}).status_code == 400
+    runtime.store.event(tid, 'subagent.started', {'parentSessionId': cid, 'childSessionId': 'child_a'})
+    captured = []
+    def respond(url, **kwargs):
+        captured.append((url, kwargs))
+        return type('Response', (), {'ok': True})()
+    monkeypatch.setattr('app.agent_bridge.runtime.requests.post', respond)
+    path = f'/api/v1/agent/turns/{tid}/subagents/child_a/interrupt'
+    response = client.post(path, json={})
+    assert response.status_code == 200 and response.json()['accepted']
+    assert captured[0][1]['json'] == {'child_id': 'child_a', 'parent_id': cid}
+    assert runtime.store.events(tid)['items'][-1]['kind'] == 'subagent.stop_requested'
+    assert client.post(path.replace('child_a', 'unknown'), json={}).status_code == 404
+    runtime.store.event(tid, 'subagent.finished', {'childSessionId': 'child_a', 'stopReason': 'aborted', 'status': 'error'})
+    assert client.post(path, json={}).json()['already_finished'] is True
+    assert len(captured) == 1
+    client.cookies.clear()
+    assert client.post(path, json={}).status_code == 404
+
+
 def test_runtime_settings_preserve_credentials_and_resolve_for_owned_process(gateway, tmp_path, monkeypatch):
     client, runtime, _, _ = gateway
     monkeypatch.setattr(secrets_store, 'SECRETS_DIR', tmp_path / 'private')

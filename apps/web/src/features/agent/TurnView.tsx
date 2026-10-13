@@ -31,7 +31,7 @@ function ResultView({ name, result, onSource }: { name: string; result: ToolEnve
 }
 
 export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSource: (value: ToolEnvelope) => void; onCancel: (id: string) => void }) {
-  const { events, error } = useTurnEvents(turn)
+  const { events, error, controlError, interruptChild, stoppingChildren } = useTurnEvents(turn)
   const activity = projectTurnEvents(events, turn)
   const runningTool = activity.tools.findLast(tool => tool.status === 'running')
   const results = events.filter(e => e.kind === 'tool_result' && e.data.result)
@@ -52,8 +52,9 @@ export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSour
       {modelErrors.map(event => <Alert key={event.seq} type="warning" title={String(event.data.message)} description={String(event.data.code ?? '')} />)}
       {turn.error && !modelErrors.length && <Alert type="warning" title={turn.error.message} description={turn.error.code} />}
       {error && <Alert type="warning" title="进度连接暂时中断，正在恢复" description={error} />}
+      {controlError && <Alert type="warning" title="子任务停止请求未完成" description={controlError} />}
       {jobIds.map(id => <JobProgressInline key={id} jobId={id} compact allowRetry={false} />)}
-      <ToolActivities tools={activity.tools} children={activity.children} />
+      <ToolActivities tools={activity.tools} children={activity.children} onInterrupt={interruptChild} stoppingChildren={stoppingChildren} />
       {results.filter(e => e.data.name === 'materials.read' && e.data.result?.data.resource).map(e =>
         <div className="agent-source-action" key={e.seq}><Button onClick={() => onSource(e.data.result!)}>
           打开原文 · {String(e.data.result!.data.resource!.title ?? '资料')}

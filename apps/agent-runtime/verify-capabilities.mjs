@@ -20,6 +20,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (req.url.endsWith('/schemas')) return res.end('[]');
   if (req.url.endsWith('/model-lease')) return res.end('{"ok":true}');
+  if (req.url.endsWith('/tool-lease')) return res.end('{"ok":true}');
   if (req.url.endsWith('/messages')) return res.end(JSON.stringify({
     content: [{ type: 'web_search_tool_result', content: [{ type: 'web_search_result',
       url: 'https://api-docs.deepseek.com/', title: 'Official DeepSeek API Docs' }] },

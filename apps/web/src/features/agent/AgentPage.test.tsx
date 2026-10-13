@@ -76,6 +76,30 @@ function show(path = '/chat/conv_one') {
 }
 
 describe('Agent conversation product flow', () => {
+  it('stops only the selected child and waits for actual completion before displaying stopped', async () => {
+    const user = userEvent.setup()
+    const base = request.getMockImplementation()!
+    firstTurn = { ...firstTurn, status: 'running', response: '' }
+    conversation.turns = [firstTurn]
+    let stopping = false
+    request.mockImplementation(async (path, options) => {
+      if (path === '/agent/turns/turn_one/subagents/child_a/interrupt') { stopping = true; return { accepted: true, child_id: 'child_a' } }
+      if (path === '/agent/turns/turn_one') return { ...firstTurn, events: { items: options?.query?.after ? (stopping ? [
+        { seq: 3, kind: 'subagent.stop_requested', data: { childSessionId: 'child_a' } },
+      ] : []) : [
+        { seq: 1, kind: 'subagent.started', data: { parentSessionId: 'conv_one', childSessionId: 'child_a' } },
+        { seq: 2, kind: 'subagent.started', data: { parentSessionId: 'conv_one', childSessionId: 'child_b' } },
+      ], next_cursor: stopping ? 3 : 2 } }
+      return base(path, options)
+    })
+    show()
+    await user.click(await screen.findByRole('button', { name: '停止子任务 1' }))
+    expect(await screen.findByText('停止中')).toBeInTheDocument()
+    expect(screen.queryByText('已停止')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止子任务 2' })).toBeEnabled()
+    expect(request).toHaveBeenCalledWith('/agent/turns/turn_one/subagents/child_a/interrupt', { method: 'POST', body: {} })
+    expect(request).not.toHaveBeenCalledWith('/agent/turns/turn_one/cancel', expect.anything())
+  })
   it('shows unknown tools and child results without requiring a new chat renderer', async () => {
     const user = userEvent.setup()
     const base = request.getMockImplementation()!

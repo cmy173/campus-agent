@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import threading
 import sys
+import requests
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -31,6 +32,7 @@ class Runtime:
         self.threads: dict[str, threading.Thread] = {}
         self.call_locks: dict[str, threading.RLock] = {}
         self.conversation_locks: dict[str, threading.Lock] = {}
+        self.control_addresses: dict[str, tuple[str, str]] = {}
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
         self.settings = SettingsStore(store.path.parent / 'settings.json')
 
@@ -138,6 +140,34 @@ class Runtime:
                 self.processes.pop(tid, None)
                 self.threads.pop(tid, None)
                 self.call_locks.pop(tid, None)
+                self.control_addresses.pop(tid, None)
+
+    def register_controls(self, tid: str, url: str, token: str):
+        if not re.fullmatch(r'http://127\.0\.0\.1:\d{1,5}', url):
+            raise ApiError(400, 'INVALID_INPUT', '控制地址必须为自有运行时的本机端点')
+        with self.lock:
+            self.control_addresses[tid] = (url, token)
+
+    def interrupt_child(self, tid: str, child_id: str):
+        turn = self.store.turn(tid)
+        if turn['status'] != 'running':
+            raise ApiError(409, 'TURN_STOPPED', '本轮已结束，无需停止子任务')
+        child = self.store.child(tid, child_id)
+        if child['finished']:
+            return {'accepted': True, 'child_id': child_id, 'already_finished': True}
+        with self.lock:
+            controls = self.control_addresses.get(tid)
+        if not controls:
+            raise ApiError(503, 'CONTROL_UNAVAILABLE', '子任务控制连接尚未就绪，可重试', retryable=True)
+        try:
+            response = requests.post(controls[0] + '/interrupt', headers={'Authorization': 'Bearer ' + controls[1]},
+                json={'child_id': child_id, 'parent_id': child['parent_id']}, timeout=5, allow_redirects=False)
+            if not response.ok:
+                raise ValueError('control rejected')
+        except (requests.RequestException, ValueError):
+            raise ApiError(502, 'CHILD_CONTROL_FAILED', '子任务停止请求未完成，请重试或停止本轮', retryable=True) from None
+        self.store.event(tid, 'subagent.stop_requested', {'childSessionId': child_id})
+        return {'accepted': True, 'child_id': child_id}
 
     @staticmethod
     def _stop(proc):

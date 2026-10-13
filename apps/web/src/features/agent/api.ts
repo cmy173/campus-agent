@@ -102,6 +102,8 @@ export const agentApi = {
   turn: (id: string, after = 0, signal?: AbortSignal) => apiRequest<TurnRead>(
     `/agent/turns/${encodeURIComponent(id)}`, { query: { after }, signal }),
   cancel: (id: string) => apiRequest<AgentTurn>(`/agent/turns/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {} }),
+  interruptChild: (turnId: string, childId: string) => apiRequest<{ accepted: boolean; child_id: string }>(
+    `/agent/turns/${encodeURIComponent(turnId)}/subagents/${encodeURIComponent(childId)}/interrupt`, { method: 'POST', body: {} }),
   actions: (id: string) => apiRequest<{ items: PlanAction[] }>(`/agent/conversations/${encodeURIComponent(id)}/actions`),
   accept: (id: string, actionId: string, operation: 'apply' | 'revoke', key: string) => apiRequest<PlanAction>(
     `/agent/conversations/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}/accept`,

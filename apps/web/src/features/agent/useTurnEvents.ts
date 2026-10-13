@@ -7,7 +7,10 @@ import type { AgentEvent, AgentTurn } from './api'
 export function useTurnEvents(turn: AgentTurn) {
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [error, setError] = useState('')
+  const [controlError, setControlError] = useState('')
   const cursor = useRef({ id: turn.id, value: 0 })
+  const stoppingRef = useRef(new Set<string>())
+  const [stoppingChildren, setStoppingChildren] = useState<string[]>([])
   useEffect(() => {
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -33,5 +36,17 @@ export function useTurnEvents(turn: AgentTurn) {
     void poll()
     return () => { stopped = true; abort.abort(); if (timer) clearTimeout(timer) }
   }, [turn.id, turn.status])
-  return { events, error }
+  async function interruptChild(childId: string) {
+    if (stoppingRef.current.has(childId)) return
+    stoppingRef.current.add(childId)
+    setStoppingChildren([...stoppingRef.current])
+    setControlError('')
+    try { await agentApi.interruptChild(turn.id, childId) }
+    catch (e) { setControlError(apiErrorText(e)) }
+    finally {
+      stoppingRef.current.delete(childId)
+      setStoppingChildren([...stoppingRef.current])
+    }
+  }
+  return { events, error, controlError, interruptChild, stoppingChildren }
 }

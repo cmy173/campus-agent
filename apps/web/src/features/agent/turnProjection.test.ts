@@ -9,6 +9,22 @@ function event(seq: number, session: string, type: string, data: Record<string, 
 }
 
 describe('Tool result presentation contract', () => {
+  it('reports upstream cancellation as stopped while preserving real failures', () => {
+    const result = projectTurnEvents([
+      event(1, 'root', 'tool/call', { callId: 'one', name: 'subagent', arguments: '{}' }),
+      event(2, 'root', 'tool/result', { message: { toolCallId: 'one', isError: true, content: [{ type: 'text', text: 'Error: subagent run was cancelled' }] } }),
+      event(3, 'child', 'tool/call', { callId: 'two', name: 'pwsh', arguments: '{}' }),
+      event(4, 'child', 'tool/result', { error: { code: 'ABORTED' }, message: { toolCallId: 'two', isError: true, content: [] } }),
+    ], turn)
+    expect(result.tools.map(t => t.status)).toEqual(['cancelled', 'cancelled'])
+  })
+  it('keeps accepted stop requests pending and recognizes actual upstream aborted completion', () => {
+    const started: AgentEvent = { seq: 1, kind: 'subagent.started', created_at: '', data: { childSessionId: 'child' } }
+    const requested: AgentEvent = { seq: 2, kind: 'subagent.stop_requested', created_at: '', data: { childSessionId: 'child' } }
+    expect(projectTurnEvents([started, requested], turn).children[0].status).toBe('stopping')
+    const finished: AgentEvent = { seq: 3, kind: 'subagent.finished', created_at: '', data: { childSessionId: 'child', status: 'error', stopReason: 'aborted' } }
+    expect(projectTurnEvents([started, requested, finished], turn).children[0].status).toBe('cancelled')
+  })
   it('keeps identical child/root call IDs separate and exposes unknown MCP results', () => {
     const projected = projectTurnEvents([
       event(1, 'root', 'tool/call', { callId: 'one', name: 'mcp__new__report', arguments: '{}' }),

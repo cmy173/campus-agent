@@ -320,6 +320,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/turns/{turn_id}/subagents/{child_id}/interrupt:
+    post:
+      tags:
+      - campus-agent
+      summary: Interrupt Child
+      operationId: interrupt_child_api_v1_agent_turns__turn_id__subagents__child_id__interrupt_post
+      parameters:
+      - name: turn_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Turn Id
+      - name: child_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Child Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/control-address:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Control Address
+      operationId: internal_control_address_api_v1_agent_internal_control_address_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlAddressRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/internal/schemas:
     post:
       tags:
@@ -452,6 +520,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/tool-lease:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Tool Lease
+      operationId: internal_tool_lease_api_v1_agent_internal_tool_lease_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativeToolLeaseRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/model-error:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Model Error
+      operationId: internal_model_error_api_v1_agent_internal_model_error_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelErrorRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AcceptActionRequest:
@@ -467,6 +601,23 @@ components:
       required:
       - operation
       title: AcceptActionRequest
+    ControlAddressRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        url:
+          type: string
+          pattern: ^http://127\.0\.0\.1:\d{1,5}$
+          title: Url
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - url
+      title: ControlAddressRequest
     ConversationRequest:
       properties:
         provider_id:
@@ -565,6 +716,42 @@ components:
       required:
       - serverName
       title: McpServer
+    ModelErrorRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        code:
+          type: string
+          enum:
+          - PROVIDER_AUTH_FAILED
+          - PROVIDER_RATE_LIMITED
+          - PROVIDER_TIMEOUT
+          - PROVIDER_UNREACHABLE
+          - PROVIDER_INVALID_RESPONSE
+          - PROVIDER_HTTP_ERROR
+          - PROVIDER_CHANGED
+          - BUDGET_EXCEEDED
+          - CONSENT_REQUIRED
+          title: Code
+        message:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Message
+        retryable:
+          type: boolean
+          title: Retryable
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - code
+      - message
+      - retryable
+      title: ModelErrorRequest
     ModelLeaseRequest:
       properties:
         conversation_id:
@@ -618,6 +805,30 @@ components:
       - conversation_id
       - messages
       title: ModelRequest
+    NativeToolLeaseRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        call_id:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Call Id
+        name:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Name
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - call_id
+      - name
+      title: NativeToolLeaseRequest
     RuntimeSettings:
       properties:
         workspace:

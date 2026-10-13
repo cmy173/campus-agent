@@ -10,7 +10,7 @@
 - “用 Python 计算这份数据，解释计算过程”：由 PowerShell 调用应用的 Python 环境；在任务目录保留需要交付的文件。
 - “搜索这项政策并核对原文”：搜索和网页读取是两个操作；保留可访问来源。真实搜索服务必须有适用权限和凭据。
 - “按校园资料整理技能处理这些附件”：按需加载 Skill，复用说明中的流程。技能本身不是完成证据，仍须实际执行。
-- “分成两个子任务分别处理，最后汇总”：Harness 分配子任务，聊天展示子任务状态及结果。单独停止、后台生命周期与重启恢复仍在建设。
+- “分成两个子任务分别处理，最后汇总”：Harness 分配子任务，聊天展示子任务状态及结果。可以单独停止子任务，等待实际结束事件后显示已停止；后台跨轮生命周期与重启恢复仍在建设。
 
 普通本地读取、计算与可撤销操作自动执行。用户可以停止当前轮次；未返回结果的操作不会因为会话结束被标为成功。对外提交的一次确认链路仍待浏览器部分完成。
 
@@ -70,7 +70,7 @@
 | 命令 | pwsh（Windows）、job_list、job_output、job_kill | 实际 PowerShell/Python 成功；通用后台命令的恢复与停止待验收 |
 | 网页 | web_search、web_fetch | 搜索为实际 provider 配受控响应；fetch 已读取真实公开网页 |
 | 技能 | skill、workflow | 自带校园 Skill 实际加载；工作流专门闭环待验收 |
-| 子任务 | subagent、subagent_fork、list_agents、send_message、interrupt_agent | 两个独立子任务实际执行与汇总；全部生命周期与并行任务待验收 |
+| 子任务 | subagent、subagent_fork、list_agents、send_message、interrupt_agent | 两个独立子任务实际执行与汇总，前台/continuable 子任务单独停止及兄弟任务继续已验证；后台跨轮/重启恢复待验收 |
 | 目标与步骤 | create_goal、get_goal、update_goal、todo_write、exit_plan_mode | 上游已注册；Campus 内的持续任务、常驻调度与重启恢复尚未完成 |
 | 连接/课程 | campus_connections_status、campus_courses_list | 实际领域服务合成数据集成已通过 |
 | 作业/资料 | campus_assignments_list、campus_materials_list、campus_materials_search、campus_materials_read | 多轮检索、正文、来源与日期精度已回归；学校真实账号待试用 |
@@ -83,16 +83,24 @@
 
 运行时固定 @deepseek-ai/dsh 与 sdk-client 0.2.0-rc.2；使用 dsh-base 的公开能力。MCP client 固定2.2.0，fflate固定0.8.3。Python 保留校园业务与会话/配置边界，不重建通用 Agent 主循环。
 
-模型调用、单轮时长和输出预算通过 CAMPUS_MAX_MODEL_CALLS、CAMPUS_TURN_TIMEOUT_SECONDS、CAMPUS_MAX_OUTPUT_TOKENS 配置；默认128次、1800秒、16384 tokens。CAMPUS_MAX_TOOL_CALLS 默认512，目前用于校园桥接工具计数，通用工具统一计数仍需接入。不能把这些计数当作金额账单。
+模型调用、单轮时长和输出预算通过 CAMPUS_MAX_MODEL_CALLS、CAMPUS_TURN_TIMEOUT_SECONDS、CAMPUS_MAX_OUTPUT_TOKENS 配置；默认128次、1800秒、16384 tokens。CAMPUS_MAX_TOOL_CALLS 默认512，已统一计数校园、通用、MCP及子任务工具调用；同一调用重放不重复扣预算。不能把这些计数当作金额账单。
 
 验证命令（使用隔离数据，不运行付费服务）：
 
 ```powershell
 node apps/agent-runtime/verify-capabilities.mjs
 node apps/agent-runtime/verify-mcp.mjs
+node apps/agent-runtime/verify-official-provider.mjs
+node apps/agent-runtime/verify-subagent-controls.mjs
 apps/api/.venv/Scripts/python.exe tools/verify_agent_runtime.py
 ```
 
 verify-capabilities 使用受控模型/搜索响应及真实文件、命令、公开网页和子任务；verify-mcp 使用受控模型和真正独立的 stdio MCP 进程；完整 Python 验证还覆盖设置API→实际运行时→文件/Python/MCP 的链路。证据保存在各自 var 临时目录，不纳入 Git。
 
 聊天通用结果通过 turnProjection.ts 适配，ToolActivities.tsx 负责展示，useTurnEvents.ts 负责分页/重连。未知工具可显示输入、文本结果和失败状态；校园来源保持专用信封，并按 session/call ID 去重。文本结果不解释为 HTML。文件下载/预览工作区和通用浏览器仍待实现。
+
+## 子任务停止与官方协议验证
+
+子任务卡片显示任务名称、进度和停止按钮。停止请求被接受时显示“停止中”，收到 Harness 实际 aborted 结束事件后才显示“已停止”。单独停止一个任务不会取消其他子任务或父任务。父轮已结束的任务不能继续通过此入口操作；当前 SDK 仍按轮次关闭，不能将 continuable 工具注册当作跨轮后台任务完成。
+
+官方 provider 的验证使用实际上游 Messages/SSE 协议和本地受控端点，覆盖写文件→读文件→回答、模型/工具租约、401 错误及 JSONL 日志脱敏。保留错误分类、重试时间和图片 offload 恢复参数；没有执行真实付费请求。

@@ -16,6 +16,7 @@ const server = createServer(async (req, res) => {
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
   if (req.url.endsWith('/schemas')) return res.end('[]');
+  if (req.url.endsWith('/tool-lease')) return res.end('{"ok":true}');
   requests.push(body);
   const user = [...body.messages].reverse().find(m => m.role === 'user' && messageText(m).includes('MCP_CASE_'));
   const name = messageText(user);

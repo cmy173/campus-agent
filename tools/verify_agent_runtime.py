@@ -10,6 +10,7 @@ import json
 import argparse
 import os
 import socket
+import sqlite3
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
     run_dir = Path(tempfile.mkdtemp(prefix="agent-integration-", dir=ROOT / "var"))
     receipts = []
     slow_started = threading.Event()
+    child_b_waiting, release_child_b = threading.Event(), threading.Event()
 
     class Provider(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -44,8 +46,60 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if self.path == '/release-child-b':
+                release_child_b.set()
+                self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+                return
             receipts.append(body)
             messages = body["messages"]
+            control_user = next((m for m in reversed(messages) if m['role'] == 'user' and '[V2子任务' in m['content']), None)
+            if control_user is not None and control_user is next((m for m in reversed(messages) if m['role'] == 'user' and
+                    ('用户消息：\n' in m['content'] or '[V2子任务' in m['content'])), None):
+                index = messages.index(control_user)
+                results = [m['content'] for m in messages[index + 1:] if m['role'] == 'tool']
+                marker, calls, content = control_user['content'], [], None
+                def native(name, args):
+                    return {'id': 'child_' + str(len(receipts)) + '_' + name, 'type': 'function',
+                            'function': {'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}
+                if '[V2子任务A]' in marker:
+                    if not results:
+                        calls = [native('pwsh', {'command': 'Start-Sleep -Seconds 30; Write-Output "SHOULD_NOT_COMPLETE"', 'description': '耗时子任务计算'})]
+                    else:
+                        content = '\n'.join(results)
+                elif '[V2子任务B]' in marker:
+                    if not results:
+                        calls = [native('read', {'file_path': 'v2-browser-notes.md'})]
+                    else:
+                        child_b_waiting.set()
+                        if serve:
+                            # Browser QA can take longer than the automated driver.
+                            # Release the controlled response after observing actual
+                            # upstream cancellation, rather than racing a UI operator.
+                            for _ in range(600):
+                                with sqlite3.connect(run_dir / 'agent/journal.sqlite') as journal:
+                                    latest = journal.execute('SELECT id FROM turns ORDER BY created_at DESC LIMIT 1').fetchone()[0]
+                                    ended = journal.execute("SELECT data FROM events WHERE turn_id=? AND kind='subagent.finished'", (latest,)).fetchall()
+                                if any(json.loads(row[0]).get('stopReason') == 'aborted' for row in ended):
+                                    release_child_b.set()
+                                    break
+                                if release_child_b.wait(timeout=0.05):
+                                    break
+                        if not release_child_b.wait(timeout=30):
+                            raise AssertionError('B was not released after actual selective cancellation')
+                        content = '\n'.join(results)
+                elif not results:
+                    release_child_b.clear()
+                    child_b_waiting.clear()
+                    calls = [native('subagent', {'description': '独立计算 A', 'prompt': '[V2子任务A] 执行耗时计算', 'run_in_background': False}),
+                             native('subagent', {'description': '独立阅读 B', 'prompt': '[V2子任务B] 读取实际文件', 'run_in_background': False})]
+                    # Model call IDs are unique even when names match in one batch.
+                    calls[1]['id'] += '_b'
+                else:
+                    content = '\n'.join(results)
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': content, 'tool_calls': calls},
+                    'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             # Upstream skills/runtime context may append user-role reminders.
             # Select the actual gateway prompt, rather than the last reminder.
             last_user = max(i for i, m in enumerate(messages) if m["role"] == "user" and "用户消息：\n" in m["content"])
@@ -393,12 +447,40 @@ with SessionLocal() as db:
         evidence['generic_tools_turn'] = done
         evidence['generic_checks'] = {'settings_api_to_actual_runtime': True, 'actual_file_and_python': True,
             'actual_local_mcp': True, 'all_four_tool_results_succeeded': True}
+        parallel = post(f'/conversations/{cid}/turns', {'text': '[V2子任务演练] 同时计算A与阅读B，允许单独停止A'}, {'Idempotency-Key': 'v2-parallel-controls'})
+        assert child_b_waiting.wait(timeout=20), 'Both actual children did not reach their independent work'
+        view = client.get(base + '/api/v1/agent/turns/' + parallel['id'], timeout=10).json()
+        a_id = next(e['data']['session_id'] for e in view['events']['items'] if e['kind'] == 'harness_event' and
+                    e['data']['event']['type'] == 'tool/call' and e['data']['event']['data']['name'] == 'pwsh')
+        stopped = post(f"/turns/{parallel['id']}/subagents/{a_id}/interrupt", {})
+        assert stopped['accepted']
+        for _ in range(100):
+            view = client.get(base + '/api/v1/agent/turns/' + parallel['id'], timeout=10).json()
+            ended = [e['data'] for e in view['events']['items'] if e['kind'] == 'subagent.finished']
+            if any(e['childSessionId'] == a_id and e['stopReason'] == 'aborted' for e in ended):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError('Actual child A did not stop')
+        assert view['status'] == 'running' and len(ended) == 1, 'Stopping A incorrectly stopped B or the parent'
+        replay_stop = post(f"/turns/{parallel['id']}/subagents/{a_id}/interrupt", {})
+        assert replay_stop['accepted'] and replay_stop['already_finished']
+        release_child_b.set()
+        done = wait_turn(parallel['id'])
+        assert done['status'] == 'succeeded' and 'v2-browser-731' in done['response'], done
+        assert 'SHOULD_NOT_COMPLETE' not in done['response']
+        finished = [e['data'] for e in done['events'] if e['kind'] == 'subagent.finished']
+        assert len(finished) == 2 and any(e['status'] == 'ok' for e in finished)
+        evidence['parallel_children_turn'] = done
+        evidence['parallel_checks'] = {'actual_api_selective_child_cancel': True, 'sibling_and_parent_continue': True,
+            'stop_replay_is_idempotent': True, 'actual_sibling_file_result': True}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
         assert actual_tools == expected_tools | native_tools | {'mcp__calculator__multiply',
             'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
         evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(actual_tools), second_turn_preserved_history=True)
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:
+        release_child_b.set()
         (run_dir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "model-receipts.json").write_text(json.dumps(receipts, ensure_ascii=False, indent=2), encoding="utf-8")
         client.close()

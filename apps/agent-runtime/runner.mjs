@@ -40,7 +40,7 @@ try {
         const event = notification.params.event;
         // The official session log is authoritative. Project task progress and
         // tool/assistant output, without copying request bodies or credentials.
-        if (event?.type?.startsWith('tool/') || event?.type === 'assistant/message') {
+        if (event?.type?.startsWith('tool/') || ['assistant/message', 'subagent/catalog', 'subagent/descriptor'].includes(event?.type)) {
           emit({ kind: 'harness_event', data: { session_id: notification.params.sessionId, event } });
         }
       } else if (notification.method.startsWith('subagent.')) {
