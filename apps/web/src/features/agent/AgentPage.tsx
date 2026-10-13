@@ -1,14 +1,16 @@
-import { useState } from 'react'
-import { Alert, Button, Checkbox, Drawer, Input, Select, Space, Typography } from 'antd'
-import { CalendarOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
+import { useRef, useState } from 'react'
+import { Alert, Button, Checkbox, Drawer, Input, Select, Space, Tag, Typography } from 'antd'
+import { CalendarOutlined, FolderOpenOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { API_MODE, apiErrorText } from '../../lib/api/http'
 import { AssistantSettings } from '../settings/AssistantSettings'
-import type { ToolEnvelope } from './api'
+import type { ConversationFile, ToolEnvelope } from './api'
 import { PlanActions } from './PlanActions'
 import { CalendarWorkspace, SourceWorkspace } from './Workspace'
 import { TurnView } from './TurnView'
 import { useConversationController } from './useConversationController'
+import { useConversationFiles } from './useConversationFiles'
+import { FileWorkspace } from './FileWorkspace'
 import './agent.css'
 
 const examples = ['这周有哪些作业需要留意？', '这份资料里要求提交哪些材料？', '读一下我当前的学习安排']
@@ -17,16 +19,22 @@ function ConversationPage({ id }: { id?: string }) {
   const { navigate, draft, consent, setConsent, sending, error, providers, courses,
     conversations, conversation, turns, active, actions, providerItems, selectedProvider,
     provider, courseId, transcript, messages, changeText, create, send, cancel, options,
-    selectCourse, selectProvider, reconnect, onScroll } = useConversationController(id)
+    selectCourse, selectProvider, selectAttachments, reconnect, onScroll } = useConversationController(id)
   const [calendar, setCalendar] = useState(false)
   const [settings, setSettings] = useState(false)
   const [source, setSource] = useState<ToolEnvelope | null>(null)
+  const [fileWorkspace, setFileWorkspace] = useState(false)
+  const [focusedFile, setFocusedFile] = useState<ConversationFile | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const fileState = useConversationFiles(id, active || sending, draft.attachment_ids ?? [], selectAttachments)
+  const files = fileState.files.data?.items ?? []
   return <div className="agent-page">
     <div className="agent-toolbar">
       <div><Typography.Title level={3} style={{ margin: 0 }}>校园助手</Typography.Title><Typography.Text type="secondary">说出目标，信息和安排一起核对。</Typography.Text></div>
       <Space wrap size={8}>
         <Button aria-label="新对话" icon={<PlusOutlined />} onClick={() => navigate('/chat')}>新对话</Button>
         <Button aria-label="日历" icon={<CalendarOutlined />} onClick={() => setCalendar(true)}>日历</Button>
+        {id && <Button icon={<FolderOpenOutlined />} onClick={() => setFileWorkspace(true)}>文件与成果{files.length ? ` (${files.length})` : ''}</Button>}
         <Button aria-label="模型设置" icon={<SettingOutlined />} onClick={() => setSettings(true)}>模型设置</Button>
       </Space>
     </div>
@@ -52,9 +60,11 @@ function ConversationPage({ id }: { id?: string }) {
         <Space wrap>{examples.map(text => <Button key={text} onClick={() => changeText(text)}>{text}</Button>)}</Space>
       </div>}
       {conversation.isLoading && id && <Typography.Text>正在恢复对话…</Typography.Text>}
-      {turns.map(turn => <TurnView key={turn.id} turn={turn} onSource={setSource} onCancel={cancel} />)}
+      {turns.map(turn => <TurnView key={turn.id} turn={turn} onSource={setSource} onCancel={cancel}
+        attachments={files.filter(file => turn.attachment_ids?.includes(file.id))}
+        onFile={file => { setFocusedFile(file); setFileWorkspace(true) }} />)}
       {actions.isError && <Alert type="warning" title="安排方案读取失败" description={apiErrorText(actions.error)} />}
-      <PlanActions actions={actions.data?.items ?? []} disabled={active || sending} onAccept={(action, operation) => {
+      <PlanActions actions={actions.data?.items ?? []} disabled={active || sending || fileState.uploading} onAccept={(action, operation) => {
         void send({ text: operation === 'apply' ? '按这个来' : '撤销刚才安排', action, operation })
       }} />
       </div>
@@ -73,15 +83,32 @@ function ConversationPage({ id }: { id?: string }) {
       </>}
     </section>}
     <div className="agent-composer">
+      {fileState.error && <Alert type="error" title={fileState.error} />}
+      {fileState.selected.length > 0 && <div className="agent-attachments" aria-label="待发送附件">
+        {fileState.selected.map(fid => <Tag key={fid} closable={!fileState.disabled} onClose={() => fileState.toggle(fid)}>
+          {files.find(file => file.id === fid)?.name ?? '附件'}
+        </Tag>)}
+      </div>}
       <Input.TextArea aria-label="向校园助手提问" placeholder="例如：这周三晚上没空，看看剩下的任务怎么安排。"
         autoSize={{ minRows: 2, maxRows: 6 }} maxLength={8000} value={draft.text} onChange={e => changeText(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!fileState.uploading) void send() } }} />
+      <input ref={fileInput} type="file" multiple hidden aria-label="上传对话附件" onChange={event => {
+        const chosen = event.target.files
+        if (chosen) void fileState.upload(chosen)
+        event.target.value = ''
+      }} />
       <div className="agent-composer-footer"><Typography.Text type="secondary">Enter 发送 · Shift+Enter 换行</Typography.Text>
-        <Button aria-label="发送" type="primary" icon={<SendOutlined />} onClick={() => void send()} loading={sending} disabled={!id || active || !draft.text.trim() || API_MODE === 'mock'}>发送</Button>
+        <Space><Button icon={<PaperClipOutlined />} onClick={() => fileInput.current?.click()} loading={fileState.uploading}
+          disabled={!id || fileState.disabled || API_MODE === 'mock'}>附件</Button>
+        <Button aria-label="发送" type="primary" icon={<SendOutlined />} onClick={() => void send()} loading={sending} disabled={!id || active || fileState.uploading || !draft.text.trim() || API_MODE === 'mock'}>发送</Button></Space>
       </div>
     </div>
     <SourceWorkspace result={source} onClose={() => setSource(null)} />
     <CalendarWorkspace open={calendar} onClose={() => setCalendar(false)} />
+    <FileWorkspace open={fileWorkspace} onClose={() => setFileWorkspace(false)} items={files} selected={fileState.selected}
+      focusedFile={focusedFile}
+      onSelect={fileState.toggle} disabled={fileState.disabled} loading={fileState.files.isFetching} error={fileState.files.error}
+      onRefresh={() => { void fileState.refresh() }} />
     <Drawer title="助手设置" open={settings} onClose={() => setSettings(false)} size="min(660px, 100vw)">{settings && <AssistantSettings />}</Drawer>
   </div>
 }

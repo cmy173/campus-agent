@@ -1,11 +1,12 @@
 import { Alert, Button, Collapse, Space, Tag, Typography } from 'antd'
 import { isActive, toolLabels } from './api'
-import type { AgentTurn, ToolEnvelope } from './api'
+import type { AgentTurn, ConversationFile, ToolEnvelope } from './api'
 import { dueText } from './Workspace'
 import { JobProgressInline } from '../../components/JobProgressInline'
 import { useTurnEvents } from './useTurnEvents'
 import { projectTurnEvents } from './turnProjection'
 import { ToolActivities } from './ToolActivities'
+import { FileActivities } from './FileActivities'
 
 function ResultView({ name, result, onSource }: { name: string; result: ToolEnvelope; onSource: (value: ToolEnvelope) => void }) {
   const items = result.data.items ?? []
@@ -30,7 +31,8 @@ function ResultView({ name, result, onSource }: { name: string; result: ToolEnve
   </Space>
 }
 
-export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSource: (value: ToolEnvelope) => void; onCancel: (id: string) => void }) {
+export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }: { turn: AgentTurn; onSource: (value: ToolEnvelope) => void; onCancel: (id: string) => void;
+  attachments?: ConversationFile[]; onFile?: (file: ConversationFile) => void }) {
   const { events, error, controlError, interruptChild, stoppingChildren } = useTurnEvents(turn)
   const activity = projectTurnEvents(events, turn)
   const runningTool = activity.tools.findLast(tool => tool.status === 'running')
@@ -42,12 +44,15 @@ export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSour
   const jobIds = [...new Set(results.filter(e => ['tasks.build', 'jobs.read', 'jobs.cancel'].includes(e.data.name ?? '') && !e.data.result?.error)
     .map(e => e.data.result?.job_id).filter((id): id is string => Boolean(id)))]
   return <section className="agent-turn" aria-label="对话轮次">
-    <div className="agent-user-message"><Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{turn.text}</Typography.Paragraph></div>
+    <div className="agent-user-message"><Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{turn.text}</Typography.Paragraph>
+      {attachments.length > 0 && <div className="agent-attachments">{attachments.map(file => <Tag key={file.id}>{file.name}</Tag>)}</div>}
+    </div>
     <div className="agent-assistant-message">
       <Typography.Text strong>校园助手</Typography.Text>
       {isActive(turn) && <div role="status" className="agent-running">{runningTool ? runningTool.label + '…' : '正在处理…'} <Button size="small" onClick={() => onCancel(turn.id)}>停止本轮</Button></div>}
       {activity.progressText && <Typography.Paragraph className="agent-answer">{activity.progressText}</Typography.Paragraph>}
       {turn.response && <Typography.Paragraph className="agent-answer">{turn.response}</Typography.Paragraph>}
+      <FileActivities events={events} conversationId={turn.conversation_id} onOpen={onFile} />
       {turn.status === 'cancelled' && <Typography.Paragraph type="secondary">本轮已停止，已获得的资料保留。</Typography.Paragraph>}
       {modelErrors.map(event => <Alert key={event.seq} type="warning" title={String(event.data.message)} description={String(event.data.code ?? '')} />)}
       {turn.error && !modelErrors.length && <Alert type="warning" title={turn.error.message} description={turn.error.code} />}

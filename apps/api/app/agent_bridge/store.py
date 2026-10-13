@@ -56,7 +56,15 @@ class Store:
             CREATE TABLE IF NOT EXISTS native_tool_leases (
               turn_id TEXT NOT NULL REFERENCES turns(id), call_id TEXT NOT NULL,
               name TEXT NOT NULL, PRIMARY KEY(turn_id, call_id));
+            CREATE TABLE IF NOT EXISTS conversation_files (
+              id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
+              kind TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL,
+              sha256 TEXT NOT NULL, mime_type TEXT NOT NULL, storage_name TEXT NOT NULL,
+              request_key TEXT NOT NULL, created_at TEXT NOT NULL, source_path TEXT NOT NULL DEFAULT '',
+              UNIQUE(conversation_id, request_key));
             """)
+            if 'attachment_ids' not in {r[1] for r in db.execute('PRAGMA table_info(turns)')}:
+                db.execute("ALTER TABLE turns ADD COLUMN attachment_ids TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def connection(self):
@@ -101,7 +109,8 @@ class Store:
     @staticmethod
     def _turn(row):
         return {key: row[key] for key in ("id", "conversation_id", "text", "status", "response", "created_at", "updated_at")} | {
-            "error": json.loads(row["error"]) if row["error"] else None}
+            "error": json.loads(row["error"]) if row["error"] else None,
+            "attachment_ids": json.loads(row['attachment_ids'])}
 
     def turns(self, cid: str) -> list[dict]:
         with self.connection() as db:
@@ -115,8 +124,11 @@ class Store:
             raise ApiError(404, "NOT_FOUND", "对话轮次不存在")
         return self._turn(row)
 
-    def enqueue(self, cid: str, key: str, text: str, course_id: str | None, clear_course_context: bool = False, action_context: dict | None = None) -> tuple[dict, str | None]:
+    def enqueue(self, cid: str, key: str, text: str, course_id: str | None, clear_course_context: bool = False, action_context: dict | None = None, attachment_ids: list[str] | None = None) -> tuple[dict, str | None]:
         request = {"text": text, "course_id": course_id}
+        attachment_ids = list(dict.fromkeys(attachment_ids or []))
+        if attachment_ids:
+            request['attachment_ids'] = attachment_ids
         if clear_course_context:
             request["clear_course_context"] = True
         if action_context is not None:
@@ -132,6 +144,9 @@ class Store:
                 return self._turn(old), None
             if db.execute("SELECT 1 FROM turns WHERE conversation_id=? AND status IN ('queued','running')", (cid,)).fetchone():
                 raise ApiError(409, "TURN_IN_PROGRESS", "当前会话仍在处理上一条消息")
+            for file_id in attachment_ids:
+                if not db.execute('SELECT 1 FROM conversation_files WHERE id=? AND conversation_id=?', (file_id, cid)).fetchone():
+                    raise ApiError(404, 'NOT_FOUND', '附件不属于当前会话或已不可用')
             settings = json.loads(db.execute("SELECT settings FROM conversations WHERE id=?", (cid,)).fetchone()[0])
             if course_id is not None:
                 if course_id not in settings["course_ids"]:
@@ -140,8 +155,8 @@ class Store:
             elif clear_course_context:
                 settings["current_course_id"] = None
             db.execute("UPDATE conversations SET settings=?,updated_at=? WHERE id=?", (encoded(settings), stamp, cid))
-            db.execute("INSERT INTO turns (id,conversation_id,request_key,request_hash,text,status,token_hash,created_at,updated_at) "
-                       "VALUES (?,?,?,?,?,'queued',?,?,?)", (tid, cid, key, fingerprint, text, digest(token), stamp, stamp))
+            db.execute("INSERT INTO turns (id,conversation_id,request_key,request_hash,text,status,token_hash,created_at,updated_at,attachment_ids) "
+                       "VALUES (?,?,?,?,?,'queued',?,?,?,?)", (tid, cid, key, fingerprint, text, digest(token), stamp, stamp, encoded(attachment_ids)))
             if action_context is not None:
                 db.execute("INSERT INTO events (turn_id,kind,data,created_at) VALUES (?,?,?,?)",
                            (tid, "accepted_action", encoded(action_context), stamp))

@@ -45,6 +45,7 @@ beforeEach(() => {
     if (path === '/agent/conversations') return { items: [conversation], next_cursor: null }
     if (path === '/agent/conversations/conv_one') return structuredClone(conversation)
     if (path === '/agent/conversations/conv_one/actions') return { items: [] }
+    if (path === '/agent/conversations/conv_one/files') return { items: [] }
     if (path === '/agent/conversations/conv_one/turns') {
       sends.push({ key: options!.idempotencyKey!, body: options!.body })
       if (rejectNext) {
@@ -76,6 +77,56 @@ function show(path = '/chat/conv_one') {
 }
 
 describe('Agent conversation product flow', () => {
+  it('opens one published-file card from restored events regardless of producing tool', async () => {
+    const user = userEvent.setup()
+    const base = request.getMockImplementation()!
+    const output = { id: 'file_result', conversation_id: 'conv_one', kind: 'output', name: '分析结果.md', size: 42,
+      sha256: 'fixture', mime_type: 'text/markdown', created_at: firstTurn.created_at }
+    request.mockImplementation(async (path, options) => {
+      if (path === '/agent/conversations/conv_one/files') return { items: [output] }
+      if (path === '/agent/conversations/conv_one/files/file_result/preview') return { kind: 'text', text: 'actual-output-marker', truncated: false }
+      if (path === '/agent/turns/turn_one') return { ...firstTurn, events: { items: options?.query?.after ? [] : [
+        { seq: 1, kind: 'file.published', data: { file: output } },
+        { seq: 2, kind: 'file.published', data: { file: output } },
+        { seq: 3, kind: 'file.published', data: { file: { ...output, id: 'foreign_file', conversation_id: 'other_conversation', name: 'other.md' } } },
+      ], next_cursor: 3 } }
+      return base(path, options)
+    })
+    show()
+    const card = await screen.findByRole('region', { name: '本轮生成成果' })
+    expect(within(card).getAllByRole('button', { name: '打开成果 · 分析结果.md' })).toHaveLength(1)
+    expect(within(card).queryByText('other.md')).not.toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: '打开成果 · 分析结果.md' }))
+    expect(await screen.findByText('actual-output-marker')).toBeInTheDocument()
+  })
+  it('uploads a selected attachment, restores its draft and previews literal output text', async () => {
+    const user = userEvent.setup()
+    const base = request.getMockImplementation()!
+    const item = { id: 'file_one', conversation_id: 'conv_one', kind: 'input', name: '资料.md', size: 20,
+      sha256: 'fixture', mime_type: 'text/markdown', created_at: firstTurn.created_at }
+    let uploaded = false
+    request.mockImplementation(async (path, options) => {
+      if (path === '/agent/conversations/conv_one/files' && options?.method === 'POST') { uploaded = true; return item }
+      if (path === '/agent/conversations/conv_one/files') return { items: uploaded ? [item] : [] }
+      if (path === '/agent/conversations/conv_one/files/file_one/preview') return { kind: 'text', text: '<script>literal-file-marker</script>', truncated: false }
+      return base(path, options)
+    })
+    const view = show()
+    await user.upload(screen.getByLabelText('上传对话附件'), new File(['source-marker'], '资料.md', { type: 'text/markdown' }))
+    await waitFor(() => expect(within(screen.getByLabelText('待发送附件')).getByText('资料.md')).toBeInTheDocument())
+    await user.type(screen.getByLabelText('向校园助手提问'), '整理这份资料')
+    view.unmount()
+    show()
+    expect(await within(await screen.findByLabelText('待发送附件')).findByText('资料.md')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: '发送' }))
+    await waitFor(() => expect(sends[0].body).toMatchObject({ text: '整理这份资料', attachment_ids: ['file_one'] }))
+    await waitFor(() => expect(screen.queryByLabelText('待发送附件')).not.toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /文件与成果/ }))
+    await user.click(await screen.findByRole('button', { name: '预览 资料.md' }))
+    expect(await screen.findByText('<script>literal-file-marker</script>')).toBeInTheDocument()
+    expect(document.querySelector('script')).toBeNull()
+    expect(screen.getByRole('link', { name: '下载 资料.md' })).toHaveAttribute('href', '/api/v1/agent/conversations/conv_one/files/file_one/content')
+  })
   it('stops only the selected child and waits for actual completion before displaying stopped', async () => {
     const user = userEvent.setup()
     const base = request.getMockImplementation()!

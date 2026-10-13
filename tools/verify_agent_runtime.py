@@ -107,6 +107,23 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 slow_started.set()
                 time.sleep(2)
             user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
+            if user_text.startswith('[V2文件演练]'):
+                context = json.loads(messages[last_user]['content'].splitlines()[1])
+                attachments = context.get('attachments', [])
+                actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                choices = [('read', {'file_path': attachments[0]['path']}),
+                    ('write', {'file_path': '附件整理成果.md', 'content': '# 附件整理成果\n' + (actual_results[0] if actual_results else '')}),
+                    ('publish_file', {'path': '附件整理成果.md'})] if attachments else []
+                calls = []
+                if len(actual_results) < len(choices):
+                    name, args = choices[len(actual_results)]
+                    calls = [{'id': 'file_flow_' + str(len(receipts)), 'type': 'function', 'function': {
+                        'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}]
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': None if calls else
+                    ('\n'.join(actual_results) if attachments else '请先上传并选择附件。'), 'tool_calls': calls},
+                    'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             if user_text.startswith('[V2工具演练]'):
                 actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
                 choices = [
@@ -309,7 +326,7 @@ with SessionLocal() as db:
         native_tools = {'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
                         'job_kill', 'job_list', 'job_output', 'list_agents', 'pwsh' if os.name == 'nt' else 'bash',
                         'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
-                        'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'}
+                        'update_goal', 'web_fetch', 'web_search', 'workflow', 'write', 'publish_file'}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
         assert actual_tools == expected_tools | native_tools
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
@@ -447,6 +464,24 @@ with SessionLocal() as db:
         evidence['generic_tools_turn'] = done
         evidence['generic_checks'] = {'settings_api_to_actual_runtime': True, 'actual_file_and_python': True,
             'actual_local_mcp': True, 'all_four_tool_results_succeeded': True}
+        uploaded = client.post(base + f'/api/v1/agent/conversations/{cid}/files',
+            files={'file': ('上传资料.md', '# 实际上传附件\nuploaded-source-marker-619\n'.encode())},
+            headers={'Idempotency-Key': 'actual-upload-one'}, timeout=10)
+        assert uploaded.status_code == 201, uploaded.text
+        attached = post(f'/conversations/{cid}/turns', {'text': '[V2文件演练] 读取附件并生成可下载成果',
+            'attachment_ids': [uploaded.json()['id']]}, {'Idempotency-Key': 'actual-attached-flow'})
+        file_done = wait_turn(attached['id'])
+        assert file_done['status'] == 'succeeded', file_done
+        file_results = [e['data']['event']['data']['message'] for e in file_done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
+        assert len(file_results) == 3 and all(not r['isError'] for r in file_results), file_results
+        published = [e['data']['file'] for e in file_done['events'] if e['kind'] == 'file.published']
+        assert len(published) == 1 and published[0]['kind'] == 'output', file_done
+        downloaded = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{published[0]['id']}/content", timeout=10)
+        assert downloaded.ok and 'uploaded-source-marker-619' in downloaded.content.decode()
+        evidence['file_workspace_turn'] = file_done
+        evidence['file_checks'] = {'actual_multipart_upload': True, 'selected_attachment_in_sdk_context': True,
+            'actual_read_write_publish': True, 'downloadable_output_contains_source': True}
         parallel = post(f'/conversations/{cid}/turns', {'text': '[V2子任务演练] 同时计算A与阅读B，允许单独停止A'}, {'Idempotency-Key': 'v2-parallel-controls'})
         assert child_b_waiting.wait(timeout=20), 'Both actual children did not reach their independent work'
         view = client.get(base + '/api/v1/agent/turns/' + parallel['id'], timeout=10).json()

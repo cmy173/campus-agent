@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 import os
 import secrets
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +40,7 @@ class TurnRequest(tools.Input):
     course_id: str | None = Field(default=None, min_length=1, max_length=128)
     clear_course_context: bool = False
     action_id: str | None = Field(default=None, min_length=1, max_length=128)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=32)
 
 
 class AcceptActionRequest(tools.Input):
@@ -66,6 +69,11 @@ class ModelLeaseRequest(tools.Input):
 class NativeToolLeaseRequest(ModelLeaseRequest):
     call_id: str = Field(min_length=1, max_length=256)
     name: str = Field(min_length=1, max_length=128)
+
+
+class PublishFileRequest(ModelLeaseRequest):
+    call_id: str = Field(min_length=1, max_length=256)
+    path: str = Field(min_length=1, max_length=4096)
 
 
 class ControlAddressRequest(ModelLeaseRequest):
@@ -175,6 +183,42 @@ def read_conversation(conversation_id: str, owner: str = Depends(browser_owner))
     return public_conversation(store.conversation(conversation_id, owner)) | {"turns": store.turns(conversation_id)}
 
 
+@router.get('/conversations/{conversation_id}/files')
+def list_conversation_files(conversation_id: str, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return {'items': runtime.files.list(conversation_id)}
+
+
+@router.post('/conversations/{conversation_id}/files', status_code=201)
+def upload_conversation_file(conversation_id: str, file: UploadFile = File(), owner: str = Depends(browser_owner),
+                             idempotency_key: str = Header(min_length=1, max_length=128)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    try:
+        return runtime.files.save(conversation_id, file.file, file.filename or '', 'input', 'upload:' + idempotency_key)
+    finally:
+        file.file.close()
+
+
+@router.get('/conversations/{conversation_id}/files/{file_id}/preview')
+def preview_conversation_file(conversation_id: str, file_id: str, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return runtime.files.preview(conversation_id, file_id)
+
+
+@router.get('/conversations/{conversation_id}/files/{file_id}/content')
+def content_conversation_file(conversation_id: str, file_id: str, owner: str = Depends(browser_owner), inline: bool = False):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    item, path = runtime.files.get(conversation_id, file_id)
+    can_inline = inline and item['mime_type'] in {'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
+    return FileResponse(path, filename=item['name'], media_type=item['mime_type'],
+                        content_disposition_type='inline' if can_inline else 'attachment',
+                        headers={'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store'})
+
+
 @router.post("/conversations/{conversation_id}/turns", status_code=202)
 def send_turn(conversation_id: str, req: TurnRequest, owner: str = Depends(browser_owner),
               idempotency_key: str = Header(min_length=1, max_length=128), db: Session = Depends(get_db)):
@@ -191,7 +235,7 @@ def send_turn(conversation_id: str, req: TurnRequest, owner: str = Depends(brows
         if action.status not in {"approved", "completed"}:
             raise ApiError(403, "APPROVAL_REQUIRED", "请先接受具体方案，再请求执行")
         accepted = {"action_id": action.id, "tool": "plans." + action.kind}
-    turn, token = runtime.store.enqueue(conversation_id, idempotency_key, req.text, req.course_id, req.clear_course_context, accepted)
+    turn, token = runtime.store.enqueue(conversation_id, idempotency_key, req.text, req.course_id, req.clear_course_context, accepted, req.attachment_ids)
     if token:
         runtime.start(turn, token)
     return turn
@@ -329,6 +373,25 @@ def internal_tool_lease(req: NativeToolLeaseRequest, authority=Depends(runtime_a
     with runtime.call_lock(turn['id']):
         runtime.store.reserve_native_tool(turn['id'], req.call_id, req.name)
     return {'ok': True}
+
+
+@router.post('/internal/files/publish')
+def internal_publish_file(req: PublishFileRequest, authority=Depends(runtime_authority)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    workspace = runtime.workspaces.get(turn['id'])
+    if workspace is None:
+        raise ApiError(409, 'RUNTIME_NOT_READY', '任务目录尚未就绪')
+    source = Path(req.path).expanduser()
+    if not source.is_absolute():
+        source = workspace / source
+    with runtime.call_lock(turn['id']):
+        if runtime.store.turn(turn['id'])['status'] != 'running':
+            raise ApiError(409, 'TURN_STOPPED', '本轮已停止')
+        item = runtime.files.publish(conversation['id'], source.resolve(), 'publish:' + turn['id'] + ':' + req.call_id)
+        runtime.store.event(turn['id'], 'file.published', {'file': item})
+    return item
 
 
 @router.post('/internal/model-error')

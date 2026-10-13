@@ -1,4 +1,4 @@
-import { apiRequest } from '../../lib/api/http'
+import { apiRequest, apiBaseUrl } from '../../lib/api/http'
 import type { ErrorInfo, Plan, PlanBlock } from '../../types/contract'
 
 export interface AgentConversation {
@@ -21,6 +21,7 @@ export interface AgentTurn {
   error: ErrorInfo | null
   created_at: string
   updated_at: string
+  attachment_ids?: string[]
 }
 
 export interface ToolEnvelope {
@@ -45,7 +46,21 @@ export interface TurnRead extends AgentTurn {
   events: { items: AgentEvent[]; next_cursor: number }
 }
 
-export interface SendPayload { text: string; course_id?: string; clear_course_context?: boolean; action_id?: string }
+export interface SendPayload { text: string; course_id?: string; clear_course_context?: boolean; action_id?: string; attachment_ids?: string[] }
+
+export interface ConversationFile {
+  id: string
+  conversation_id: string
+  kind: 'input' | 'output'
+  name: string
+  size: number
+  sha256: string
+  mime_type: string
+  created_at: string
+}
+export interface FilePreview { kind: 'text' | 'image' | 'pdf' | 'download'; text?: string; truncated: boolean }
+const filePath = (cid: string, fid?: string) => `/agent/conversations/${encodeURIComponent(cid)}/files${fid ? '/' + encodeURIComponent(fid) : ''}`
+export const fileContentUrl = (cid: string, fid: string, inline = false) => `${apiBaseUrl()}/api/v1${filePath(cid, fid)}/content${inline ? '?inline=true' : ''}`
 
 export interface McpServerSettings {
   serverName: string
@@ -87,6 +102,13 @@ export interface PlanAction {
 }
 
 export const agentApi = {
+  files: (cid: string) => apiRequest<{ items: ConversationFile[] }>(filePath(cid)),
+  upload: (cid: string, file: File, key: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiRequest<ConversationFile>(filePath(cid), { method: 'POST', formData, idempotencyKey: key })
+  },
+  preview: (cid: string, fid: string) => apiRequest<FilePreview>(filePath(cid, fid) + '/preview'),
   settings: () => apiRequest<RuntimeSettings>('/agent/settings'),
   saveSettings: (body: Omit<RuntimeSettings, 'search'> & { search: Omit<RuntimeSettings['search'], 'has_api_key'> & { api_key?: string; clear_key?: boolean } }) =>
     apiRequest<RuntimeSettings>('/agent/settings', { method: 'PUT', body }),

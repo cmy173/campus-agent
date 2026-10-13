@@ -1,7 +1,7 @@
 import type { SendPayload } from './api'
 
 export interface PendingSend { key: string; payload: SendPayload }
-export interface Draft { text: string; course_id?: string | null; pending?: PendingSend }
+export interface Draft { text: string; course_id?: string | null; pending?: PendingSend; attachment_ids?: string[] }
 const prefix = 'campus.agent.draft.'
 
 export function readDraft(id: string): Draft {

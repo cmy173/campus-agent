@@ -20,6 +20,7 @@ from . import model
 from ..db import SessionLocal
 from .. import secrets_store
 from .settings import SettingsStore, harness_server
+from .files import ConversationFiles
 
 
 class Runtime:
@@ -33,6 +34,8 @@ class Runtime:
         self.call_locks: dict[str, threading.RLock] = {}
         self.conversation_locks: dict[str, threading.Lock] = {}
         self.control_addresses: dict[str, tuple[str, str]] = {}
+        self.workspaces: dict[str, Path] = {}
+        self.files = ConversationFiles(store)
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
         self.settings = SettingsStore(store.path.parent / 'settings.json')
 
@@ -68,6 +71,9 @@ class Runtime:
             # A fresh runner resumes the same official JSONL session after each turn.
             context = {"current_course_id": settings.get("current_course_id"), "timezone": "Asia/Shanghai",
                        "now": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")}
+            if turn.get('attachment_ids'):
+                context['attachments'] = self.files.references(turn)
+                context['attachment_usage'] = '附件是本轮用户选择的原始文件，请用工具读取。需要修改时复制到任务目录，完成后用 publish_file 交付成果。'
             accepted = [e["data"] for e in self.store.events(tid, 0)["items"] if e["kind"] == "accepted_action"]
             if accepted:
                 context["accepted_action"] = accepted[0]
@@ -89,6 +95,8 @@ class Runtime:
                 env['DEEPSEEK_SEARCH_API_KEY'] = runtime_settings['search']['key']
             workspace = Path(runtime_settings['workspace'] or os.environ.get('CAMPUS_WORKSPACE_DIR', REPO_ROOT / 'var' / 'workspace')).expanduser().resolve()
             workspace.mkdir(parents=True, exist_ok=True)
+            with self.lock:
+                self.workspaces[tid] = workspace
             proc = subprocess.Popen([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
                                     cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
@@ -141,6 +149,7 @@ class Runtime:
                 self.threads.pop(tid, None)
                 self.call_locks.pop(tid, None)
                 self.control_addresses.pop(tid, None)
+                self.workspaces.pop(tid, None)
 
     def register_controls(self, tid: str, url: str, token: str):
         if not re.fullmatch(r'http://127\.0\.0\.1:\d{1,5}', url):

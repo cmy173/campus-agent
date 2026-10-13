@@ -153,6 +153,138 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/files:
+    get:
+      tags:
+      - campus-agent
+      summary: List Conversation Files
+      operationId: list_conversation_files_api_v1_agent_conversations__conversation_id__files_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - campus-agent
+      summary: Upload Conversation File
+      operationId: upload_conversation_file_api_v1_agent_conversations__conversation_id__files_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: idempotency-key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_conversation_file_api_v1_agent_conversations__conversation_id__files_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/files/{file_id}/preview:
+    get:
+      tags:
+      - campus-agent
+      summary: Preview Conversation File
+      operationId: preview_conversation_file_api_v1_agent_conversations__conversation_id__files__file_id__preview_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: File Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/files/{file_id}/content:
+    get:
+      tags:
+      - campus-agent
+      summary: Content Conversation File
+      operationId: content_conversation_file_api_v1_agent_conversations__conversation_id__files__file_id__content_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: File Id
+      - name: inline
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Inline
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/conversations/{conversation_id}/turns:
     post:
       tags:
@@ -553,6 +685,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/files/publish:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Publish File
+      operationId: internal_publish_file_api_v1_agent_internal_files_publish_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishFileRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/internal/model-error:
     post:
       tags:
@@ -601,6 +766,16 @@ components:
       required:
       - operation
       title: AcceptActionRequest
+    Body_upload_conversation_file_api_v1_agent_conversations__conversation_id__files_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_conversation_file_api_v1_agent_conversations__conversation_id__files_post
     ControlAddressRequest:
       properties:
         conversation_id:
@@ -829,6 +1004,30 @@ components:
       - call_id
       - name
       title: NativeToolLeaseRequest
+    PublishFileRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        call_id:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Call Id
+        path:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Path
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - call_id
+      - path
+      title: PublishFileRequest
     RuntimeSettings:
       properties:
         workspace:
@@ -951,6 +1150,12 @@ components:
             minLength: 1
           - type: 'null'
           title: Action Id
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 32
+          title: Attachment Ids
       additionalProperties: false
       type: object
       required:

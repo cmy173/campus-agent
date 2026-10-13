@@ -94,7 +94,8 @@ export function useConversationController(id?: string) {
         const accepted = target.status === 'approved' && target.kind === operation ? target : await agentApi.accept(id, target.id, operation, crypto.randomUUID())
         actionId = accepted.id
       }
-      const pending = prepareSend(draft, { text, ...(courseId ? { course_id: courseId } : { clear_course_context: true }), ...(actionId ? { action_id: actionId } : {}) })
+      const pending = prepareSend(draft, { text, ...(courseId ? { course_id: courseId } : { clear_course_context: true }), ...(actionId ? { action_id: actionId } : {}),
+        ...(!override && draft.attachment_ids?.length ? { attachment_ids: draft.attachment_ids } : {}) })
       const retained = { ...draft, pending }
       saveDraft(draftKey, retained)
       setDraft(retained)
@@ -103,7 +104,8 @@ export function useConversationController(id?: string) {
         ...old, current_course_id: courseId ?? null,
         turns: [...(old.turns ?? []).filter(t => t.id !== turn.id), turn],
       } : old)
-      const nextDraft = { text: override ? draft.text : '', course_id: courseId ?? null }
+      const nextDraft = { text: override ? draft.text : '', course_id: courseId ?? null,
+        ...(override && draft.attachment_ids?.length ? { attachment_ids: draft.attachment_ids } : {}) }
       setDraft(nextDraft)
       saveDraft(draftKey, nextDraft)
       void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', id] })
@@ -140,6 +142,10 @@ export function useConversationController(id?: string) {
     setConsent(false)
   }
 
+  function selectAttachments(ids: string[]) {
+    setDraft(previous => ({ ...previous, attachment_ids: ids, pending: undefined }))
+  }
+
   function reconnect() {
     setError('')
     void conversation.refetch()
@@ -157,5 +163,5 @@ export function useConversationController(id?: string) {
   return { navigate, draft, consent, setConsent, sending, error, providers, courses,
     conversations, conversation, turns, active, actions, providerItems, selectedProvider,
     provider, courseId, transcript, messages, changeText, create, send, cancel, options,
-    selectCourse, selectProvider, reconnect, onScroll }
+    selectCourse, selectProvider, selectAttachments, reconnect, onScroll }
 }

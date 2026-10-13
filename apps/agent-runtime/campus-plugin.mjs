@@ -54,6 +54,26 @@ export async function apply(ctx) {
     resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python) }),
   }));
   const inventory = await bridge('/api/v1/agent/internal/schemas', {});
+  ctx.effect(() => ctx.tools.register({
+    name: 'publish_file',
+    description: 'Deliver an existing local file to the user as a downloadable snapshot in the conversation file workspace. Use after writing documents, spreadsheets, PDFs or other task results. Relative paths resolve in the task directory. Reading a file is not delivery; publish each finished output.',
+    parameters: { type: 'object', additionalProperties: false, required: ['path'], properties: {
+      path: { type: 'string', minLength: 1, description: 'Existing file path to publish.' },
+    } },
+    output: { schema: { type: 'object', additionalProperties: false,
+      required: ['id', 'conversation_id', 'kind', 'name', 'size', 'sha256', 'mime_type', 'created_at'],
+      properties: { id: { type: 'string' }, conversation_id: { type: 'string' }, kind: { type: 'string', enum: ['input', 'output'] },
+        name: { type: 'string' }, size: { type: 'integer' }, sha256: { type: 'string' }, mime_type: { type: 'string' }, created_at: { type: 'string' } },
+    }, render: (_args, item) => [{ type: 'text', text: JSON.stringify(item) }] },
+    isConcurrencySafe: true, timeoutMs: 30000,
+    async execute(args, exec) {
+      const item = await bridge('/api/v1/agent/internal/files/publish', {
+        conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(exec.agent.session.id),
+        call_id: String(exec.agent.session.id) + ':' + String(exec.callId), path: args.path,
+      }, exec.signal);
+      return item;
+    },
+  }));
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!exec.name.startsWith('campus_')) {
       await bridge('/api/v1/agent/internal/tool-lease', {
