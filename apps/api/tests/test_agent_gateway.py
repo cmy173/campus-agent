@@ -11,10 +11,13 @@ from app import models as m
 from app.agent_bridge import model
 from app.agent_bridge.runtime import Runtime
 from app.agent_bridge.store import Store
+from app.agent_bridge.limits import RunLimits
 from app.db import Base, get_db
 from app.errors import ApiError
 from app.main import app
 from app.providers import ProviderCallError
+from app import secrets_store
+REAL_GET_KEY = secrets_store.get_key
 
 
 @pytest.fixture
@@ -30,7 +33,7 @@ def gateway(tmp_path, monkeypatch):
         with Session(engine) as db:
             yield db
 
-    runtime = Runtime(Store(tmp_path / "journal.sqlite"), tmp_path / "harness", "http://127.0.0.1:19190")
+    runtime = Runtime(Store(tmp_path / "journal.sqlite", RunLimits(model_calls=12)), tmp_path / "harness", "http://127.0.0.1:19190")
     tokens = {}
 
     def fake_start(turn, token):
@@ -65,6 +68,86 @@ def turn(client, cid, key="send-1", text="作业什么时候截止"):
 
 def internal(client, token, path, data):
     return client.post("/api/v1/agent/internal/" + path, headers={"Authorization": "Bearer " + token}, json=data)
+
+
+def test_runtime_settings_preserve_credentials_and_resolve_for_owned_process(gateway, tmp_path, monkeypatch):
+    client, runtime, _, _ = gateway
+    monkeypatch.setattr(secrets_store, 'SECRETS_DIR', tmp_path / 'private')
+    monkeypatch.setattr(secrets_store, 'get_key', REAL_GET_KEY)
+    payload = {'workspace': str(tmp_path / 'workspace'), 'skill_dirs': [str(tmp_path / 'skills')],
+        'search': {'key_mode': 'separate', 'api_key': 'fixture-search-credential'},
+        'mcp_servers': [{'serverName': 'example', 'command': 'python', 'env': {'TOKEN': 'fixture-mcp-credential'}}]}
+    saved = client.put('/api/v1/agent/settings', json=payload)
+    assert saved.status_code == 200, saved.text
+    assert 'fixture-search-credential' not in saved.text and 'fixture-mcp-credential' not in saved.text
+    assert saved.json()['search']['has_api_key'] is True
+    assert saved.json()['mcp_servers'][0]['env']['TOKEN'] == '__SAVED_CREDENTIAL__'
+    assert 'fixture-' not in runtime.settings.path.read_text(encoding='utf-8')
+    public = saved.json()
+    public['search'].pop('has_api_key')
+    assert client.put('/api/v1/agent/settings', json=public).status_code == 200
+    assert runtime.settings.resolved()['mcp_servers'][0]['env']['TOKEN'] == 'fixture-mcp-credential'
+    assert runtime.settings.resolved()['search']['key'] == 'fixture-search-credential'
+    public['search']['clear_key'] = True
+    assert client.put('/api/v1/agent/settings', json=public).json()['search']['has_api_key'] is False
+
+
+def test_mcp_settings_actual_connection_diagnostic(gateway, tmp_path):
+    import sys
+    from app.config import REPO_ROOT
+    client, _, _, _ = gateway
+    payload = {'mcp_servers': [{'serverName': 'calculator', 'command': sys.executable,
+        'args': ['-u', str(REPO_ROOT / 'tools/fixtures/mcp_calculator.py'), str(tmp_path / 'mcp-audit.jsonl')]}]}
+    assert client.put('/api/v1/agent/settings', json=payload).status_code == 200
+    response = client.post('/api/v1/agent/settings/mcp/calculator/test', json={})
+    assert response.status_code == 200, response.text
+    assert response.json()['ok'] is True, response.text
+    assert response.json()['tool_names'] == ['multiply']
+    assert 'tools/list' in (tmp_path / 'mcp-audit.jsonl').read_text(encoding='utf-8')
+    assert client.post('/api/v1/agent/settings/mcp/missing/test', json={}).status_code == 404
+
+
+def test_search_settings_actual_provider_protocol(gateway, monkeypatch):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    captured = []
+    class SearchFixture(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            captured.append({'path': self.path, 'key': self.headers.get('x-api-key'), 'body': body})
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'content': [{'type': 'web_search_tool_result', 'content': [
+                {'type': 'web_search_result', 'url': 'https://example.com/source', 'title': 'Controlled search source'}]}]}).encode())
+        def log_message(self, *_):
+            pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), SearchFixture)
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    client, _, _, _ = gateway
+    try:
+        assert client.put('/api/v1/agent/settings', json={'search': {'base_url': f'http://127.0.0.1:{server.server_port}', 'model': 'fixture-search'}}).status_code == 200
+        checked = client.post('/api/v1/agent/settings/search/test', json={'provider_id': 'provider_a'})
+        assert checked.status_code == 200 and checked.json()['ok'], checked.text
+        assert checked.json()['source_count'] == 1
+        assert captured[0]['path'] == '/messages'
+        assert captured[0]['key'] == 'synthetic-provider-key'
+        assert captured[0]['body']['tools'][0]['type'] == 'web_search_20250305'
+        assert 'synthetic-provider-key' not in checked.text
+        monkeypatch.setattr(secrets_store, 'get_key', lambda _: None)
+        missing = client.post('/api/v1/agent/settings/search/test', json={'provider_id': 'provider_a'}).json()
+        assert not missing['ok'] and missing['error']['code'] == 'SEARCH_KEY_MISSING'
+    finally:
+        server.shutdown(); server.server_close(); worker.join(timeout=5)
+
+
+def test_settings_transport_validation_and_local_origin(gateway):
+    client, _, _, _ = gateway
+    assert client.put('/api/v1/agent/settings', json={'mcp_servers': [{'serverName': 'bad', 'command': ''}]}).status_code == 400
+    assert client.put('/api/v1/agent/settings', json={'mcp_servers': [
+        {'serverName': 'same', 'command': 'python'}, {'serverName': 'same', 'command': 'node'}]}).status_code == 400
+    assert client.get('/api/v1/agent/settings', headers={'Origin': 'https://unrelated.example'}).status_code == 403
 
 
 def test_consent_and_browser_ownership(gateway):
@@ -217,7 +300,9 @@ def test_real_provider_projection_and_key_boundary(gateway, monkeypatch):
         {"role": "assistant", "content": [{"type": "tool-call", "id": "prior", "name": "campus_courses_list", "arguments": "{}"}]},
         {"role": "tool", "toolCallId": "prior", "content": [{"type": "text", "text": "real tool result"}]},
         {"role": "user", "content": [{"type": "text", "text": "继续"}]}],
-        "tools": [{"name": "shell"}], "attribution_headers": {"Authorization": "injected"}})
+        "tools": [next(s for s in model.registry_schemas(None) if s['name'] == 'campus_courses_list'),
+                  {"name": "pwsh", "description": "Run configured PowerShell", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}}}],
+        "attribution_headers": {"Authorization": "injected"}})
     assert response.status_code == 200, response.text
     assert response.json()["tool_calls"][0]["arguments"] == {}
     url, kwargs = sent[0]
@@ -225,9 +310,58 @@ def test_real_provider_projection_and_key_boundary(gateway, monkeypatch):
     assert kwargs["headers"]["Authorization"] == "Bearer synthetic-provider-key"
     assert kwargs["allow_redirects"] is False
     assert kwargs["json"]["messages"][1]["tool_call_id"] == "prior"
-    assert len(kwargs["json"]["tools"]) == 16
-    assert "shell" not in json.dumps(kwargs["json"]["tools"])
+    assert [s['function']['name'] for s in kwargs['json']['tools']] == ['campus_courses_list', 'pwsh']
     assert "synthetic-provider-key" not in json.dumps(client.get(f"/api/v1/agent/turns/{tid}").json())
+
+
+def test_registry_schema_cannot_replace_domain_contract(gateway, monkeypatch):
+    client, _, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    sent = provider_reply(monkeypatch, {'content': 'not reached'})
+    response = internal(client, tokens[tid], 'model', {'conversation_id': cid,
+        'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'hi'}]}],
+        'tools': [{'name': 'campus_courses_list', 'parameters': {'type': 'object', 'properties': {'user_id': {'type': 'string'}}}}]})
+    assert response.status_code == 400 and not sent
+
+
+def test_native_provider_configuration_and_frozen_lease(gateway, monkeypatch):
+    client, _, tokens, engine = gateway
+    with Session(engine) as db:
+        cfg = db.get(m.ProviderConfig, 'provider_a')
+        cfg.base_url = 'https://api.deepseek.com/v1'
+        cfg.model = 'deepseek-flash'
+        db.commit()
+        settings = {'provider': model.snapshot(cfg), 'send_to_provider': True}
+        configuration = model.runtime_configuration(db, settings)
+        assert configuration == {'provider': 'deepseek-official', 'model': 'deepseek-flash', 'key': 'synthetic-provider-key'}
+    cid = conversation(client)
+    tid = turn(client, cid)
+    result = internal(client, tokens[tid], 'model-lease', {'conversation_id': cid})
+    assert result.status_code == 200
+    assert 'synthetic-provider-key' not in result.text
+    with Session(engine) as db:
+        db.get(m.ProviderConfig, 'provider_a').base_url = 'https://other.example/v1'
+        db.commit()
+    assert internal(client, tokens[tid], 'model-lease', {'conversation_id': cid}).status_code == 409
+
+
+def test_configurable_budget_supports_longer_tasks(tmp_path):
+    store = Store(tmp_path / 'long.sqlite', RunLimits(model_calls=16, tool_calls=40))
+    cid = store.create('owner', {})['id']
+    turn, _ = store.enqueue(cid, 'one', 'long task', None)
+    assert store.running(turn['id'])
+    for _ in range(16):
+        store.reserve_model(turn['id'])
+    with pytest.raises(ApiError):
+        store.reserve_model(turn['id'])
+    for index in range(40):
+        request = {'index': index}
+        assert store.cached_call(turn['id'], str(index), request) is None
+        store.cache_call(turn['id'], str(index), request, {'ok': True})
+    with pytest.raises(ApiError):
+        store.cached_call(turn['id'], 'forty-first', {})
+    assert store.cached_call(turn['id'], '0', {'index': 0}) == {'ok': True}
 
 
 @pytest.mark.parametrize("reply", [{"content": ""}, {"content": "secret body", "tool_calls": [{"id": "tc", "function": {"name": "shell", "arguments": "{}"}}]}, {"content": None, "tool_calls": [{"id": "tc", "function": {"name": "campus_courses_list", "arguments": "[]"}}]}])

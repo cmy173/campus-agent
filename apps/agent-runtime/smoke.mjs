@@ -33,7 +33,8 @@ const profile = await prepareProfile(home);
 const harness = new DeepSeekHarness({
   ...profile, provider: 'campus-model', model: 'controlled-smoke', processCwd: process.cwd(),
   initializeTimeoutMs: 30000, env: {
-    PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, USERPROFILE: process.env.USERPROFILE,
+    PATH: process.env.PATH, PATHEXT: process.env.PATHEXT, ComSpec: process.env.ComSpec,
+    SystemRoot: process.env.SystemRoot, USERPROFILE: process.env.USERPROFILE,
     CAMPUS_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`, CAMPUS_BRIDGE_TOKEN: 'smoke-only',
   },
 });
@@ -42,10 +43,14 @@ try {
   assert.match(result.finalResponse, /synthetic_course/);
   assert(requests.some(r => r.path.endsWith('/tool')));
   for (const r of requests.filter(r => r.path.endsWith('/model'))) {
-    assert.deepEqual(r.body.tools.map(t => t.name), ['campus_courses_list']);
+    const names = r.body.tools.map(t => t.name);
+    for (const expected of ['campus_courses_list', 'web_search', 'web_fetch', 'read', 'write', 'subagent']) {
+      assert(names.includes(expected), 'Missing composed capability: ' + expected);
+    }
   }
   await writeFile(resolve(home, 'runtime-evidence.json'), JSON.stringify({
-    runtime_version: '0.2.0-rc.2', plugins: profile.entries, tool_names: ['campus_courses_list'],
+    runtime_version: '0.2.0-rc.2', bundles: profile.bundles, plugins: profile.entries,
+    tool_schemas: requests.find(r => r.path.endsWith('/model'))?.body.tools,
     events: result.events, final_response: result.finalResponse,
   }, null, 2));
   console.log(JSON.stringify({ ok: true, home, event_count: result.events.length, tool_names: ['campus_courses_list'] }));

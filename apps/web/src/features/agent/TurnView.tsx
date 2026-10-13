@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Collapse, Space, Tag, Typography } from 'antd'
-import { agentApi, isActive, toolLabels } from './api'
-import type { AgentEvent, AgentTurn, ToolEnvelope } from './api'
+import { isActive, toolLabels } from './api'
+import type { AgentTurn, ToolEnvelope } from './api'
 import { dueText } from './Workspace'
-import { apiErrorText } from '../../lib/api/http'
 import { JobProgressInline } from '../../components/JobProgressInline'
+import { useTurnEvents } from './useTurnEvents'
+import { projectTurnEvents } from './turnProjection'
+import { ToolActivities } from './ToolActivities'
 
 function ResultView({ name, result, onSource }: { name: string; result: ToolEnvelope; onSource: (value: ToolEnvelope) => void }) {
   const items = result.data.items ?? []
@@ -30,30 +31,9 @@ function ResultView({ name, result, onSource }: { name: string; result: ToolEnve
 }
 
 export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSource: (value: ToolEnvelope) => void; onCancel: (id: string) => void }) {
-  const [events, setEvents] = useState<AgentEvent[]>([])
-  const [error, setError] = useState('')
-  const cursor = useRef(0)
-  useEffect(() => {
-    let stopped = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const abort = new AbortController()
-    async function poll() {
-      try {
-        const data = await agentApi.turn(turn.id, cursor.current, abort.signal)
-        if (stopped) return
-        cursor.current = data.events.next_cursor
-        setEvents(previous => [...previous, ...data.events.items].filter((e, i, all) => all.findIndex(v => v.seq === e.seq) === i))
-        setError('')
-        if (isActive(data) || data.events.items.length === 100) timer = setTimeout(poll, 600)
-      } catch (e) {
-        if (stopped) return
-        setError(apiErrorText(e))
-        timer = setTimeout(poll, 2000)
-      }
-    }
-    void poll()
-    return () => { stopped = true; abort.abort(); if (timer) clearTimeout(timer) }
-  }, [turn.id, turn.status])
+  const { events, error } = useTurnEvents(turn)
+  const activity = projectTurnEvents(events, turn)
+  const runningTool = activity.tools.findLast(tool => tool.status === 'running')
   const results = events.filter(e => e.kind === 'tool_result' && e.data.result)
   const modelErrors = turn.status === 'failed' || turn.status === 'interrupted'
     ? events.filter(e => e.kind === 'model_error' && typeof e.data.message === 'string')
@@ -65,13 +45,15 @@ export function TurnView({ turn, onSource, onCancel }: { turn: AgentTurn; onSour
     <div className="agent-user-message"><Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{turn.text}</Typography.Paragraph></div>
     <div className="agent-assistant-message">
       <Typography.Text strong>校园助手</Typography.Text>
-      {isActive(turn) && <div role="status" className="agent-running">正在核对信息… <Button size="small" onClick={() => onCancel(turn.id)}>停止本轮</Button></div>}
+      {isActive(turn) && <div role="status" className="agent-running">{runningTool ? runningTool.label + '…' : '正在处理…'} <Button size="small" onClick={() => onCancel(turn.id)}>停止本轮</Button></div>}
+      {activity.progressText && <Typography.Paragraph className="agent-answer">{activity.progressText}</Typography.Paragraph>}
       {turn.response && <Typography.Paragraph className="agent-answer">{turn.response}</Typography.Paragraph>}
       {turn.status === 'cancelled' && <Typography.Paragraph type="secondary">本轮已停止，已获得的资料保留。</Typography.Paragraph>}
       {modelErrors.map(event => <Alert key={event.seq} type="warning" title={String(event.data.message)} description={String(event.data.code ?? '')} />)}
       {turn.error && !modelErrors.length && <Alert type="warning" title={turn.error.message} description={turn.error.code} />}
       {error && <Alert type="warning" title="进度连接暂时中断，正在恢复" description={error} />}
       {jobIds.map(id => <JobProgressInline key={id} jobId={id} compact allowRetry={false} />)}
+      <ToolActivities tools={activity.tools} children={activity.children} />
       {results.filter(e => e.data.name === 'materials.read' && e.data.result?.data.resource).map(e =>
         <div className="agent-source-action" key={e.seq}><Button onClick={() => onSource(e.data.result!)}>
           打开原文 · {String(e.data.result!.data.resource!.title ?? '资料')}

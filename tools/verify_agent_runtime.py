@@ -46,10 +46,34 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             receipts.append(body)
             messages = body["messages"]
-            last_user = max(i for i, m in enumerate(messages) if m["role"] == "user")
+            # Upstream skills/runtime context may append user-role reminders.
+            # Select the actual gateway prompt, rather than the last reminder.
+            last_user = max(i for i, m in enumerate(messages) if m["role"] == "user" and "用户消息：\n" in m["content"])
             if "取消演练" in messages[last_user]["content"]:
                 slow_started.set()
                 time.sleep(2)
+            user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
+            if user_text.startswith('[V2工具演练]'):
+                actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                choices = [
+                    ('write', {'file_path': 'v2-browser-notes.md', 'content': '# 实际工具产物\n来源标记：v2-browser-731\n'}),
+                    ('read', {'file_path': 'v2-browser-notes.md'}),
+                    ('pwsh', {'command': '& $env:DSH_PYTHON_EXECUTABLE -c "print(6 * 7)"', 'description': '通过实际 Python 环境计算结果'}),
+                ]
+                if any(t['function']['name'] == 'mcp__calculator__multiply' for t in body.get('tools', [])):
+                    choices.append(('mcp__calculator__multiply', {'a': 36, 'b': 7}))
+                calls = []
+                if len(actual_results) < len(choices):
+                    name, args = choices[len(actual_results)]
+                    calls = [{'id': 'v2_native_' + str(len(receipts)), 'type': 'function', 'function': {
+                        'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}]
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant',
+                    'content': None if calls else '\n'.join(actual_results), 'tool_calls': calls},
+                    'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             results = [json.loads(m["content"]) for m in messages[last_user + 1:] if m["role"] == "tool"]
             calls = []
             content = None
@@ -138,6 +162,7 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
     env.update(STUDY_DATABASE_URL="sqlite:///" + (run_dir / "domain.sqlite").as_posix(),
                STUDY_FILES_DIR=str(run_dir / "files"), STUDY_SECRETS_DIR=str(run_dir / "secrets"), CAMPUS_AGENT_HOME=str(run_dir / "agent"),
                CAMPUS_BRIDGE_URL=f"http://127.0.0.1:{port}", PYTHONUTF8="1", STUDY_WORKER_INPROC="0")
+    env['CAMPUS_WORKSPACE_DIR'] = str(run_dir / 'workspace')
     env["CAMPUS_WEB_ORIGINS"] = f"http://127.0.0.1:{web_port},http://localhost:{web_port}"
     # Seed in a separate process: config.py reads paths only once, before import.
     seed = """
@@ -227,7 +252,12 @@ with SessionLocal() as db:
         assert len(history["turns"]) == 2 and history["current_course_id"] == "course_synthetic"
         assert sum(m["role"] == "user" for m in receipts[-1]["messages"]) >= 2, "official persisted session did not resume"
         expected_tools = {"campus_connections_status", "campus_courses_list", "campus_materials_list", "campus_materials_search", "campus_materials_read", "campus_assignments_list", "campus_tasks_list", "campus_plans_read", "campus_jobs_read", "campus_availability_read", "campus_plans_preview", "campus_plans_apply", "campus_plans_revoke", "campus_tasks_build", "campus_jobs_cancel", "campus_tasks_feedback"}
-        assert {s["function"]["name"] for s in receipts[-1]["tools"]} == expected_tools
+        native_tools = {'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
+                        'job_kill', 'job_list', 'job_output', 'list_agents', 'pwsh' if os.name == 'nt' else 'bash',
+                        'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
+                        'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'}
+        actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
+        assert actual_tools == expected_tools | native_tools
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
         assert slow_started.wait(timeout=15), "controlled provider was not reached before cancellation"
         cancelled = post("/turns/" + cancel_turn["id"] + "/cancel", {})
@@ -345,7 +375,28 @@ with SessionLocal() as db:
         after_assignment = client.get(base + "/api/v1/assignments/assignment_synthetic", timeout=10).json()
         assert before_assignment["submission_status"] == after_assignment["submission_status"]
         evidence["feedback_checks"] = {"real_harness_read_then_feedback": True, "school_submission_unchanged": True}
-        evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(expected_tools), second_turn_preserved_history=True)
+        configured = client.put(base + '/api/v1/agent/settings', json={'mcp_servers': [{
+            'serverName': 'calculator', 'command': sys.executable,
+            'args': ['-u', str(ROOT / 'tools/fixtures/mcp_calculator.py'), str(run_dir / 'mcp-service.jsonl')],
+        }]}, timeout=10)
+        assert configured.ok, configured.text
+        diagnostic = post('/settings/mcp/calculator/test', {})
+        assert diagnostic['ok'] and diagnostic['tool_names'] == ['multiply'], diagnostic
+        generic = post(f'/conversations/{cid}/turns', {'text': '[V2工具演练] 文件、Python与已配置MCP实际执行'}, {'Idempotency-Key': 'v2-generic'})
+        done = wait_turn(generic['id'])
+        assert done['status'] == 'succeeded', done
+        native_results = [e['data']['event']['data']['message'] for e in done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
+        assert len(native_results) == 4 and all(not r['isError'] for r in native_results), native_results
+        assert '42' in done['response'] and 'MCP computed: 252' in done['response']
+        assert (run_dir / 'workspace/v2-browser-notes.md').read_text(encoding='utf-8') == '# 实际工具产物\n来源标记：v2-browser-731\n'
+        evidence['generic_tools_turn'] = done
+        evidence['generic_checks'] = {'settings_api_to_actual_runtime': True, 'actual_file_and_python': True,
+            'actual_local_mcp': True, 'all_four_tool_results_succeeded': True}
+        actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
+        assert actual_tools == expected_tools | native_tools | {'mcp__calculator__multiply',
+            'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
+        evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(actual_tools), second_turn_preserved_history=True)
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:
         (run_dir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")

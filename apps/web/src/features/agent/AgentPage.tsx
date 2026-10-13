@@ -3,7 +3,7 @@ import { Alert, Button, Checkbox, Drawer, Input, Select, Space, Typography } fro
 import { CalendarOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { API_MODE, apiErrorText } from '../../lib/api/http'
-import { AiProviderCard } from '../settings/AiProviderCard'
+import { AssistantSettings } from '../settings/AssistantSettings'
 import type { ToolEnvelope } from './api'
 import { PlanActions } from './PlanActions'
 import { CalendarWorkspace, SourceWorkspace } from './Workspace'
@@ -82,7 +82,7 @@ function ConversationPage({ id }: { id?: string }) {
     </div>
     <SourceWorkspace result={source} onClose={() => setSource(null)} />
     <CalendarWorkspace open={calendar} onClose={() => setCalendar(false)} />
-    <Drawer title="模型设置" open={settings} onClose={() => setSettings(false)} size="min(660px, 100vw)">{settings && <AiProviderCard />}</Drawer>
+    <Drawer title="助手设置" open={settings} onClose={() => setSettings(false)} size="min(660px, 100vw)">{settings && <AssistantSettings />}</Drawer>
   </div>
 }
 

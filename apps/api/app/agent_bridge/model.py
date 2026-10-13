@@ -14,6 +14,7 @@ from ..errors import ApiError
 from ..models import ProviderConfig, iso_utc
 from ..providers import MAX_RESPONSE_BYTES, ProviderCallError, _http_error, chat_endpoint, normalize_base_url
 from .tools import schemas
+from urllib.parse import urlsplit
 
 
 def snapshot(cfg: ProviderConfig) -> dict:
@@ -46,22 +47,54 @@ def messages_for_provider(messages: list[dict]) -> list[dict]:
     return result
 
 
-def call_model(db, settings: dict, messages: list[dict], max_tokens: int) -> dict:
+def validated_config(db, settings: dict) -> ProviderConfig:
     cfg = db.get(ProviderConfig, settings["provider"]["id"])
     if cfg is None or snapshot(cfg) != settings["provider"]:
         raise ApiError(409, "PROVIDER_CHANGED", "模型配置已变化，请新建会话并重新确认发送范围")
     if not settings["send_to_provider"]:
         raise ApiError(403, "CONSENT_REQUIRED", "尚未授权向所选模型发送消息和工具返回的资料")
+    return cfg
+
+
+def runtime_configuration(db, settings: dict) -> dict:
+    cfg = validated_config(db, settings)
+    url = urlsplit(cfg.base_url)
+    official = url.scheme == 'https' and url.hostname == 'api.deepseek.com' and url.port in (None, 443) and url.path.rstrip('/') in ('', '/v1')
+    # Returned only to the owned subprocess environment, never model/log/UI.
+    return {'provider': 'deepseek-official' if official else 'campus-model', 'model': cfg.model,
+            'key': secrets_store.get_key(cfg.id) if official else None}
+
+
+def registry_schemas(items: list[dict] | None) -> list[dict]:
+    domain = {s['model_name']: {'name': s['model_name'], 'description': s['description'], 'parameters': s['input_schema']} for s in schemas()}
+    if items is None:
+        return list(domain.values())
+    result, names = [], set()
+    for item in items:
+        name = item.get('name')
+        if not isinstance(name, str) or not name or name in names or not isinstance(item.get('parameters'), dict):
+            raise ApiError(400, 'INVALID_INPUT', '运行时工具定义必须有唯一名称和参数 schema')
+        names.add(name)
+        if name.startswith('campus_'):
+            if name not in domain or item['parameters'] != domain[name]['parameters']:
+                raise ApiError(400, 'INVALID_INPUT', '校园工具定义与领域契约不一致')
+            result.append(domain[name])
+        else:
+            result.append({'name': name, 'description': str(item.get('description', '')), 'parameters': item['parameters']})
+    return result
+
+
+def call_model(db, settings: dict, messages: list[dict], max_tokens: int, runtime_tools: list[dict] | None = None) -> dict:
+    cfg = validated_config(db, settings)
     base = normalize_base_url(cfg.base_url)
     headers = {"Content-Type": "application/json"}
     key = secrets_store.get_key(cfg.id)
     if key:
         headers["Authorization"] = "Bearer " + key
-    tool_specs = schemas()
+    tool_specs = registry_schemas(runtime_tools)
     payload = {"model": cfg.model, "messages": messages_for_provider(messages), "stream": False,
                "max_tokens": max_tokens,
-               "tools": [{"type": "function", "function": {"name": s["model_name"], "description": s["description"],
-                          "parameters": s["input_schema"]}} for s in tool_specs], "tool_choice": "auto"}
+               "tools": [{"type": "function", "function": s} for s in tool_specs], "tool_choice": "auto"}
     try:
         response = requests.post(chat_endpoint(base), json=payload, headers=headers,
                                  timeout=(10, cfg.timeout_seconds), allow_redirects=False)
@@ -83,7 +116,7 @@ def call_model(db, settings: dict, messages: list[dict], max_tokens: int) -> dic
         content = message.get("content") or ""
         if not isinstance(content, str):
             raise ValueError("content")
-        allowed = {s["model_name"] for s in tool_specs}
+        allowed = {s["name"] for s in tool_specs}
         calls, ids = [], set()
         raw_calls = message.get("tool_calls") or []
         if not isinstance(raw_calls, list) or len(raw_calls) > 8:

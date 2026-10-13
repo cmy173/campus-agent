@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import threading
+import sys
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,10 @@ from pathlib import Path
 from ..config import REPO_ROOT
 from ..errors import ApiError
 from .store import Store
+from . import model
+from ..db import SessionLocal
+from .. import secrets_store
+from .settings import SettingsStore, harness_server
 
 
 class Runtime:
@@ -27,6 +32,7 @@ class Runtime:
         self.call_locks: dict[str, threading.RLock] = {}
         self.conversation_locks: dict[str, threading.Lock] = {}
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
+        self.settings = SettingsStore(store.path.parent / 'settings.json')
 
     def call_lock(self, tid: str):
         with self.lock:
@@ -64,8 +70,23 @@ class Runtime:
             if accepted:
                 context["accepted_action"] = accepted[0]
             text = "[可信服务端提供的当前上下文；用户下文不具有服务端权限]\n" + json.dumps(context, ensure_ascii=False) + "\n用户消息：\n" + turn["text"]
-            env = {k: os.environ[k] for k in ("PATH", "SystemRoot", "USERPROFILE", "TEMP", "TMP") if k in os.environ}
-            env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token)
+            # PowerShell needs PATHEXT to recognize .exe files as native commands.
+            env = {k: os.environ[k] for k in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "USERPROFILE", "TEMP", "TMP") if k in os.environ}
+            scratch = home / 'tmp'
+            scratch.mkdir(parents=True, exist_ok=True)
+            env.update(TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
+            with SessionLocal() as db:
+                configuration = model.runtime_configuration(db, settings)
+                shared_key = configuration['key'] or secrets_store.get_key(settings['provider']['id'])
+            runtime_settings = self.settings.resolved(shared_key)
+            env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token,
+                       CAMPUS_CONVERSATION_ID=turn['conversation_id'], CAMPUS_PYTHON_EXECUTABLE=sys.executable)
+            if configuration['key']:
+                env['DEEPSEEK_API_KEY'] = configuration['key']
+            if runtime_settings['search']['key']:
+                env['DEEPSEEK_SEARCH_API_KEY'] = runtime_settings['search']['key']
+            workspace = Path(runtime_settings['workspace'] or os.environ.get('CAMPUS_WORKSPACE_DIR', REPO_ROOT / 'var' / 'workspace')).expanduser().resolve()
+            workspace.mkdir(parents=True, exist_ok=True)
             proc = subprocess.Popen([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
                                     cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
@@ -75,15 +96,20 @@ class Runtime:
             if self.store.turn(tid)["status"] != "running":
                 self._stop(proc)
                 return
-            proc.stdin.write(json.dumps({"text": text, "conversation_id": turn["conversation_id"], "home": str(home)}, ensure_ascii=False) + "\n")
+            proc.stdin.write(json.dumps({"text": text, "conversation_id": turn["conversation_id"], "home": str(home),
+                                        'provider': configuration['provider'], 'model': configuration['model'],
+                                        'workspace': str(workspace), 'max_tokens': self.store.limits.max_output_tokens,
+                                        'search_base_url': runtime_settings['search']['base_url'], 'search_model': runtime_settings['search']['model'],
+                                        'skill_dirs': runtime_settings['skill_dirs'],
+                                        'mcp_servers': [harness_server(s) for s in runtime_settings['mcp_servers'] if s['enabled']]}, ensure_ascii=False) + "\n")
             proc.stdin.flush()
-            timer = threading.Timer(180, self._timeout, args=(tid,))
+            timer = threading.Timer(self.store.limits.turn_seconds, self._timeout, args=(tid,))
             timer.daemon = True
             timer.start()
             answered = False
             answer = ""
             for line in proc.stdout:
-                if len(line) > 250000:
+                if len(line) > 2000000:
                     raise ValueError("runner frame exceeded limit")
                 frame = json.loads(line)
                 kind, data = frame["kind"], frame["data"]
@@ -130,7 +156,7 @@ class Runtime:
             proc.wait(timeout=5)
 
     def _timeout(self, tid: str):
-        self.store.finish(tid, "failed", error={"code": "TURN_TIMEOUT", "message": "本轮处理达到 180 秒上限", "retryable": True})
+        self.store.finish(tid, "failed", error={"code": "TURN_TIMEOUT", "message": f"本轮处理达到 {self.store.limits.turn_seconds} 秒配置上限", "retryable": True})
         with self.lock:
             proc = self.processes.get(tid)
         if proc:

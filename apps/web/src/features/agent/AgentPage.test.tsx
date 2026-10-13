@@ -76,6 +76,27 @@ function show(path = '/chat/conv_one') {
 }
 
 describe('Agent conversation product flow', () => {
+  it('shows unknown tools and child results without requiring a new chat renderer', async () => {
+    const user = userEvent.setup()
+    const base = request.getMockImplementation()!
+    request.mockImplementation(async (path, options) => {
+      if (path === '/agent/turns/turn_one') return { ...firstTurn, events: { items: options?.query?.after ? [] : [
+        { seq: 1, kind: 'harness_event', data: { session_id: 'conv_one', event: { type: 'tool/call', data: { callId: 'm1', name: 'mcp__reports__generate', arguments: '{}' } } } },
+        { seq: 2, kind: 'harness_event', data: { session_id: 'conv_one', event: { type: 'tool/result', data: { message: { toolCallId: 'm1', content: [{ type: 'text', text: '<script>literal tool output</script>' }], isError: true } } } } },
+        { seq: 3, kind: 'subagent.finished', data: { childSessionId: 'child_one', status: 'ok', lastAssistantMessage: [{ type: 'text', text: '独立计算结果：56' }] } },
+      ], next_cursor: 3 } }
+      return base(path, options)
+    })
+    show()
+    await user.click(await screen.findByText('工具执行记录'))
+    expect(await screen.findByText('mcp__reports__generate')).toBeInTheDocument()
+    expect(await screen.findByText('失败')).toBeInTheDocument()
+    await user.click(screen.getByText('查看输入与结果'))
+    expect(await screen.findByText('<script>literal tool output</script>')).toBeInTheDocument()
+    await user.click(screen.getByText('查看子任务结果'))
+    expect(await screen.findByText('独立计算结果：56')).toBeInTheDocument()
+    expect(document.querySelector('script')).toBeNull()
+  })
   it('requires explicit provider consent and carries an unsent draft into the new conversation', async () => {
     const user = userEvent.setup()
     show('/chat')

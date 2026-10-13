@@ -19,6 +19,9 @@ from ..agent_bridge.runtime import get_runtime
 from ..db import get_db
 from ..errors import ApiError
 from ..providers import ProviderCallError
+from ..agent_bridge.settings import RuntimeSettings, harness_server
+from ..agent_bridge import diagnostics
+from .. import secrets_store
 
 router = APIRouter(prefix="/agent", tags=["campus-agent"])
 COOKIE = "campus_agent_owner"
@@ -51,9 +54,17 @@ class ToolRequest(tools.Input):
 class ModelRequest(tools.Input):
     conversation_id: str = Field(min_length=1, max_length=128)
     messages: list[dict[str, Any]] = Field(min_length=1, max_length=200)
-    tools: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
-    max_tokens: int = Field(default=4096, ge=1, le=4096)
+    tools: list[dict[str, Any]] | None = Field(default=None, max_length=256)
+    max_tokens: int = Field(default=16384, ge=1, le=65536)
     attribution_headers: dict[str, str] = Field(default_factory=dict)
+
+
+class ModelLeaseRequest(tools.Input):
+    conversation_id: str = Field(min_length=1, max_length=128)
+
+
+class SearchTestRequest(tools.Input):
+    provider_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def browser_owner(request: Request, response: Response) -> str:
@@ -87,6 +98,35 @@ def public_conversation(item: dict) -> dict:
     return {k: item[k] for k in ("id", "created_at", "updated_at")} | {
         "provider_id": settings["provider"]["id"], "course_ids": settings["course_ids"],
         "current_course_id": settings.get("current_course_id"), "send_to_provider": settings["send_to_provider"]}
+
+
+@router.get('/settings')
+def read_settings(owner: str = Depends(browser_owner)):
+    return get_runtime().settings.public()
+
+
+@router.put('/settings')
+def save_settings(req: RuntimeSettings, owner: str = Depends(browser_owner)):
+    return get_runtime().settings.save(req)
+
+
+@router.post('/settings/mcp/{server_name}/test')
+def test_mcp(server_name: str, req: tools.Empty, owner: str = Depends(browser_owner)):
+    server = next((s for s in get_runtime().settings.resolved()['mcp_servers'] if s['serverName'] == server_name), None)
+    if server is None:
+        raise ApiError(404, 'NOT_FOUND', 'MCP 服务配置不存在')
+    return diagnostics.check({'kind': 'mcp', 'server': harness_server(server)})
+
+
+@router.post('/settings/search/test')
+def test_search(req: SearchTestRequest, owner: str = Depends(browser_owner), db: Session = Depends(get_db)):
+    shared = None
+    if req.provider_id:
+        if db.get(m.ProviderConfig, req.provider_id) is None:
+            raise ApiError(404, 'NOT_FOUND', '共享密钥的模型配置不存在')
+        shared = secrets_store.get_key(req.provider_id)
+    search = get_runtime().settings.resolved(shared)['search']
+    return diagnostics.check({'kind': 'search', 'key': search['key'], 'base_url': search['base_url'], 'model': search['model']})
 
 
 @router.post("/conversations", status_code=201)
@@ -231,8 +271,19 @@ def internal_model(req: ModelRequest, authority=Depends(runtime_authority), db: 
         raise ApiError(400, "BUDGET_EXCEEDED", "会话内容超出本轮发送预算")
     runtime.store.reserve_model(turn["id"])
     try:
-        # Ignore caller tools/attribution headers. The server owns inventory and transport.
-        return model.call_model(db, conversation["settings"], req.messages, req.max_tokens)
+        # The authenticated Harness registry supplies native/skill/MCP tools.
+        # Transport headers remain server-owned; domain schemas cannot be replaced.
+        return model.call_model(db, conversation["settings"], req.messages, req.max_tokens, req.tools)
     except (ApiError, ProviderCallError) as exc:
         runtime.store.event(turn["id"], "model_error", {"code": exc.code, "message": exc.message, "retryable": exc.retryable})
         raise ApiError(getattr(exc, "status_code", 502), exc.code, exc.message, retryable=exc.retryable) from None
+
+
+@router.post('/internal/model-lease')
+def internal_model_lease(req: ModelLeaseRequest, authority=Depends(runtime_authority), db: Session = Depends(get_db)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    model.validated_config(db, conversation['settings'])
+    runtime.store.reserve_model(turn['id'])
+    return {'ok': True}

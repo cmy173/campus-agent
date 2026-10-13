@@ -316,7 +316,7 @@ export function AiProviderCard() {
 
   return (
     <Card
-      title="模型服务（复习卷生成用）"
+      title="模型服务"
       size="small"
       extra={
         <Button
@@ -333,8 +333,8 @@ export function AiProviderCard() {
       }
     >
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-        用于复习卷的 AI／混合模式生成。支持本地模型与第三方兼容服务（OpenAI 兼容协议）；
-        不预置任何厂商默认地址与模型，请按你的服务信息填写。纯网络题库模式无需此处配置。
+        用于助手对话与复习资料生成。支持 DeepSeek 官方服务、本地模型及兼容服务；
+        请填写服务商提供的 API 地址、模型名和密钥。
       </Typography.Paragraph>
       {providersQuery.isLoading && <Typography.Text type="secondary">加载中…</Typography.Text>}
       {providersQuery.isError && (

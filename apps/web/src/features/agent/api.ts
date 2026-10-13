@@ -47,6 +47,35 @@ export interface TurnRead extends AgentTurn {
 
 export interface SendPayload { text: string; course_id?: string; clear_course_context?: boolean; action_id?: string }
 
+export interface McpServerSettings {
+  serverName: string
+  enabled: boolean
+  transport: 'stdio' | 'streamable-http'
+  command: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+  url: string
+  headers: Record<string, string>
+  toolCallTimeoutMs: number
+}
+
+export interface RuntimeSettings {
+  workspace: string
+  skill_dirs: string[]
+  search: { base_url: string; model: string; key_mode: 'shared' | 'separate'; has_api_key: boolean }
+  mcp_servers: McpServerSettings[]
+}
+
+export interface DiagnosticResult {
+  ok: boolean
+  latency_ms?: number
+  tool_names?: string[]
+  tool_count?: number
+  source_count?: number
+  error?: ErrorInfo
+}
+
 export interface PlanAction {
   id: string
   kind: 'apply' | 'revoke'
@@ -58,6 +87,11 @@ export interface PlanAction {
 }
 
 export const agentApi = {
+  settings: () => apiRequest<RuntimeSettings>('/agent/settings'),
+  saveSettings: (body: Omit<RuntimeSettings, 'search'> & { search: Omit<RuntimeSettings['search'], 'has_api_key'> & { api_key?: string; clear_key?: boolean } }) =>
+    apiRequest<RuntimeSettings>('/agent/settings', { method: 'PUT', body }),
+  testMcp: (name: string) => apiRequest<DiagnosticResult>(`/agent/settings/mcp/${encodeURIComponent(name)}/test`, { method: 'POST', body: {} }),
+  testSearch: (provider_id?: string) => apiRequest<DiagnosticResult>('/agent/settings/search/test', { method: 'POST', body: { provider_id } }),
   list: () => apiRequest<{ items: AgentConversation[]; next_cursor: null }>('/agent/conversations'),
   read: (id: string) => apiRequest<AgentConversation>(`/agent/conversations/${encodeURIComponent(id)}`),
   create: (provider_id: string, course_id?: string) => apiRequest<AgentConversation>('/agent/conversations', {

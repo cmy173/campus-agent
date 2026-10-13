@@ -11,6 +11,9 @@
 .agent-answer { white-space: pre-wrap; margin-top: 10px; font-size: var(--agent-text-size); line-height: var(--agent-line-height); }
 .agent-source-action { margin: 12px 0; }
 .agent-running { display: flex; gap: 12px; align-items: center; margin: 12px 0; color: #666; }
+.agent-tool-activities, .agent-child-tasks { margin: 12px 0; }
+.agent-child-tasks > div { margin: 8px 0; }
+.agent-tool-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; margin: 8px 0; font-size: 13px; }
 .agent-start { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #e1e6ec; border-radius: 12px; background: #fff; }
 .agent-start > .ant-btn { align-self: flex-start; }
 .agent-composer { background: var(--agent-surface); padding: 12px; border-radius: var(--agent-radius); border: 1px solid var(--agent-border); box-shadow: 0 3px 18px #172b4d08; }

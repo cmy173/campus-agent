@@ -1,8 +1,10 @@
 import { LlmAdapter, attributionHeaders } from '@deepseek-ai/dsh-llm';
 import { Service } from '@deepseek-ai/cordis';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const name = 'campus';
-export const inject = ['tools', 'llm'];
+export const inject = ['tools', 'llm', 'shellEnv'];
 
 async function bridge(path, payload, signal) {
   const base = process.env.CAMPUS_BRIDGE_URL;
@@ -20,7 +22,7 @@ async function bridge(path, payload, signal) {
 export class CampusModelAdapter extends LlmAdapter {
   async *stream(options) {
     const result = await bridge('/api/v1/agent/internal/model', {
-      conversation_id: String(options.sessionId), messages: options.messages,
+      conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId), messages: options.messages,
       tools: options.tools || [], max_tokens: options.maxTokens || 2048,
       attribution_headers: attributionHeaders(),
     }, options.signal);
@@ -42,9 +44,15 @@ export class CampusModelAdapter extends LlmAdapter {
 }
 
 export async function apply(ctx) {
+  const python = process.env.CAMPUS_PYTHON_EXECUTABLE || fileURLToPath(new URL('../api/.venv/Scripts/python.exe', import.meta.url));
+  ctx.effect(() => ctx.shellEnv.register({
+    name: 'campus-executables',
+    variables: { DSH_PYTHON_EXECUTABLE: { description: 'Absolute path to the Campus Python environment; invoke with & $env:DSH_PYTHON_EXECUTABLE.' } },
+    resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python) }),
+  }));
   const inventory = await bridge('/api/v1/agent/internal/schemas', {});
-  const allowed = new Set(inventory.map(s => s.model_name));
-  ctx.effect(() => ctx.tools.guard(exec => allowed.has(exec.name) ? undefined : 'Not a registered campus capability'));
+  // The registry owns tool availability. Domain validation stays in the campus
+  // bridge; a global campus-only guard would block upstream and MCP tools.
   for (const spec of inventory) {
     ctx.effect(() => ctx.tools.register({
       name: spec.model_name, description: spec.description, parameters: spec.input_schema,
@@ -67,12 +75,23 @@ export async function apply(ctx) {
       timeoutMs: 20000, isConcurrencySafe: spec.effects === 'read',
       async execute(args, exec) {
         return bridge('/api/v1/agent/internal/tool', {
-          name: spec.name, arguments: args, conversation_id: String(exec.agent.session.id), call_id: String(exec.callId),
+          name: spec.name, arguments: args,
+          conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(exec.agent.session.id),
+          call_id: String(exec.agent.session.id) === process.env.CAMPUS_CONVERSATION_ID || !process.env.CAMPUS_CONVERSATION_ID
+            ? String(exec.callId) : String(exec.agent.session.id) + ':' + String(exec.callId),
         }, exec.signal);
       },
     }));
   }
   ctx.effect(() => ctx.llm.registerAdapter(['campus-model'], new CampusModelAdapter()));
+  ctx.on('llm/stream', async function* (options, next) {
+    if (options.provider !== 'campus-model') {
+      await bridge('/api/v1/agent/internal/model-lease', {
+        conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId),
+      }, options.signal);
+    }
+    yield* next();
+  });
   // This service appears only after schemas and adapters are registered. SDK
   // initialization must wait for it; async plugin apply alone is not a fence.
   class CampusReady extends Service {

@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-14",
+  "status": "increment_verified_goal_active",
+  "implementation_directory": "D:/AI/campus-agent",
+  "runtime_version": "0.2.0-rc.2",
+  "default_tool_count": 40,
+  "calculator_mcp_tool_count": 44,
+  "evidence": {
+    "native_tools": "var/v2-capabilities-TEz8fE/evidence.json",
+    "mcp_calls_errors_disconnect_reconnect_credentials": "var/v2-mcp-2lAeqn/evidence.json",
+    "actual_api_settings_runtime_domain_and_generic": "var/agent-integration-0r0pze2b/evidence.json",
+    "actual_browser_desktop_narrow_refresh": "var/agent-integration-stfjf1mm/browser-evidence.json"
+  },
+  "checks": {
+    "api_suite": {"exit_code": 0, "passed": 279, "seconds": 53.32},
+    "web_suite": {"exit_code": 0, "passed": 131, "files": 21, "seconds": 79.25, "max_workers": 2},
+    "contract_conformance": {"exit_code": 0, "passed": 9},
+    "final_web_build": {"exit_code": 0},
+    "mcp_import_followup_tests": {"exit_code": 0, "passed": 3},
+    "mcp_import_followup_typecheck": {"exit_code": 0},
+    "full_sdk_integration": {"exit_code": 0, "controlled_model_calls": 46},
+    "browser_generic_tool_results": {"actual_successful_results": 4, "python_result": 42, "mcp_result": 252},
+    "narrow_screen": {"viewport_width": 390, "document_width": 375},
+    "owned_services_stopped": true
+  },
+  "verification_boundaries": {
+    "conversation_model": "controlled_local_provider",
+    "search_service": "actual_upstream_provider_with_controlled_endpoint",
+    "web_fetch": "real_public_network",
+    "mcp_service": "actual_independent_stdio_process",
+    "files_commands_and_browser_ui": "actual_local_execution"
+  },
+  "remaining": [
+    "official_provider_protocol_and_real_paid_trials",
+    "persistent_authenticated_browser_and_external_submit_confirmation",
+    "generic_file_upload_preview_download_and_document_artifacts",
+    "individual_subagent_stop_parallel_execution_and_lifecycle",
+    "native_tool_budget_accounting",
+    "persistent_goals_and_scheduling_restart_recovery",
+    "campus_capability_data_migration_and_old_code_retirement",
+    "intent_based_local_plan_autoexecution",
+    "ui_layout_replacement_example_and_navigation_consolidation",
+    "performance_comparison_and_final_clean_install"
+  ]
+}

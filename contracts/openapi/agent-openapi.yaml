@@ -3,6 +3,96 @@ info:
   title: Campus Agent additive contract
   version: 0.2.0-local
 paths:
+  /api/v1/agent/settings:
+    get:
+      tags:
+      - campus-agent
+      summary: Read Settings
+      operationId: read_settings_api_v1_agent_settings_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - campus-agent
+      summary: Save Settings
+      operationId: save_settings_api_v1_agent_settings_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeSettings'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/settings/mcp/{server_name}/test:
+    post:
+      tags:
+      - campus-agent
+      summary: Test Mcp
+      operationId: test_mcp_api_v1_agent_settings_mcp__server_name__test_post
+      parameters:
+      - name: server_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Server Name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/settings/search/test:
+    post:
+      tags:
+      - campus-agent
+      summary: Test Search
+      operationId: test_search_api_v1_agent_settings_search_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchTestRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/conversations:
     get:
       tags:
@@ -329,6 +419,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/model-lease:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Model Lease
+      operationId: internal_model_lease_api_v1_agent_internal_model_lease_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelLeaseRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AcceptActionRequest:
@@ -381,6 +504,79 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    McpServer:
+      properties:
+        serverName:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{1,32}$
+          title: Servername
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        transport:
+          type: string
+          enum:
+          - stdio
+          - streamable-http
+          title: Transport
+          default: stdio
+        command:
+          type: string
+          maxLength: 2048
+          title: Command
+          default: ''
+        args:
+          items:
+            type: string
+          type: array
+          maxItems: 128
+          title: Args
+        cwd:
+          type: string
+          maxLength: 2048
+          title: Cwd
+          default: ''
+        env:
+          additionalProperties:
+            type: string
+          type: object
+          maxProperties: 64
+          title: Env
+        url:
+          type: string
+          maxLength: 2048
+          title: Url
+          default: ''
+        headers:
+          additionalProperties:
+            type: string
+          type: object
+          maxProperties: 64
+          title: Headers
+        toolCallTimeoutMs:
+          type: integer
+          maximum: 1800000.0
+          minimum: 1000.0
+          title: Toolcalltimeoutms
+          default: 60000
+      additionalProperties: false
+      type: object
+      required:
+      - serverName
+      title: McpServer
+    ModelLeaseRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      title: ModelLeaseRequest
     ModelRequest:
       properties:
         conversation_id:
@@ -397,18 +593,20 @@ components:
           minItems: 1
           title: Messages
         tools:
-          items:
-            additionalProperties: true
-            type: object
-          type: array
-          maxItems: 50
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+            maxItems: 256
+          - type: 'null'
           title: Tools
         max_tokens:
           type: integer
-          maximum: 4096.0
+          maximum: 65536.0
           minimum: 1.0
           title: Max Tokens
-          default: 4096
+          default: 16384
         attribution_headers:
           additionalProperties:
             type: string
@@ -420,6 +618,74 @@ components:
       - conversation_id
       - messages
       title: ModelRequest
+    RuntimeSettings:
+      properties:
+        workspace:
+          type: string
+          maxLength: 2048
+          title: Workspace
+          default: ''
+        skill_dirs:
+          items:
+            type: string
+          type: array
+          maxItems: 32
+          title: Skill Dirs
+        search:
+          $ref: '#/components/schemas/SearchSettings'
+        mcp_servers:
+          items:
+            $ref: '#/components/schemas/McpServer'
+          type: array
+          maxItems: 32
+          title: Mcp Servers
+      additionalProperties: false
+      type: object
+      title: RuntimeSettings
+    SearchSettings:
+      properties:
+        base_url:
+          type: string
+          maxLength: 2048
+          title: Base Url
+          default: ''
+        model:
+          type: string
+          maxLength: 128
+          title: Model
+          default: ''
+        key_mode:
+          type: string
+          enum:
+          - shared
+          - separate
+          title: Key Mode
+          default: shared
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 8192
+          - type: 'null'
+          title: Api Key
+        clear_key:
+          type: boolean
+          title: Clear Key
+          default: false
+      additionalProperties: false
+      type: object
+      title: SearchSettings
+    SearchTestRequest:
+      properties:
+        provider_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Provider Id
+      additionalProperties: false
+      type: object
+      title: SearchTestRequest
     ToolRequest:
       properties:
         conversation_id:

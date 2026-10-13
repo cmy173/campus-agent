@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..errors import ApiError
+from .limits import RunLimits
 
 
 def now() -> str:
@@ -29,7 +30,8 @@ def encoded(value) -> str:
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, limits: RunLimits | None = None):
+        self.limits = limits or RunLimits.from_env()
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
@@ -170,7 +172,7 @@ class Store:
 
     def reserve_model(self, tid: str):
         with self.connection() as db:
-            changed = db.execute("UPDATE turns SET model_calls=model_calls+1 WHERE id=? AND status='running' AND model_calls<12", (tid,)).rowcount
+            changed = db.execute("UPDATE turns SET model_calls=model_calls+1 WHERE id=? AND status='running' AND model_calls<?", (tid, self.limits.model_calls)).rowcount
         if not changed:
             raise ApiError(409, "BUDGET_EXCEEDED", "本轮模型调用达到上限或已停止")
 
@@ -182,7 +184,7 @@ class Store:
             if row["request_hash"] != digest(encoded(request)):
                 raise ApiError(409, "IDEMPOTENCY_CONFLICT", "工具调用 ID 已用于不同参数")
             return json.loads(row["result"])
-        if count >= 32:
+        if count >= self.limits.tool_calls:
             raise ApiError(409, "BUDGET_EXCEEDED", "本轮工具调用达到上限")
         return None
 
