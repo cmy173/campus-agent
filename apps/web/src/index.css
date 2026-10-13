@@ -1,0 +1,39 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f5f5f5;
+}
+
+.page-content {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 窄屏（< antd lg=992px）：侧栏顶部对齐内容区，展开时作为浮层。
+   实测背景：antd Sider 默认在流内，窄屏展开会把内容挤压到约 160px 并产生横向溢出（C14）。 */
+@media (max-width: 991.98px) {
+  .app-sider {
+    position: fixed;
+    top: 64px;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    z-index: 1000;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .app-sider-mask {
+    position: fixed;
+    inset: 64px 0 0 0;
+    z-index: 999;
+    background: rgba(0, 0, 0, 0.45);
+  }
+}

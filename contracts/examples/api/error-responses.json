@@ -1,0 +1,73 @@
+{
+  "examples": [
+    {
+      "error": {
+        "code": "PLAN_STALE",
+        "message": "候选计划的输入已过期，请重新预览。",
+        "retryable": false,
+        "details": {
+          "plan_id": "pln_7a1b",
+          "input_revision": "fp_2f9c41ab9d",
+          "current_input_revision": "fp_0d4e77c2"
+        },
+        "request_id": "req_a91c02"
+      }
+    },
+    {
+      "error": {
+        "code": "AUTH_EXPIRED",
+        "message": "登录已失效，请在连接器窗口完成登录后重试。",
+        "retryable": false,
+        "details": {
+          "platform": "zykt",
+          "action": {
+            "type": "user_login",
+            "entry_url": "https://classroom.zju.edu.cn/"
+          }
+        },
+        "request_id": "req_b7e214"
+      }
+    },
+    {
+      "error": {
+        "code": "VALIDATION_FAILED",
+        "message": "请求参数校验失败。",
+        "retryable": false,
+        "details": {
+          "fields": [
+            { "field": "due_at", "reason": "due_precision=unknown 时 due_at 必须为 null" },
+            { "field": "estimated_minutes", "reason": "必须为正整数" }
+          ]
+        },
+        "request_id": "req_c3d980"
+      }
+    },
+    {
+      "error": {
+        "code": "REVISION_MISMATCH",
+        "message": "版本不一致：目标已被其他操作修改。",
+        "retryable": false,
+        "details": { "target": "tsk_0f3a91", "expected_revision": 2, "current_revision": 3 },
+        "request_id": "req_d5f117"
+      }
+    },
+    {
+      "error": {
+        "code": "RATE_LIMITED",
+        "message": "请求过于频繁，请稍后重试。",
+        "retryable": true,
+        "details": { "retry_after_seconds": 60 },
+        "request_id": "req_e9b3a6"
+      }
+    },
+    {
+      "error": {
+        "code": "NOT_FOUND",
+        "message": "资源不存在或对当前用户不可见。",
+        "retryable": false,
+        "details": { "kind": "resource", "id": "res_deadbeef" },
+        "request_id": "req_f1a2b3"
+      }
+    }
+  ]
+}

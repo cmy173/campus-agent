@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewMaterialItem",
+  "description": "出卷材料选择条目（GET /courses/{course_id}/review-materials）：resource=课件/附件文件；assignment=作业正文+附件。展示解析状态、版本与可用正文字符数；usable=false 时 unavailable_reason 必填，不以标题冒充正文。片段/页码预览经 GET /resources/{id}/chunks。",
+  "type": "object",
+  "required": [
+    "id", "kind", "title", "course_id", "updated_at", "usable", "unavailable_reason",
+    "parse_status", "version", "chunk_count", "chars", "due_at", "due_precision", "attachments"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "资源（res_）或作业（asg_）ID。" },
+    "kind": { "type": "string", "enum": ["resource", "assignment"] },
+    "title": { "type": "string", "minLength": 1 },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "usable": { "type": "boolean", "description": "是否含至少一段可读正文（选中后可实际用于出卷）。" },
+    "unavailable_reason": {
+      "oneOf": [
+        { "type": "string", "enum": ["not_parsed", "parse_failed", "type_skipped", "no_text", "chunk_missing", "attachment_absent", "not_accessible"] },
+        { "type": "null" }
+      ],
+      "description": "usable=true 时为 null；枚举同 MaterialSnapshot.missing.reason（not_accessible=平台仅预览/无下载权限）。"
+    },
+    "parse_status": {
+      "oneOf": [
+        { "type": "string", "enum": ["pending", "processing", "ready", "failed", "skipped"] },
+        { "type": "null" }
+      ],
+      "description": "resource 的解析状态；assignment 为 null。"
+    },
+    "version": { "type": ["integer", "null"], "minimum": 1, "description": "当前资源版本；assignment 为 null。" },
+    "chunk_count": { "type": ["integer", "null"], "minimum": 0, "description": "当前版本可读片段数；非 ready 为 null。" },
+    "chars": { "type": ["integer", "null"], "minimum": 0, "description": "可读正文字符数（assignment=作业正文字符数）；不可用为 null。" },
+    "due_at": {
+      "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+      "description": "作业截止（resource 为 null）。"
+    },
+    "due_precision": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/due_precision" }, { "type": "null" }],
+      "description": "作业截止精度（resource 为 null）。"
+    },
+    "attachments": {
+      "type": "array",
+      "description": "作业附件（resource 为空数组）。附件为资源句柄，正文经 /resources/{id}/chunks 预览。",
+      "items": { "$ref": "#/$defs/Attachment" }
+    }
+  },
+  "$defs": {
+    "Attachment": {
+      "type": "object",
+      "required": ["resource_id", "title", "parse_status", "version", "chunk_count", "chars", "usable", "unavailable_reason"],
+      "properties": {
+        "resource_id": { "$ref": "common.schema.json#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "parse_status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending", "processing", "ready", "failed", "skipped"] },
+            { "type": "null" }
+          ]
+        },
+        "version": { "type": ["integer", "null"], "minimum": 1 },
+        "chunk_count": { "type": ["integer", "null"], "minimum": 0 },
+        "chars": { "type": ["integer", "null"], "minimum": 0 },
+        "usable": { "type": "boolean" },
+        "unavailable_reason": {
+          "oneOf": [
+            { "type": "string", "enum": ["not_parsed", "parse_failed", "type_skipped", "no_text", "chunk_missing", "attachment_absent", "not_accessible"] },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,781 @@
+{
+  "implementation_directory": "D:/AI/campus-agent",
+  "branch": "codex/personal-assistant-v2",
+  "preserved_commit": "08ccece8dee4a9a199d7fbb3e511356e62665926",
+  "new_remote_ui_reference": "20a9c605af779725efa13328316dd8ff6c61e830",
+  "old_routes": [
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "status",
+      "method": "GET",
+      "path": "/api/campus"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "connectors",
+      "method": "GET",
+      "path": "/api/campus/connectors"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "notices",
+      "method": "GET",
+      "path": "/api/campus/notices"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "query_capability",
+      "method": "GET",
+      "path": "/api/campus/query/{capability}"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "sync_capability",
+      "method": "POST",
+      "path": "/api/campus/sync/{capability}"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "disconnect_platform",
+      "method": "POST",
+      "path": "/api/campus/disconnect/{platform}"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "prepare",
+      "method": "POST",
+      "path": "/api/campus/prepare"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "login",
+      "method": "POST",
+      "path": "/api/campus/login"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "sync",
+      "method": "POST",
+      "path": "/api/campus/sync"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "captcha",
+      "method": "POST",
+      "path": "/api/campus/captcha"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "academics",
+      "method": "GET",
+      "path": "/api/campus/academics"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "calendar",
+      "method": "POST",
+      "path": "/api/campus/calendar"
+    },
+    {
+      "file": "campus_agent/campus_routes.py",
+      "function": "disconnect",
+      "method": "DELETE",
+      "path": "/api/campus"
+    },
+    {
+      "file": "campus_agent/passport_routes.py",
+      "function": "passport_prepare",
+      "method": "POST",
+      "path": "/api/auth/passport/prepare"
+    },
+    {
+      "file": "campus_agent/passport_routes.py",
+      "function": "passport_cancel",
+      "method": "POST",
+      "path": "/api/auth/passport/cancel"
+    },
+    {
+      "file": "campus_agent/passport_routes.py",
+      "function": "passport_login",
+      "method": "POST",
+      "path": "/api/auth/passport/login"
+    },
+    {
+      "file": "campus_agent/passport_routes.py",
+      "function": "reconnect",
+      "method": "POST",
+      "path": "/api/campus/reconnect"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "home",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "asset",
+      "method": "GET",
+      "path": "/static/{name}"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "health",
+      "method": "GET",
+      "path": "/api/health"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "auth",
+      "method": "POST",
+      "path": "/api/auth/{action}"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "me",
+      "method": "GET",
+      "path": "/api/me"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "model_configuration",
+      "method": "GET",
+      "path": "/api/model"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "configure_model",
+      "method": "POST",
+      "path": "/api/model/configure"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "save_campus_credentials",
+      "method": "POST",
+      "path": "/api/campus/webvpn/credentials"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "trigger_campus_sync",
+      "method": "POST",
+      "path": "/api/campus/webvpn/sync"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "get_campus_status",
+      "method": "GET",
+      "path": "/api/campus/webvpn/status"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "update_sync_settings",
+      "method": "PATCH",
+      "path": "/api/campus/webvpn/sync-settings"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "delete_campus_credentials",
+      "method": "DELETE",
+      "path": "/api/campus/webvpn/credentials"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "documents",
+      "method": "GET",
+      "path": "/api/documents"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "upload",
+      "method": "POST",
+      "path": "/api/documents"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "import_college_notice",
+      "method": "POST",
+      "path": "/api/college-notices/import"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "get_document",
+      "method": "GET",
+      "path": "/api/documents/{doc_id}"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "notice_analyses",
+      "method": "GET",
+      "path": "/api/notice-analyses"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "analyze_document",
+      "method": "POST",
+      "path": "/api/documents/{doc_id}/analysis"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "download",
+      "method": "GET",
+      "path": "/api/documents/{doc_id}/download"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "delete_document",
+      "method": "DELETE",
+      "path": "/api/documents/{doc_id}"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "tasks",
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "update_task",
+      "method": "PATCH",
+      "path": "/api/tasks/{task_id}"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "chat",
+      "method": "POST",
+      "path": "/api/chat"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "activities",
+      "method": "GET",
+      "path": "/api/activities"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "audit",
+      "method": "GET",
+      "path": "/api/audit"
+    },
+    {
+      "file": "campus_agent/web.py",
+      "function": "clear_data",
+      "method": "DELETE",
+      "path": "/api/data"
+    }
+  ],
+  "new_routes": [
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "create_conversation",
+      "method": "POST",
+      "path": "/conversations"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "list_conversations",
+      "method": "GET",
+      "path": "/conversations"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "read_conversation",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "send_turn",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/turns"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "list_actions",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}/actions"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "accept_action",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/actions/{action_id}/accept"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "read_turn",
+      "method": "GET",
+      "path": "/turns/{turn_id}"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "cancel_turn",
+      "method": "POST",
+      "path": "/turns/{turn_id}/cancel"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "internal_schemas",
+      "method": "POST",
+      "path": "/internal/schemas"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "internal_tool",
+      "method": "POST",
+      "path": "/internal/tool"
+    },
+    {
+      "file": "apps/api/app/routers/agent.py",
+      "function": "internal_model",
+      "method": "POST",
+      "path": "/internal/model"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "list_providers",
+      "method": "GET",
+      "path": "/ai/providers"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "create_provider",
+      "method": "POST",
+      "path": "/ai/providers"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "get_provider",
+      "method": "GET",
+      "path": "/ai/providers/{provider_id}"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "update_provider",
+      "method": "PATCH",
+      "path": "/ai/providers/{provider_id}"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "delete_provider",
+      "method": "DELETE",
+      "path": "/ai/providers/{provider_id}"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "clear_provider_key",
+      "method": "DELETE",
+      "path": "/ai/providers/{provider_id}/key"
+    },
+    {
+      "file": "apps/api/app/routers/ai_providers.py",
+      "function": "test_provider",
+      "method": "POST",
+      "path": "/ai/providers/{provider_id}/test"
+    },
+    {
+      "file": "apps/api/app/routers/assignments.py",
+      "function": "list_assignments",
+      "method": "GET",
+      "path": "/assignments"
+    },
+    {
+      "file": "apps/api/app/routers/assignments.py",
+      "function": "create_assignment",
+      "method": "POST",
+      "path": "/assignments"
+    },
+    {
+      "file": "apps/api/app/routers/assignments.py",
+      "function": "get_assignment",
+      "method": "GET",
+      "path": "/assignments/{assignment_id}"
+    },
+    {
+      "file": "apps/api/app/routers/assignments.py",
+      "function": "update_assignment",
+      "method": "PATCH",
+      "path": "/assignments/{assignment_id}"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "import_platform_courses",
+      "method": "POST",
+      "path": "/connections/{connection_id}/courses/import"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "discover_courses",
+      "method": "GET",
+      "path": "/connections/{connection_id}/courses"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "list_connections",
+      "method": "GET",
+      "path": "/connections"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "get_connection",
+      "method": "GET",
+      "path": "/connections/{connection_id}"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "get_capabilities",
+      "method": "GET",
+      "path": "/connections/{connection_id}/capabilities"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "start_connection_sync",
+      "method": "POST",
+      "path": "/connections/{connection_id}/sync"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "check_connection_state",
+      "method": "POST",
+      "path": "/connections/{connection_id}/check"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "disable_connection",
+      "method": "POST",
+      "path": "/connections/{connection_id}/disable"
+    },
+    {
+      "file": "apps/api/app/routers/connections.py",
+      "function": "enable_connection",
+      "method": "POST",
+      "path": "/connections/{connection_id}/enable"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "create_course",
+      "method": "POST",
+      "path": "/courses"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "list_courses",
+      "method": "GET",
+      "path": "/courses"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "get_course",
+      "method": "GET",
+      "path": "/courses/{course_id}"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "list_course_resources",
+      "method": "GET",
+      "path": "/courses/{course_id}/resources"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "list_course_assignments",
+      "method": "GET",
+      "path": "/courses/{course_id}/assignments"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "list_course_recordings",
+      "method": "GET",
+      "path": "/courses/{course_id}/recordings"
+    },
+    {
+      "file": "apps/api/app/routers/courses.py",
+      "function": "add_course_source_ref",
+      "method": "POST",
+      "path": "/courses/{course_id}/source-refs"
+    },
+    {
+      "file": "apps/api/app/routers/exports.py",
+      "function": "create_export",
+      "method": "POST",
+      "path": "/exports"
+    },
+    {
+      "file": "apps/api/app/routers/files.py",
+      "function": "download_file",
+      "method": "GET",
+      "path": "/files/{file_id}"
+    },
+    {
+      "file": "apps/api/app/routers/health.py",
+      "function": "get_health",
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "file": "apps/api/app/routers/imports.py",
+      "function": "create_import",
+      "method": "POST",
+      "path": "/imports"
+    },
+    {
+      "file": "apps/api/app/routers/jobs.py",
+      "function": "list_jobs",
+      "method": "GET",
+      "path": "/jobs"
+    },
+    {
+      "file": "apps/api/app/routers/jobs.py",
+      "function": "get_job",
+      "method": "GET",
+      "path": "/jobs/{job_id}"
+    },
+    {
+      "file": "apps/api/app/routers/jobs.py",
+      "function": "cancel_job",
+      "method": "POST",
+      "path": "/jobs/{job_id}/cancel"
+    },
+    {
+      "file": "apps/api/app/routers/jobs.py",
+      "function": "retry_job",
+      "method": "POST",
+      "path": "/jobs/{job_id}/retry"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "preview_plan",
+      "method": "POST",
+      "path": "/plans/preview"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "list_plans",
+      "method": "GET",
+      "path": "/plans"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "get_current_plan",
+      "method": "GET",
+      "path": "/plans/current"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "get_plan",
+      "method": "GET",
+      "path": "/plans/{plan_id}"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "apply_plan",
+      "method": "POST",
+      "path": "/plans/{plan_id}/apply"
+    },
+    {
+      "file": "apps/api/app/routers/plans.py",
+      "function": "revoke_plan",
+      "method": "POST",
+      "path": "/plans/{plan_id}/revoke"
+    },
+    {
+      "file": "apps/api/app/routers/preferences.py",
+      "function": "get_availability",
+      "method": "GET",
+      "path": "/preferences/availability"
+    },
+    {
+      "file": "apps/api/app/routers/preferences.py",
+      "function": "put_availability",
+      "method": "PUT",
+      "path": "/preferences/availability"
+    },
+    {
+      "file": "apps/api/app/routers/recordings.py",
+      "function": "get_transcript",
+      "method": "GET",
+      "path": "/recordings/{recording_id}/transcript"
+    },
+    {
+      "file": "apps/api/app/routers/resources.py",
+      "function": "get_resource",
+      "method": "GET",
+      "path": "/resources/{resource_id}"
+    },
+    {
+      "file": "apps/api/app/routers/resources.py",
+      "function": "list_resource_versions",
+      "method": "GET",
+      "path": "/resources/{resource_id}/versions"
+    },
+    {
+      "file": "apps/api/app/routers/resources.py",
+      "function": "reparse_resource",
+      "method": "POST",
+      "path": "/resources/{resource_id}/reparse"
+    },
+    {
+      "file": "apps/api/app/routers/resources.py",
+      "function": "list_resource_chunks",
+      "method": "GET",
+      "path": "/resources/{resource_id}/chunks"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "questionbank_capabilities",
+      "method": "GET",
+      "path": "/questionbanks/capabilities"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "list_review_materials",
+      "method": "GET",
+      "path": "/courses/{course_id}/review-materials"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "preflight_review_paper",
+      "method": "POST",
+      "path": "/review-papers/preflight"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "generate_review_paper",
+      "method": "POST",
+      "path": "/review-papers/generate"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "create_review_paper_revision",
+      "method": "POST",
+      "path": "/review-papers/{paper_id}/revisions"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "list_review_papers",
+      "method": "GET",
+      "path": "/review-papers"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "get_review_paper",
+      "method": "GET",
+      "path": "/review-papers/{paper_id}"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "list_review_paper_revisions",
+      "method": "GET",
+      "path": "/review-papers/{paper_id}/revisions"
+    },
+    {
+      "file": "apps/api/app/routers/review_papers.py",
+      "function": "export_review_paper",
+      "method": "GET",
+      "path": "/review-papers/{paper_id}/export"
+    },
+    {
+      "file": "apps/api/app/routers/search.py",
+      "function": "search",
+      "method": "GET",
+      "path": "/search"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "list_tasks",
+      "method": "GET",
+      "path": "/tasks"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "trigger_build_tasks",
+      "method": "POST",
+      "path": "/tasks/build"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "get_task",
+      "method": "GET",
+      "path": "/tasks/{task_id}"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "create_task",
+      "method": "POST",
+      "path": "/tasks"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "update_task",
+      "method": "PATCH",
+      "path": "/tasks/{task_id}"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "archive_task",
+      "method": "DELETE",
+      "path": "/tasks/{task_id}"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "lock_task",
+      "method": "POST",
+      "path": "/tasks/{task_id}/lock"
+    },
+    {
+      "file": "apps/api/app/routers/tasks.py",
+      "function": "submit_feedback",
+      "method": "POST",
+      "path": "/tasks/{task_id}/feedback"
+    }
+  ],
+  "databases": {
+    "old": {
+      "exists": true,
+      "integrity_check": "ok",
+      "table_counts": {
+        "audit": 109,
+        "campus_credentials": 0,
+        "campus_snapshots": 1,
+        "chunks": 61,
+        "connector_cache": 1,
+        "document_sources": 1,
+        "documents": 4,
+        "notice_analyses": 1,
+        "passport_accounts": 1,
+        "sessions": 4,
+        "tasks": 2,
+        "users": 3
+      }
+    },
+    "core": {
+      "exists": true,
+      "integrity_check": "ok",
+      "table_counts": {
+        "agent_plan_actions": 0,
+        "alembic_version": 1,
+        "assignments": 0,
+        "availability": 0,
+        "connections": 2,
+        "content_chunks": 0,
+        "courses": 0,
+        "files": 0,
+        "idempotency_records": 0,
+        "jobs": 0,
+        "learning_tasks": 0,
+        "plan_blocks": 0,
+        "plan_unassigned": 0,
+        "plan_warnings": 0,
+        "plans": 0,
+        "provider_configs": 1,
+        "recordings": 0,
+        "resource_versions": 0,
+        "resources": 0,
+        "review_material_snapshots": 0,
+        "review_paper_revisions": 0,
+        "review_papers": 0,
+        "source_refs": 0,
+        "sync_cursors": 0,
+        "task_feedback": 0
+      }
+    }
+  }
+}

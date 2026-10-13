@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewPaperRevision",
+  "description": "试卷版本索引条目（GET /review-papers/{paper_id}/revisions 列表项）；完整内容经 GET /review-papers/{paper_id}?revision=N 读取。",
+  "type": "object",
+  "required": [
+    "paper_id", "revision", "revision_reason", "based_on_revision", "title", "created_at",
+    "mode", "engine_version", "fingerprint", "provider", "summary"
+  ],
+  "properties": {
+    "paper_id": { "$ref": "common.schema.json#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "revision_reason": { "type": "string", "enum": ["initial", "regenerate", "revise"] },
+    "based_on_revision": { "type": ["integer", "null"], "minimum": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "mode": { "$ref": "common.schema.json#/$defs/review_mode" },
+    "engine_version": { "type": "string", "minLength": 1 },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "该版材料快照的 fingerprint（与快照一致）。" },
+    "provider": { "$ref": "review-paper.schema.json#/$defs/ProviderSnapshot" },
+    "summary": { "$ref": "review-paper.schema.json#/$defs/Summary" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,783 @@
+[
+  {
+    "name": "connections.status",
+    "model_name": "campus_connections_status",
+    "description": "读取已连接平台与缓存状态，不发起登录或同步。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connection Id"
+        }
+      },
+      "title": "ConnectionArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "courses.list",
+    "model_name": "campus_courses_list",
+    "description": "按名称或学期查本地课程；多个匹配需要澄清。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query"
+        },
+        "term": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Term"
+        }
+      },
+      "title": "CourseArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "materials.list",
+    "model_name": "campus_materials_list",
+    "description": "列出课程资料与解析状态；元数据不表示已读正文。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "course_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Course Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "MaterialArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "materials.search",
+    "model_name": "campus_materials_search",
+    "description": "在已解析的当前版本正文里检索原文依据。当前为子串检索。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "query": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "course_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Course Id"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "SearchArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "materials.read",
+    "model_name": "campus_materials_read",
+    "description": "读取指定版本原文片段，保留位置和未覆盖内容。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "chunk_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Ids"
+        }
+      },
+      "required": [
+        "resource_id",
+        "expected_version"
+      ],
+      "title": "ReadArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "assignments.list",
+    "model_name": "campus_assignments_list",
+    "description": "读取学校作业事实，保留提交状态和未知截止。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "course_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Course Id"
+        },
+        "due_before": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due Before"
+        },
+        "due_after": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due After"
+        }
+      },
+      "title": "AssignmentArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "tasks.list",
+    "model_name": "campus_tasks_list",
+    "description": "读取本地学习任务。完成学习不等于学校平台提交。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "course_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Course Id"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "due_before": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due Before"
+        }
+      },
+      "title": "TaskArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "plans.read",
+    "model_name": "campus_plans_read",
+    "description": "读取生效或指定计划、锁定时间块与输入版本。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Id"
+        }
+      },
+      "title": "PlanArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "jobs.read",
+    "model_name": "campus_jobs_read",
+    "description": "读取当前会话拥有的后台任务状态与结果引用。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "JobArgs",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "availability.read",
+    "model_name": "campus_availability_read",
+    "description": "读取长期可用时间；未配置时请用户提供本次可用窗口，不得编造。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Empty",
+      "type": "object"
+    },
+    "effects": "read",
+    "version": 1
+  },
+  {
+    "name": "plans.preview",
+    "model_name": "campus_plans_preview",
+    "description": "生成本次安排预览和差异，不生效。本周/明天由服务器按用户时区计算；临时约束不改长期偏好。",
+    "input_schema": {
+      "$defs": {
+        "BlockedTime": {
+          "additionalProperties": false,
+          "properties": {
+            "starts_at": {
+              "maxLength": 64,
+              "title": "Starts At",
+              "type": "string"
+            },
+            "ends_at": {
+              "maxLength": 64,
+              "title": "Ends At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "starts_at",
+            "ends_at"
+          ],
+          "title": "BlockedTime",
+          "type": "object"
+        },
+        "TemporaryWindow": {
+          "additionalProperties": false,
+          "properties": {
+            "weekday": {
+              "maximum": 7,
+              "minimum": 1,
+              "title": "Weekday",
+              "type": "integer"
+            },
+            "start": {
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "title": "Start",
+              "type": "string"
+            },
+            "end": {
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          "required": [
+            "weekday",
+            "start",
+            "end"
+          ],
+          "title": "TemporaryWindow",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "period": {
+          "default": "this_week",
+          "enum": [
+            "this_week",
+            "tomorrow",
+            "dates"
+          ],
+          "title": "Period",
+          "type": "string"
+        },
+        "start_date": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Date"
+        },
+        "end_date": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Date"
+        },
+        "blocked": {
+          "items": {
+            "$ref": "#/$defs/BlockedTime"
+          },
+          "maxItems": 64,
+          "title": "Blocked",
+          "type": "array"
+        },
+        "temporary_windows": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemporaryWindow"
+              },
+              "maxItems": 56,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporary Windows"
+        },
+        "unavailable_evenings": {
+          "description": "本周不可用的晚上，ISO 星期1至7；服务端按18:00至次日00:00转换并在预览中明示。仅适用于this_week。",
+          "items": {
+            "maximum": 7,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 7,
+          "title": "Unavailable Evenings",
+          "type": "array"
+        }
+      },
+      "title": "PreviewArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  },
+  {
+    "name": "plans.apply",
+    "model_name": "campus_plans_apply",
+    "description": "应用用户已在可信界面接受的具体动作；模型不能自行授权。返回持久化操作回执。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id"
+      ],
+      "title": "ActionArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  },
+  {
+    "name": "plans.revoke",
+    "model_name": "campus_plans_revoke",
+    "description": "执行用户已接受的撤销动作，恢复前版；需使用撤销动作 ID，不能使用任意计划 ID。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id"
+      ],
+      "title": "ActionArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  },
+  {
+    "name": "tasks.build",
+    "model_name": "campus_tasks_build",
+    "description": "从指定课程的已导入资料生成本地学习任务，返回真实后台 job；规则生成不调用模型，重复请求复用。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "course_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Course Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "BuildArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  },
+  {
+    "name": "jobs.cancel",
+    "model_name": "campus_jobs_cancel",
+    "description": "协作停止本会话发起的任务；running 且 cancel_requested 只表示请求停止，不能宣称已完成。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "JobArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  },
+  {
+    "name": "tasks.feedback",
+    "model_name": "campus_tasks_feedback",
+    "description": "仅记录用户明确报告的本地学习结果，先读任务版本；未报告的时间/难度留空。不修改学校提交状态。",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "partial",
+            "skipped"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "actual_minutes": {
+          "anyOf": [
+            {
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Minutes"
+        },
+        "difficulty": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Difficulty"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "task_id",
+        "expected_revision",
+        "outcome"
+      ],
+      "title": "FeedbackArgs",
+      "type": "object"
+    },
+    "effects": "write",
+    "version": 1
+  }
+]

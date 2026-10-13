@@ -1,0 +1,2191 @@
+openapi: 3.1.0
+info:
+  title: 浙大学习工作台 API
+  version: 0.1.0-draft
+  description: |
+    管理课件、作业与智云课堂回放的业务 API，供网页端与后续宿主使用。
+
+    ## 约定（详见 contracts/README.md）
+    - 内部 ID 为不透明字符串；平台 ID 仅出现在 source_ref.external_id。
+    - 时间为 ISO 8601 带偏移量，默认 UTC；日期缺失为 null，不猜测。
+    - 错误统一为 {error:{code,message,retryable,details,request_id}}。
+    - 列表为游标分页：{items, next_cursor}；limit 默认 50、最大 200。
+    - 长任务（导入/同步/解析/导出）返回 202 + job，经 GET /jobs/{id} 轮询。
+    - POST 写操作支持 Idempotency-Key；PATCH 支持 If-Match（revision）并发控制。
+    - 预览计划生成 candidate，不影响当前生效计划；应用中检查 input_revision。
+    - 学习完成状态（LearningTask.status）与学校提交状态（Assignment.submission_status）分离。
+
+    ## 认证
+    生产环境使用 Bearer 令牌；开发模式可由服务端提供显式启用的模拟用户机制（不在生产启用）。
+  license:
+    name: 内部项目，未定许可证
+servers:
+  - url: http://localhost:8000
+    description: 本地开发
+tags:
+  - name: health
+  - name: courses
+  - name: resources
+  - name: assignments
+  - name: recordings
+  - name: imports
+  - name: files
+  - name: tasks
+  - name: plans
+  - name: search
+  - name: preferences
+  - name: connections
+  - name: jobs
+  - name: exports
+  - name: ai
+  - name: review-papers
+  - name: questionbanks
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+
+  /api/v1/courses:
+    get:
+      tags: [courses]
+      operationId: listCourses
+      summary: 获取课程列表
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 课程分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourseListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [courses]
+      operationId: createCourse
+      summary: 手动创建课程
+      description: 用于手动导入兜底；source_refs 默认空数组，后续可经 source-refs 挂接平台来源。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCourseRequest' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '../schemas/course.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}:
+    get:
+      tags: [courses]
+      operationId: getCourse
+      summary: 获取课程详情
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 课程
+          content:
+            application/json:
+              schema: { $ref: '../schemas/course.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}/source-refs:
+    post:
+      tags: [courses]
+      operationId: addCourseSourceRef
+      summary: 挂接平台来源（人工确认课程映射）
+      description: 将某平台课程挂接到本课程。平台来源已属于其他课程时返回 409 CONFLICT。
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddSourceRefRequest' }
+      responses:
+        '200':
+          description: 挂接后的课程
+          content:
+            application/json:
+              schema: { $ref: '../schemas/course.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}/resources:
+    get:
+      tags: [resources]
+      operationId: listCourseResources
+      summary: 获取课程资源列表
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [slides, handout, syllabus, scan, document, link, other]
+        - name: parse_status
+          in: query
+          description: 按解析状态过滤。需要 OCR 的扫描件不单设枚举值：如实落 failed，原因以任务错误码 NEEDS_OCR 表达（可重试）。skipped 表示该类型不解析（如 link、.zip 课件包——仅存档与下载，解析任务以错误码 UNSUPPORTED_MEDIA_TYPE 说明原因）。
+          schema:
+            type: string
+            enum: [pending, processing, ready, failed, skipped]
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 资源分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResourceListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/resources/{resource_id}:
+    get:
+      tags: [resources]
+      operationId: getResource
+      summary: 获取资源详情（含当前版本）
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 资源
+          content:
+            application/json:
+              schema: { $ref: '../schemas/resource.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/resources/{resource_id}/versions:
+    get:
+      tags: [resources]
+      operationId: listResourceVersions
+      summary: 获取资源历史版本（含当前）
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 版本分页列表（按版本号降序）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResourceVersionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/resources/{resource_id}/reparse:
+    post:
+      tags: [resources]
+      operationId: reparseResource
+      summary: 重新解析资源当前版本
+      description: 创建解析任务（job）。旧解析产物在新任务成功前保持可用（不破坏有效数据）。
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/resources/{resource_id}/chunks:
+    get:
+      tags: [resources]
+      operationId: listResourceChunks
+      summary: 获取资源当前版本的解析片段
+      description: 返回资源当前版本（resource.version）的文本片段；按 ordinal 升序分页。资源未解析就绪（parse_status≠ready）时为空列表。
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 片段分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentChunkListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}/assignments:
+    get:
+      tags: [assignments]
+      operationId: listCourseAssignments
+      summary: 获取课程作业列表
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: due_before
+          in: query
+          schema: { type: string, format: date-time }
+        - name: due_after
+          in: query
+          schema: { type: string, format: date-time }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 作业分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/assignments:
+    get:
+      tags: [assignments]
+      operationId: listAssignments
+      summary: 获取全部课程作业列表（跨课程）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: due_before
+          in: query
+          schema: { type: string, format: date-time }
+        - name: due_after
+          in: query
+          schema: { type: string, format: date-time }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 作业分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [assignments]
+      operationId: createAssignment
+      summary: 手动创建作业（fact_source=user）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAssignmentRequest' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '../schemas/assignment.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/assignments/{assignment_id}:
+    get:
+      tags: [assignments]
+      operationId: getAssignment
+      summary: 获取作业详情
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      responses:
+        '200':
+          description: 作业
+          content:
+            application/json:
+              schema: { $ref: '../schemas/assignment.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [assignments]
+      operationId: updateAssignment
+      summary: 更新作业（用户修正；不猜测缺失值）
+      description: |
+        部分更新：字段缺省=不修改；显式 null 可清空可空字段（如 due_at）。
+        due_at 与 due_precision 必须保持一致（precision=unknown 时 due_at 必须为 null）。
+        平台事实被用户覆盖时 fact_source=user，并记录变更历史。
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchAssignmentRequest' }
+      responses:
+        '200':
+          description: 更新后的作业
+          content:
+            application/json:
+              schema: { $ref: '../schemas/assignment.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/RevisionMismatch' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}/recordings:
+    get:
+      tags: [recordings]
+      operationId: listCourseRecordings
+      summary: 获取课程回放列表
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 回放分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordingListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/imports:
+    post:
+      tags: [imports]
+      operationId: createImport
+      summary: 导入资料（multipart 上传）
+      description: |
+        手动导入兜底：上传课件/讲义文件并归属到课程。文件进入受控存储，解析异步进行。
+        请求为 multipart/form-data：`payload`（JSON 字符串）与 `files`（一个或多个文件）。
+        校验文件大小与类型；重复内容以 (用户, 内容哈希) 幂等处理，不产生重复资源。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/CreateImportRequest' }
+      responses:
+        '202':
+          description: 已受理，返回导入任务
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/FileTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/files/{file_id}:
+    get:
+      tags: [files]
+      operationId: downloadFile
+      summary: 下载受控文件（资源附件/导出产物）
+      description: 服务端执行所有权检查；临时签名 URL 与服务器路径不进入响应。
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: 文件流
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+            Content-Type:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/tasks:
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      summary: 获取学习任务列表
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: course_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, completed, cancelled]
+        - name: due_before
+          in: query
+          schema: { type: string, format: date-time }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 任务分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LearningTaskListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [tasks]
+      operationId: createTask
+      summary: 创建学习任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '../schemas/learning-task.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/tasks/build:
+    post:
+      tags: [tasks]
+      operationId: buildTasks
+      summary: 由资料/作业/回放生成候选学习任务（后台任务）
+      description: |
+        触发 build_tasks 后台任务：读取资源、作业与回放，按确定性规则生成候选学习任务。
+        重复触发不制造重复任务——按稳定 match_key 对齐既有任务，用户修正（人工耗时、完成状态等）不被覆盖；
+        告警（如内容重复合并、估算回退）随任务结果的 warnings 展示。
+        同范围的排队/执行中任务存在时复用（不重复入队）。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BuildTasksRequest' }
+      responses:
+        '202':
+          description: 已受理（返回 job；重复触发可能返回既有排队/执行中任务）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/tasks/{task_id}:
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: 获取任务详情
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 任务
+          content:
+            application/json:
+              schema: { $ref: '../schemas/learning-task.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [tasks]
+      operationId: updateTask
+      summary: 更新学习任务（含完成状态）
+      description: |
+        部分更新：字段缺省=不修改。status=completed 仅记录本地学习完成，
+        不改变对应作业的 submission_status。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchTaskRequest' }
+      responses:
+        '200':
+          description: 更新后的任务
+          content:
+            application/json:
+              schema: { $ref: '../schemas/learning-task.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/RevisionMismatch' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [tasks]
+      operationId: deleteTask
+      summary: 软归档任务
+      description: 归档后任务不参与排程与默认列表；历史与反馈保留。计划中的块在下次重排时移除。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '204':
+          description: 已归档
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/tasks/{task_id}/lock:
+    post:
+      tags: [tasks]
+      operationId: lockTask
+      summary: 锁定/解锁任务在生效计划中的时间块
+      description: 锁定块在重排时必须保留；未提供 starts_at 时保持当前块时间。无生效计划或任务未安排时仅记录待锁状态。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LockTaskRequest' }
+      responses:
+        '200':
+          description: 锁定结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LockTaskResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/tasks/{task_id}/feedback:
+    post:
+      tags: [tasks]
+      operationId: submitTaskFeedback
+      summary: 记录学习反馈
+      description: |
+        反馈是重排触发事件之一（服务端合并/去抖）。响应中的 current_input_revision 可用于
+        发现输入已变化（例如候选计划过期）。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FeedbackRequest' }
+      responses:
+        '201':
+          description: 已记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedbackResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/preferences/availability:
+    get:
+      tags: [preferences]
+      operationId: getAvailability
+      summary: 读取可用时间与学习上限
+      responses:
+        '200':
+          description: 可用时间配置（未设置时返回默认值：timezone=Asia/Shanghai，其余为空）
+          content:
+            application/json:
+              schema: { $ref: '../schemas/availability.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [preferences]
+      operationId: putAvailability
+      summary: 整体更新可用时间与学习上限
+      description: 全量替换语义；更新是重排触发事件之一（合并/去抖）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutAvailabilityRequest' }
+      responses:
+        '200':
+          description: 更新后的配置
+          content:
+            application/json:
+              schema: { $ref: '../schemas/availability.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans/preview:
+    post:
+      tags: [plans]
+      operationId: previewPlan
+      summary: 生成候选计划（预览，不修改当前计划）
+      description: 规则模式生成；候选含 unassigned/warnings，不可行时明确缺口。AI 辅助可选，失败时降级为规则模式。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PreviewPlanRequest' }
+      responses:
+        '201':
+          description: 候选计划
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanPreviewResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans:
+    get:
+      tags: [plans]
+      operationId: listPlans
+      summary: 计划历史
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [candidate, active, superseded, revoked]
+      responses:
+        '200':
+          description: 计划分页列表（按版本降序）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans/current:
+    get:
+      tags: [plans]
+      operationId: getCurrentPlan
+      summary: 查询当前生效计划
+      responses:
+        '200':
+          description: 当前计划；无生效计划时 plan=null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans/{plan_id}:
+    get:
+      tags: [plans]
+      operationId: getPlan
+      summary: 查询指定计划（含候选）
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: 计划
+          content:
+            application/json:
+              schema: { $ref: '../schemas/plan.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans/{plan_id}/apply:
+    post:
+      tags: [plans]
+      operationId: applyPlan
+      summary: 应用候选计划
+      description: |
+        事务应用：校验候选 input_revision 与当前输入一致（否则 409 PLAN_STALE，要求重新预览）；
+        校验候选版本与当前生效计划版本（并发保护）。应用后旧计划变为 superseded，历史保留。
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: 应用结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplyPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/plans/{plan_id}/revoke:
+    post:
+      tags: [plans]
+      operationId: revokePlan
+      summary: 撤销生效计划
+      description: 仅撤销计划安排并恢复被取代的上一版计划为生效；不回滚学校平台事实与任务状态。
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: 撤销结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RevokePlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/search:
+    get:
+      tags: [search]
+      operationId: search
+      summary: 搜索资料文本片段
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: course_id
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [slides, handout, syllabus, scan, document, link, other]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 片段分页列表（含定位与来源）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections:
+    get:
+      tags: [connections]
+      operationId: listConnections
+      summary: 获取平台连接列表（含登录状态）
+      responses:
+        '200':
+          description: 连接分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}:
+    get:
+      tags: [connections]
+      operationId: getConnection
+      summary: 获取单个连接（含登录状态与恢复指引）
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: 连接
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connection' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}/capabilities:
+    get:
+      tags: [connections]
+      operationId: getConnectionCapabilities
+      summary: 获取连接能力（由 A 的适配器实测决定）
+      description: 能力集合为开放对象；未实测的能力不得声明为可用。
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: 能力
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CapabilitiesResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}/check:
+    post:
+      tags: [connections]
+      operationId: checkConnection
+      summary: 触发一次连接检查（跳转式登录降级口径）
+      description: |
+        在本地连接器适配器上执行 check_connection，并把结果透传到连接行
+        （status/last_checked_at/last_error/recovery_action；回跳完成≠连接可用，不作假 ok）。
+        执行面可为本地连接器（适配器桥接或本地服务）：受控浏览器与会话均在本地，本 API 仅调度并记录结果，
+        不经手任何会话物料（A5 v0.2；CR002/B14）。登录入口由连接的 entry_url 常量下发；
+        本期无自动回跳（CR001 裁定）——正常路径由连接器在会话有效后自动触发本端点（自动衔接），
+        用户手动点击为兜底（A5 v0.2 §4.2）。
+        已停用连接返回 409 CONFLICT（需先启用）；未配置检查适配器返回 502 DEPENDENCY_UNAVAILABLE（不自动重试）。
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: 检查后的连接（status 取检查结果）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connection' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '502': { $ref: '#/components/responses/DependencyUnavailable' }
+
+  /api/v1/connections/{connection_id}/sync:
+    post:
+      tags: [connections]
+      operationId: startConnectionSync
+      summary: 发起同步（异步任务）
+      description: 增量同步由适配器执行；登录失效时任务失败并携带 AUTH_EXPIRED（可重试=重新登录后）。重复触发合并去抖。
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartSyncRequest' }
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}/disable:
+    post:
+      tags: [connections]
+      operationId: disableConnection
+      summary: 停用连接（用户主动）
+      description: |
+        用户停用后连接 status=disabled，不再发起同步/抓取；已有数据保留。幂等：已停用时重复调用返回 200。
+        跳转式登录口径（CR001 裁定）：用户在平台权威页自行登录，会话由本地连接器持有，本 API 不接收凭据；
+        本 API 提供登录入口常量（Connection.entry_url）与检查触发（POST /connections/{id}/check）。平台回跳通道待登记后另行补录。
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: 停用后的连接
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connection' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}/enable:
+    post:
+      tags: [connections]
+      operationId: enableConnection
+      summary: 启用连接（重新检查状态）
+      description: |
+        重新启用后服务端重新检查连接，status 取检查结果（ok/auth_required/network_error/…）；
+        需用户重新登录时经 recovery_action 下发指引。幂等：未停用时重复调用返回 200。
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: 启用后的连接
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connection' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/jobs:
+    get:
+      tags: [jobs]
+      operationId: listJobs
+      summary: 获取后台任务列表（历史）
+      description: 按创建时间倒序（最新在前），同刻按 id 倒序。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, succeeded, partial_failed, failed, cancelled]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [import, parse, sync, export, build_tasks, review_generate]
+      responses:
+        '200':
+          description: 任务分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/jobs/{job_id}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: 查询后台任务状态
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: 任务
+          content:
+            application/json:
+              schema: { $ref: '../schemas/job.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/jobs/{job_id}/retry:
+    post:
+      tags: [jobs]
+      operationId: retryJob
+      summary: 重试失败任务（以原参数重新发起）
+      description: |
+        仅对 status=failed / partial_failed 的任务可用：以原任务参数重新发起一个新任务（202 返回新 job）。
+        partial_failed 仅重试失败条目（如导入的失败文件、同步的失败课程）；原任务记录不被修改。
+        其他状态返回 409 CONFLICT。
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: 已受理（新任务）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/jobs/{job_id}/cancel:
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: 取消任务（协作式）
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: 取消后的任务（可能仍为 running，取消为协作式）
+          content:
+            application/json:
+              schema: { $ref: '../schemas/job.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/exports:
+    post:
+      tags: [exports]
+      operationId: createExport
+      summary: 创建导出（异步任务；JSON 或 ICS）
+      description: >-
+        format=json（缺省）：按 include 类别汇集（缺省全部类别）。format=ics：生效计划时间块 + 任务截止的
+        iCalendar（RFC 5545，按用户时区渲染，due_precision=date 的截止为全天事件；include 不适用，携带即 400）。
+        产物为受控文件；任务结果的 result_refs 含 export_file，用于 GET /files/{file_id} 下载。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateExportRequest' }
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/ai/providers:
+    get:
+      tags: [ai]
+      operationId: listProviders
+      summary: 列出 AI 服务配置（不含密钥）
+      description: 按创建时间倒序。密钥只以 has_api_key 标记，永不返回密钥本身。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 配置分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderConfigListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [ai]
+      operationId: createProvider
+      summary: 新建 AI 服务配置
+      description: |
+        首版仅支持 OpenAI 兼容 Chat Completions 协议（protocol=openai_chat_completions），其他协议返回 400 不静默套用。
+        api_key 可省略：先保存设置、稍后补密钥（has_api_key=false）。密钥写入 B 管理的本地密钥存储（DPAPI），
+        不进数据库、日志、导出或普通 GET 响应。base_url 规范化规则见 ProviderConfig.base_url。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertProviderRequest' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '../schemas/provider-config.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/ai/providers/{provider_id}:
+    get:
+      tags: [ai]
+      operationId: getProvider
+      summary: 获取 AI 服务配置（不含密钥）
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: 配置
+          content:
+            application/json:
+              schema: { $ref: '../schemas/provider-config.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [ai]
+      operationId: updateProvider
+      summary: 更新 AI 服务配置
+      description: |
+        部分更新：仅更新提供的字段。api_key 缺省或为 null 表示保留现有密钥（不覆盖、不清除）；
+        清除密钥请用 DELETE /ai/providers/{provider_id}/key。空字符串 api_key 返回 400（避免误清空）。
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchProviderRequest' }
+      responses:
+        '200':
+          description: 更新后的配置
+          content:
+            application/json:
+              schema: { $ref: '../schemas/provider-config.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [ai]
+      operationId: deleteProvider
+      summary: 删除 AI 服务配置（连同本地密钥）
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '204':
+          description: 已删除（含本地密钥文件）
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 有进行中的出卷任务使用该配置（409 CONFLICT；待任务结束后重试）
+          content:
+            application/json:
+              schema: { $ref: '../schemas/error.schema.json' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/ai/providers/{provider_id}/key:
+    delete:
+      tags: [ai]
+      operationId: clearProviderKey
+      summary: 清除已保存的密钥
+      description: 幂等：无密钥时同样返回 204。清除后 has_api_key=false，出卷生成前需重新填写。
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '204':
+          description: 已清除
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/ai/providers/{provider_id}/test:
+    post:
+      tags: [ai]
+      operationId: testProvider
+      summary: 连接测试（不发送课件正文）
+      description: |
+        对配置的最小请求（固定短提示，不含用户材料），验证地址/模型/密钥可用性并记录 last_tested_at/last_test_result。
+        远端失败也是测试结果本身：返回 200 + result.ok=false，error.code 取 PROVIDER_* 码表（401→PROVIDER_AUTH_FAILED
+        retryable=false；超时→PROVIDER_TIMEOUT；429→PROVIDER_RATE_LIMITED；不可达→PROVIDER_UNREACHABLE；其他非 2xx
+        （如 5xx）→PROVIDER_HTTP_ERROR（5xx retryable=true）；响应非 JSON/无 choices→PROVIDER_INVALID_RESPONSE）。
+        未配置密钥时 ok=false、code=PROVIDER_KEY_MISSING、latency_ms=null。
+        本端点不启动生成、不写入试卷。响应绝不包含密钥。
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: 测试结果（含失败结果）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderTestResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/courses/{course_id}/review-materials:
+    get:
+      tags: [review-papers]
+      operationId: listReviewMaterials
+      summary: 课程复习材料清单（出卷材料选择）
+      description: |
+        课程全部可用课件/附件（resource）与作业（assignment，含附件清单），展示解析状态、版本与可用正文字符数；
+        分页遍历可获取全部材料（不限于默认分页第一批）。片段/页码预览用 GET /resources/{id}/chunks。
+        未解析/失败/类型不解析的条目 usable=false 并附原因，不以标题冒充正文。
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 材料分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewMaterialListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers/preflight:
+    post:
+      tags: [review-papers]
+      operationId: preflightReviewPaper
+      summary: 出卷预检（无副作用，不发送正文）
+      description: |
+        校验课程归属、材料解析状态、备注与题量上限、provider（AI/混合模式须存在且有密钥）、题库可用性，
+        返回将发送的材料正文与备注完整预览、缺失清单、目标 API 主机/模型、限制与 fingerprint 预览。
+        点击生成（POST /review-papers/generate）才实际发送正文。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../schemas/review-request.schema.json' }
+      responses:
+        '200':
+          description: 预检结果
+          content:
+            application/json:
+              schema: { $ref: '../schemas/review-preflight.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers/generate:
+    post:
+      tags: [review-papers]
+      operationId: generateReviewPaper
+      summary: 生成复习卷（后台作业；材料快照冻结 + 幂等）
+      description: |
+        受理时冻结材料与备注快照（备注逐字节原文发送，超限 400 不静默截断），返回 202 + job（type=review_generate）。
+        作业阶段（job.phase）：materials→blueprint→bank_search→generation→validation→saving；模型请求仅由 B 发起，
+        只带用户选定资料原文、检索词与备注，不带学校 cookie/临时链接/密钥。成功后 job.result_refs 含 {type: review_paper, id}；
+        revision 从 1 递增，重做不覆盖旧版。双击生成由 Idempotency-Key 保护。bank 模式无可用来源时 400（BANK_NOT_CONFIGURED，
+        不假装搜到题）；资料不足或备注超限在受理前 400（details 列出缺口）。
+        网页将预检 fingerprint 放入 If-Match；受理时资料或备注已变化则 409 PREFLIGHT_FAILED，要求重新预览。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ReviewPreviewFingerprint'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../schemas/review-request.schema.json' }
+      responses:
+        '202':
+          description: 已受理（job.type=review_generate）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers:
+    get:
+      tags: [review-papers]
+      operationId: listReviewPapers
+      summary: 复习卷列表（各卷最新版本）
+      description: 按创建时间倒序；仅含已生成成功（revision≥1）的卷。course_id/mode 过滤可组合。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: course_id
+          in: query
+          schema: { type: string }
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum: [ai, bank, hybrid]
+      responses:
+        '200':
+          description: 试卷分页列表（含各自最新 revision 的完整内容）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPaperListResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers/{paper_id}:
+    get:
+      tags: [review-papers]
+      operationId: getReviewPaper
+      summary: 获取复习卷（缺省最新版本；可指定历史 revision）
+      description: 历史版本可读取该版原快照（材料与备注）。revision 不存在返回 404。
+      parameters:
+        - $ref: '#/components/parameters/PaperId'
+        - name: revision
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: 指定版本号；缺省为最新版本。
+      responses:
+        '200':
+          description: 试卷（指定版本）
+          content:
+            application/json:
+              schema: { $ref: '../schemas/review-paper.schema.json' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers/{paper_id}/revisions:
+    get:
+      tags: [review-papers]
+      operationId: listReviewPaperRevisions
+      summary: 试卷版本历史
+      description: 按 revision 倒序；仅版本索引（完整内容经 GET /review-papers/{paper_id}?revision=N）。
+      parameters:
+        - $ref: '#/components/parameters/PaperId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 版本分页列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPaperRevisionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [review-papers]
+      operationId: createReviewPaperRevision
+      summary: 重做/修订（新版本；保留旧版本）
+      description: |
+        基于上一版重做：未提供的字段复用上一版（材料快照、备注、约束、provider）；提供则替换（材料/备注/约束变化
+        会重新冻结快照并改变 fingerprint）。返回 202 + job；成功后 revision=上一版+1。失败不覆盖旧版本、不产生空版本。
+        幂等键保护重复点击。
+        可选 If-Match 校验预检 fingerprint；不一致返回 409 PREFLIGHT_FAILED。
+      parameters:
+        - $ref: '#/components/parameters/PaperId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ReviewPreviewFingerprint'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewRevisionRequest' }
+      responses:
+        '202':
+          description: 已受理（job.type=review_generate）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/review-papers/{paper_id}/export:
+    get:
+      tags: [review-papers]
+      operationId: exportReviewPaper
+      summary: 导出复习卷（Markdown / 学生版 / 答案版打印内容）
+      description: |
+        由 B 服务端渲染受控内容，直接返回文本（不经导出文件队列）：
+        format=markdown → text/markdown（完整卷：题目、答案、解析、出处）；
+        format=student → text/html（打印用学生版，不含答案与解析）；
+        format=answers → text/html（打印用答案版，含答案、解析与评分点）。
+        文件名中文可读（Content-Disposition filename*=UTF-8''…）；不含密钥、本地路径与调试信息；出处为可点击材料/原题引用。
+      parameters:
+        - $ref: '#/components/parameters/PaperId'
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [markdown, student, answers]
+            default: markdown
+        - name: revision
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: 导出指定版本；缺省为最新版本。
+      responses:
+        '200':
+          description: 渲染内容（text/markdown 或 text/html；charset=utf-8）
+          content:
+            text/markdown:
+              schema: { type: string }
+            text/html:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/questionbanks/capabilities:
+    get:
+      tags: [questionbanks]
+      operationId: getQuestionbankCapabilities
+      summary: 题库模块能力（来源与支持项）
+      description: |
+        透传 A 的 get_questionbank_capabilities：可用来源、是否已配置、检索/获取/答案/公式支持。
+        未配置来源 configured=false；未实测能力如实标记，不得把未支持网站显示为“已连接”。
+        题库模块未安装/未就绪返回 502 DEPENDENCY_UNAVAILABLE（不伪造空列表）。
+      responses:
+        '200':
+          description: 能力清单
+          content:
+            application/json:
+              schema: { $ref: '../schemas/questionbank-capabilities.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '502': { $ref: '#/components/responses/DependencyUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/connections/{connection_id}/courses:
+    parameters:
+      - name: connection_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: discoverPlatformCourses
+      tags: [connections]
+      summary: 读取当前用户的平台课程（不自动导入）
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: term
+          in: query
+          description: 智云课程范围；current 按每年2月/9月起至当前的个人课表日期筛选，all 加入历史学习和收藏。学在浙大不传此参数。
+          schema: { type: string, enum: [current, all] }
+      responses:
+        '200':
+          description: 平台课程和逐项错误；id 是平台标识，导入后另分配内部 ID
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: '../schemas/course.schema.json' } }
+                  next_cursor: { type: [string, 'null'] }
+                  errors: { type: array, items: { $ref: '../schemas/error.schema.json#/$defs/ErrorInfo' } }
+  /api/v1/connections/{connection_id}/courses/import:
+    parameters:
+      - name: connection_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: importPlatformCourses
+      tags: [connections]
+      summary: 一次事务导入课程并挂接来源，重复课号复用现有课程
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [courses]
+              additionalProperties: false
+              properties:
+                courses:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [title, external_id]
+                    additionalProperties: false
+                    properties:
+                      title: { type: string, minLength: 1, maxLength: 512 }
+                      external_id: { type: string, minLength: 1, maxLength: 128, pattern: '^\S+$' }
+                      term: { type: [string, 'null'] }
+                      teacher: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: 导入或已存在的课程
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourseListResponse' }
+  /api/v1/recordings/{recording_id}/transcript:
+    get:
+      operationId: getRecordingTranscript
+      tags: [recordings]
+      summary: 按需读取已同步智云场次的已有字幕
+      parameters:
+        - name: recording_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 字幕文本及秒级定位；空 segments 表示本次尚未取得字幕
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recording_id, language, provenance, segments]
+                properties:
+                  recording_id: { type: string }
+                  language: { type: string }
+                  provenance: { type: string, enum: [platform] }
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      required: [start_seconds, end_seconds, text]
+                      properties:
+                        start_seconds: { type: number, minimum: 0 }
+                        end_seconds: { type: number, minimum: 0 }
+                        text: { type: string }
+                        translated_text: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 生产环境使用 Bearer 令牌；开发模式模拟用户机制仅在显式开发配置下启用。
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: 不透明游标，取自上一页 next_cursor。
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IfMatch:
+      name: If-Match
+      in: header
+      schema: { type: string }
+      description: 期望的对象 revision（如 "3"）；不匹配返回 412。
+    ReviewPreviewFingerprint:
+      name: If-Match
+      in: header
+      required: false
+      description: 预检响应的材料 fingerprint；可加双引号。变化时须重新预览。
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, minLength: 8, maxLength: 128 }
+      description: 幂等键；同用户同端点同键 24 小时内重放返回首次结果。
+    CourseId:
+      name: course_id
+      in: path
+      required: true
+      schema: { type: string }
+    ResourceId:
+      name: resource_id
+      in: path
+      required: true
+      schema: { type: string }
+    AssignmentId:
+      name: assignment_id
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string }
+    PlanId:
+      name: plan_id
+      in: path
+      required: true
+      schema: { type: string }
+    ConnectionId:
+      name: connection_id
+      in: path
+      required: true
+      schema: { type: string }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string }
+    FileId:
+      name: file_id
+      in: path
+      required: true
+      schema: { type: string }
+    ProviderId:
+      name: provider_id
+      in: path
+      required: true
+      schema: { type: string }
+    PaperId:
+      name: paper_id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    ValidationFailed:
+      description: 参数或请求体校验失败（400 VALIDATION_FAILED）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    Unauthenticated:
+      description: 未认证或凭据失效（401 UNAUTHENTICATED）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    Forbidden:
+      description: 无权限（403 FORBIDDEN，含跨用户访问）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    NotFound:
+      description: 不存在或对当前用户不可见（404 NOT_FOUND）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    Conflict:
+      description: 状态冲突（409；code 可能为 CONFLICT / IDEMPOTENCY_KEY_REUSED / PLAN_STALE / AUTH_EXPIRED / JOB_CANCELLED）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    RevisionMismatch:
+      description: If-Match 与服务端 revision 不一致（412 REVISION_MISMATCH）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    FileTooLarge:
+      description: 上传超出大小限制（413 FILE_TOO_LARGE）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    UnsupportedMediaType:
+      description: 文件类型不受支持（415 UNSUPPORTED_MEDIA_TYPE）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    RateLimited:
+      description: 请求过频（429 RATE_LIMITED，retryable）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    InternalError:
+      description: 服务端错误（500 INTERNAL_ERROR，request_id 用于诊断）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+    DependencyUnavailable:
+      description: 上游依赖暂不可用（502 DEPENDENCY_UNAVAILABLE，retryable）
+      content:
+        application/json:
+          schema: { $ref: '../schemas/error.schema.json' }
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, version, time]
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string }
+        time: { $ref: '../schemas/common.schema.json#/$defs/timestamp' }
+      additionalProperties: false
+
+    CourseListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/course.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ResourceListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/resource.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ResourceVersionListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/resource-version.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ContentChunkListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/content-chunk.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    AssignmentListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/assignment.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    RecordingListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/recording.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    LearningTaskListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/learning-task.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    PlanListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/plan.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    JobListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/job.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ConnectionListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Connection' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    SearchListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    SearchHit:
+      type: object
+      required: [chunk_id, resource_id, resource_version, course_id, resource_title, text, locator, score]
+      properties:
+        chunk_id: { type: string }
+        resource_id: { type: string }
+        resource_version: { type: integer, minimum: 1 }
+        course_id: { type: [string, 'null'] }
+        resource_title: { type: string }
+        text: { type: string }
+        locator: { $ref: '../schemas/content-chunk.schema.json#/$defs/Locator' }
+        score: { type: number }
+      additionalProperties: false
+
+    Connection:
+      $ref: '../schemas/connection.schema.json'
+
+    CapabilitiesResponse:
+      allOf:
+        - $ref: '../schemas/capabilities.schema.json'
+        - type: object
+          required: [connection_id]
+      description: 适配器能力（A3 §3.2 冻结版）+ 连接 ID。未实测的能力必须为 unknown。
+
+    JobAcceptedResponse:
+      type: object
+      required: [job]
+      properties:
+        job: { $ref: '../schemas/job.schema.json' }
+      additionalProperties: false
+
+    CurrentPlanResponse:
+      type: object
+      required: [plan, current_input_revision]
+      properties:
+        plan:
+          oneOf: [{ $ref: '../schemas/plan.schema.json' }, { type: 'null' }]
+          description: 当前生效计划；无则为 null。
+        current_input_revision:
+          type: string
+          description: 服务端当前输入指纹；与 plan.input_revision 不同表示计划已过期（输入变化）。
+      additionalProperties: false
+
+    PlanPreviewResponse:
+      type: object
+      required: [plan, current_input_revision]
+      properties:
+        plan: { $ref: '../schemas/plan.schema.json' }
+        current_input_revision: { type: string }
+      additionalProperties: false
+
+    ApplyPlanResponse:
+      type: object
+      required: [plan, previous_plan_id]
+      properties:
+        plan: { $ref: '../schemas/plan.schema.json' }
+        previous_plan_id:
+          oneOf: [{ type: string }, { type: 'null' }]
+          description: 被取代的上一版生效计划 ID。
+      additionalProperties: false
+
+    RevokePlanResponse:
+      type: object
+      required: [plan, restored_plan_id]
+      properties:
+        plan: { $ref: '../schemas/plan.schema.json' }
+        restored_plan_id:
+          oneOf: [{ type: string }, { type: 'null' }]
+          description: 恢复为生效的上一版计划 ID；无可恢复时为 null。
+      additionalProperties: false
+
+    LockTaskRequest:
+      type: object
+      required: [locked]
+      properties:
+        locked: { type: boolean }
+        starts_at:
+          type: [string, 'null']
+          format: date-time
+          description: 锁定块起始时间；null/缺省时保持当前安排。
+      additionalProperties: false
+
+    LockTaskResponse:
+      type: object
+      required: [task, plan]
+      properties:
+        task: { $ref: '../schemas/learning-task.schema.json' }
+        plan:
+          oneOf: [{ $ref: '../schemas/plan.schema.json' }, { type: 'null' }]
+          description: 受影响后的生效计划（无生效计划时为 null）。
+      additionalProperties: false
+
+    FeedbackRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [completed, partial, skipped]
+        actual_minutes: { type: [integer, 'null'], minimum: 1 }
+        difficulty: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        note: { type: [string, 'null'], maxLength: 2000 }
+      additionalProperties: false
+
+    FeedbackRecord:
+      type: object
+      required: [id, task_id, outcome, actual_minutes, difficulty, note, created_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        outcome: { type: string, enum: [completed, partial, skipped] }
+        actual_minutes: { type: [integer, 'null'], minimum: 1 }
+        difficulty: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    FeedbackResponse:
+      type: object
+      required: [feedback, task, current_input_revision, replan_suggested]
+      properties:
+        feedback: { $ref: '#/components/schemas/FeedbackRecord' }
+        task: { $ref: '../schemas/learning-task.schema.json' }
+        current_input_revision: { type: string }
+        replan_suggested:
+          type: boolean
+          description: 是否建议重新预览计划（服务端合并触发事件后的结果；最终以用户操作为准）。
+      additionalProperties: false
+
+    PreviewPlanRequest:
+      type: object
+      properties:
+        horizon_start: { type: [string, 'null'], format: date }
+        horizon_end: { type: [string, 'null'], format: date }
+        respect_locked:
+          type: boolean
+          default: true
+          description: 是否保留锁定块（首版必须为 true）。
+      additionalProperties: false
+
+    CreateCourseRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        term: { type: [string, 'null'] }
+        teacher: { type: [string, 'null'] }
+      additionalProperties: false
+
+    AddSourceRefRequest:
+      type: object
+      required: [source_ref]
+      properties:
+        source_ref: { $ref: '../schemas/source-ref.schema.json' }
+      additionalProperties: false
+
+    CreateAssignmentRequest:
+      type: object
+      required: [course_id, title]
+      properties:
+        course_id: { type: string }
+        title: { type: string, minLength: 1 }
+        instructions: { type: [string, 'null'] }
+        due_at: { type: [string, 'null'], format: date-time }
+        due_precision:
+          type: string
+          enum: [datetime, date, unknown]
+          description: 缺省时按 due_at 是否有值推断拒绝：有值必须显式提供 precision。
+      additionalProperties: false
+
+    PatchAssignmentRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        instructions: { type: [string, 'null'] }
+        due_at: { type: [string, 'null'], format: date-time }
+        due_precision:
+          type: string
+          enum: [datetime, date, unknown]
+        submission_status:
+          type: string
+          enum: [unknown, not_submitted, submitted, graded]
+      additionalProperties: false
+
+    CreateTaskRequest:
+      type: object
+      required: [title, estimated_minutes]
+      properties:
+        course_id: { type: [string, 'null'] }
+        type:
+          type: string
+          enum: [study, reading, watching, assignment, practice, review, other]
+        title: { type: string, minLength: 1 }
+        estimated_minutes: { type: integer, minimum: 1 }
+        due_at: { type: [string, 'null'], format: date-time }
+        due_precision:
+          type: string
+          enum: [datetime, date, unknown]
+        prerequisite_ids:
+          type: array
+          items: { type: string }
+      additionalProperties: false
+
+    BuildTasksRequest:
+      type: object
+      properties:
+        course_id:
+          type: [string, 'null']
+          description: 仅重建指定课程的任务；缺省/null 表示全部课程。
+      additionalProperties: false
+
+    PatchTaskRequest:
+      type: object
+      properties:
+        course_id: { type: [string, 'null'] }
+        type:
+          type: string
+          enum: [study, reading, watching, assignment, practice, review, other]
+        title: { type: string, minLength: 1 }
+        estimated_minutes: { type: integer, minimum: 1 }
+        due_at: { type: [string, 'null'], format: date-time }
+        due_precision:
+          type: string
+          enum: [datetime, date, unknown]
+        prerequisite_ids:
+          type: array
+          items: { type: string }
+        status:
+          type: string
+          enum: [pending, in_progress, completed, cancelled]
+      additionalProperties: false
+
+    CreateImportRequest:
+      type: object
+      required: [payload, files]
+      properties:
+        payload:
+          type: string
+          description: |
+            JSON 字符串：{"course_id": "...", "kind": "slides|handout|syllabus|scan|document|other",
+            "title": "可选覆盖标题", "source_ref": "可选，适配器上传时携带平台来源（对象结构同 SourceRef）"}。
+            course_id 必须已存在。带 source_ref 的请求按 (platform, external_id) upsert 语义处理（重复上传同内容幂等，
+            新内容生成新版本）；不带 source_ref 视为用户手动导入（fact_source=user）。
+        files:
+          type: array
+          items: { type: string, format: binary }
+          description: 一个或多个待导入文件（pdf/pptx/docx/zip 等受支持类型；.zip 课件包仅存档与下载，解析终态见 parse_status=skipped）。
+      additionalProperties: false
+
+    StartSyncRequest:
+      type: object
+      properties:
+        full:
+          type: boolean
+          default: false
+          description: true=全量同步；false=增量。
+      additionalProperties: false
+
+    CreateExportRequest:
+      type: object
+      properties:
+        include:
+          type: array
+          items:
+            type: string
+            enum: [courses, resources, assignments, recordings, tasks, plans, feedback]
+          description: 缺省导出全部类别；仅对 format=json 有效（format=ics 时携带即 400 VALIDATION_FAILED）。
+        format:
+          type: string
+          enum: [json, ics]
+          default: json
+          description: >-
+            json=按类别导出结构化数据；ics=计划与任务截止的 iCalendar（用户时区渲染，
+            due_precision=date 截止为全天事件、unknown 不导出，产物经 GET /files/{file_id} 下载）。
+      additionalProperties: false
+
+    PutAvailabilityRequest:
+      type: object
+      required: [timezone, weekly_windows, date_exceptions, daily_limit_minutes]
+      properties:
+        timezone: { type: string, minLength: 1 }
+        weekly_windows:
+          type: array
+          items: { $ref: '../schemas/availability.schema.json#/$defs/WeeklyWindow' }
+        date_exceptions:
+          type: array
+          items: { $ref: '../schemas/availability.schema.json#/$defs/DateException' }
+        daily_limit_minutes: { type: [integer, 'null'], minimum: 1 }
+      additionalProperties: false
+
+    ProviderConfigListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/provider-config.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    UpsertProviderRequest:
+      type: object
+      required: [name, base_url, model]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        protocol:
+          type: string
+          enum: [openai_chat_completions]
+          default: openai_chat_completions
+          description: 首版仅支持 OpenAI 兼容 Chat Completions；其他协议 400 拒绝。
+        base_url:
+          type: string
+          minLength: 1
+          description: 服务根地址或 /v1 地址（规范化规则见 ProviderConfig.base_url；不要填含 /chat/completions 的完整端点）。
+          examples: ["https://api.example.com", "https://api.example.com/v1", "http://127.0.0.1:11434/v1"]
+        model: { type: string, minLength: 1, maxLength: 200, description: 模型名（用户填写；不提供假定默认）。 }
+        timeout_seconds: { type: integer, minimum: 5, maximum: 600, default: 120 }
+        api_key:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 4096
+          description: 密钥明文仅此一次传入（TLS 或本机回环）；存储于本地密钥存储（DPAPI）。缺省/null=不设置/保留（更新时）。
+      additionalProperties: false
+
+    PatchProviderRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        protocol:
+          type: string
+          enum: [openai_chat_completions]
+        base_url: { type: string, minLength: 1 }
+        model: { type: string, minLength: 1, maxLength: 200 }
+        timeout_seconds: { type: integer, minimum: 5, maximum: 600 }
+        api_key:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 4096
+          description: 缺省/null=保留现有密钥（不覆盖、不清除）；空字符串 400（避免误清空）。清除密钥用 DELETE /ai/providers/{provider_id}/key。
+      additionalProperties: false
+
+    ProviderTestResponse:
+      type: object
+      required: [provider, result]
+      properties:
+        provider: { $ref: '../schemas/provider-config.schema.json', description: 测试后的配置（含更新的 last_tested_at/last_test_result）。 }
+        result: { $ref: '../schemas/provider-config.schema.json#/$defs/TestResult' }
+      additionalProperties: false
+
+    ReviewMaterialListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/review-material.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ReviewPaperListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/review-paper.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ReviewPaperRevisionListResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '../schemas/review-paper-revision.schema.json' }
+        next_cursor: { type: [string, 'null'] }
+      additionalProperties: false
+
+    ReviewRevisionRequest:
+      type: object
+      description: 重做/修订请求（全部可空：未提供字段复用上一版）。至少要产生一次重做（全空=原参数重做）。course_id/mode 不在本请求内（修订不更换课程与模式）。
+      properties:
+        provider_config_id:
+          type: [string, 'null']
+          description: 更换 AI 服务配置；null/缺省=沿用上一版。
+        title: { type: [string, 'null'], maxLength: 120, description: 新标题；null/缺省=沿用上一版。 }
+        materials: { $ref: '../schemas/review-request.schema.json#/$defs/MaterialSelection', description: 新材料选择；缺省=沿用上一版快照输入（重新按当前解析结果冻结）。 }
+        notes: { type: [string, 'null'], maxLength: 20000, description: 替换备注原文（提供空字符串=清空备注）；缺省/null=沿用上一版备注。 }
+        constraints: { $ref: '../schemas/review-request.schema.json#/$defs/Constraints', description: 新约束；缺省=沿用上一版。 }
+      additionalProperties: false

@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "id": "prv_cloud02",
+      "name": "示例兼容网关",
+      "protocol": "openai_chat_completions",
+      "base_url": "https://api.example.com/v1",
+      "model": "example-chat-1",
+      "has_api_key": true,
+      "timeout_seconds": 60,
+      "created_at": "2026-10-10T09:00:00+08:00",
+      "updated_at": "2026-10-11T08:30:00+08:00",
+      "last_tested_at": "2026-10-11T08:30:00+08:00",
+      "last_test_result": {
+        "ok": true,
+        "checked_at": "2026-10-11T08:30:00+08:00",
+        "latency_ms": 812,
+        "http_status": 200,
+        "error": null
+      }
+    },
+    {
+      "id": "prv_local01",
+      "name": "本地模型（示例）",
+      "protocol": "openai_chat_completions",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "example-local-7b",
+      "has_api_key": false,
+      "timeout_seconds": 120,
+      "created_at": "2026-10-10T09:05:00+08:00",
+      "updated_at": "2026-10-10T09:05:00+08:00",
+      "last_tested_at": null,
+      "last_test_result": null
+    }
+  ],
+  "next_cursor": null
+}

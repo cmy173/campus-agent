@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MaterialSnapshot",
+  "description": "材料快照：出卷时冻结的实际发送内容（正文原文、版本与 hash、片段定位、备注原文、缺失清单与 fingerprint），随试卷版本持久化，历史版本可复查当时材料。正文不截断、不摘要；缺失如实列出，不以标题冒充正文。",
+  "type": "object",
+  "required": ["id", "course_id", "created_at", "engine_version", "fingerprint", "notes", "items", "missing", "total_chars"],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "快照 ID（snp_ 前缀）。" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "engine_version": { "type": "string", "minLength": 1, "description": "出卷引擎模块版本（learning.review.ENGINE_VERSION）。" },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "材料+备注+约束+引擎版本的规范化 sha256。公式（B/D 统一实现）：sha256(canonical_json({course_id, mode, engine_version, notes_sha256(UTF-8 字节), constraints, materials:[{kind,id,version,content_hash,chunk_ids,chars} 按稳定序]}))。材料、备注、约束或引擎版本任一变化必须改变 fingerprint；DB 中存为 sha256:<hex> 字符串。"
+    },
+    "notes": { "$ref": "#/$defs/Notes" },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/Item" }, "description": "实际纳入快照的材料项（含正文原文）。" },
+    "missing": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Missing" },
+      "description": "用户选中但无法纳入正文的材料（未解析/解析失败/无文本/片段缺失/附件缺失），含原因与建议；不得以文件标题冒充正文。"
+    },
+    "total_chars": { "type": "integer", "minimum": 0, "description": "items 正文总字符数（Unicode 码点）。" }
+  },
+  "$defs": {
+    "Notes": {
+      "type": "object",
+      "description": "用户备注原文（逐字节保留换行/中文/数学表达，不 trim/不摘要/不静默截断）。",
+      "required": ["text", "sha256", "chars"],
+      "properties": {
+        "text": { "type": "string", "description": "备注原文；无备注为空字符串。" },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "备注原文 UTF-8 字节的 sha256。" },
+        "chars": { "type": "integer", "minimum": 0, "description": "字符数（Unicode 码点）。" }
+      },
+      "additionalProperties": false
+    },
+    "Item": {
+      "type": "object",
+      "required": ["kind", "resource_id", "assignment_id", "title", "version", "content_hash", "chunk_ids", "locators", "chars", "text"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["resource_text", "assignment_text", "attachment_text"] },
+        "resource_id": { "type": ["string", "null"], "description": "resource_text/attachment_text 时为资源 ID；assignment_text 为 null。" },
+        "assignment_id": { "type": ["string", "null"], "description": "assignment_text 时为作业 ID；否则 null。" },
+        "title": { "type": "string", "description": "用户可读标题（展示用，不冒充正文）。" },
+        "version": { "type": ["integer", "null"], "minimum": 1, "description": "资源版本；作业正文为 null。" },
+        "content_hash": { "$ref": "common.schema.json#/$defs/content_hash" },
+        "chunk_ids": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/id" }, "description": "纳入的片段 ID（升序）；作业正文为空数组。" },
+        "locators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["chunk_id", "locator"],
+            "properties": {
+              "chunk_id": { "$ref": "common.schema.json#/$defs/id" },
+              "locator": { "$ref": "content-chunk.schema.json#/$defs/Locator" }
+            },
+            "additionalProperties": false
+          },
+          "description": "片段定位（页码/幻灯片/时间/文本偏移），与 chunk_ids 一一对应；保证旧卷出处可复查。"
+        },
+        "chars": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string", "description": "实际发送的正文原文（按片段序拼接；不截断、不摘要）。" }
+      },
+      "additionalProperties": false
+    },
+    "Missing": {
+      "type": "object",
+      "required": ["kind", "resource_id", "assignment_id", "title", "reason", "message"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["resource", "assignment", "attachment"] },
+        "resource_id": { "type": ["string", "null"] },
+        "assignment_id": { "type": ["string", "null"] },
+        "title": { "type": "string" },
+        "reason": {
+          "type": "string",
+          "enum": ["not_parsed", "parse_failed", "type_skipped", "no_text", "chunk_missing", "attachment_absent", "not_accessible"],
+          "description": "not_parsed=尚未解析 / parse_failed=解析失败 / type_skipped=该类型不解析（如 zip）/ no_text=解析产物无可读文本（如扫描页）/ chunk_missing=所选片段不存在或不属于所选版本 / attachment_absent=作业附件缺失或未获取 / not_accessible=平台仅预览或无下载权限，无法获取正文。"
+        },
+        "message": { "type": "string", "description": "面向用户的建议（如“重新解析该文件”）" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

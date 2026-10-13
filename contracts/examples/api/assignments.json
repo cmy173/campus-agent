@@ -1,0 +1,97 @@
+{
+  "items": [
+    {
+      "id": "asg_a101",
+      "course_id": "crs_3f8a21",
+      "title": "作业3：树与二叉树",
+      "instructions": "完成教材第6章习题 6.1-6.8，提交 PDF。",
+      "due_at": "2026-10-01T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "fact_source": "platform",
+      "confidence": null,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-assign-55001",
+        "canonical_url": "https://course.zju.edu.cn/assignment/55001",
+        "observed_at": "2026-10-08T09:35:00+08:00"
+      },
+      "attachment_resource_ids": [],
+      "revision": 3,
+      "observed_at": "2026-10-08T09:35:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-09-25T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:35:00+08:00"
+    },
+    {
+      "id": "asg_a102",
+      "course_id": "crs_3f8a21",
+      "title": "实验报告一：顺序表实现",
+      "instructions": "实现顺序表并提交源码与实验报告。",
+      "due_at": null,
+      "due_precision": "unknown",
+      "submission_status": "not_submitted",
+      "fact_source": "platform",
+      "confidence": null,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-assign-55002",
+        "canonical_url": "https://course.zju.edu.cn/assignment/55002",
+        "observed_at": "2026-10-08T09:36:00+08:00"
+      },
+      "attachment_resource_ids": ["res_01b2"],
+      "revision": 2,
+      "observed_at": "2026-10-08T09:36:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-09-28T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:36:00+08:00"
+    },
+    {
+      "id": "asg_a103",
+      "course_id": "crs_51c9d0",
+      "title": "论文阅读报告",
+      "instructions": "阅读并总结指定论文，不少于 800 字。",
+      "due_at": "2026-10-20T12:00:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "submitted",
+      "fact_source": "platform",
+      "confidence": null,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-assign-55101",
+        "canonical_url": "https://course.zju.edu.cn/assignment/55101",
+        "observed_at": "2026-10-08T09:42:00+08:00"
+      },
+      "attachment_resource_ids": [],
+      "revision": 2,
+      "observed_at": "2026-10-08T09:42:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-02T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:42:00+08:00"
+    },
+    {
+      "id": "asg_a104",
+      "course_id": "crs_51c9d0",
+      "title": "随堂练习二",
+      "instructions": "在线完成 10 道选择题。",
+      "due_at": "2026-10-25T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "fact_source": "platform",
+      "confidence": null,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-assign-55102",
+        "canonical_url": "https://course.zju.edu.cn/assignment/55102",
+        "observed_at": "2026-10-08T09:43:00+08:00"
+      },
+      "attachment_resource_ids": [],
+      "revision": 1,
+      "observed_at": "2026-10-08T09:43:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:43:00+08:00",
+      "updated_at": "2026-10-08T09:43:00+08:00"
+    }
+  ],
+  "next_cursor": null
+}

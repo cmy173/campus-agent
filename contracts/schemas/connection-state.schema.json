@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConnectionState",
+  "description": "适配器连接状态（A3 §3.1 冻结版）。check_connection 的输出；API 层 Connection.status/recovery_action 透传该语义。",
+  "type": "object",
+  "required": [
+    "platform",
+    "state",
+    "checked_at",
+    "action",
+    "detail"
+  ],
+  "properties": {
+    "platform": {
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "xzzd",
+        "zykt"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "auth_required",
+        "network_error",
+        "blocked",
+        "unsupported",
+        "service_unavailable"
+      ],
+      "description": "ok=可用；auth_required=登录失效需用户重新登录；network_error=网络/上游不可达；blocked=平台拒绝或风控。 unsupported=功能未接入；service_unavailable=本地连接器未启动或接入配置缺失。"
+    },
+    "checked_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "action": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RecoveryAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "state=auth_required 等需要用户操作时给出；无需操作为 null。"
+    },
+    "detail": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "脱敏摘要（不得包含凭据、token 或签名 URL）。"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "RecoveryAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "entry_url",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user_login"
+          ],
+          "description": "恢复动作类型；首版仅 user_login。"
+        },
+        "entry_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "用户可执行登录的入口页面。"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "给用户看的提示文案。"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

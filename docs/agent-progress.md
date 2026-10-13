@@ -1,5 +1,7 @@
 # Campus Agent Goal 实施位置
 
+当前 V2 在 D:/AI/campus-agent、codex/personal-assistant-v2 分支实施，权威进度见 [V2 进度](agent-v2-progress.md)，退役台账见 [迁移台账](agent-v2-migration.md)。以下是首轮来源记录，后续不在旧工作树开发。
+
 首轮 M0–M2 在独立工作树实施，保留此目录所有原有改动。
 
 - 实施源码：`C:/Users/mingxiang/.codex/worktrees/campus-agent-core/campus-agent/workbench`

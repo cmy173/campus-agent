@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Resource",
+  "description": "逻辑资源（课件、讲义、扫描件等）。同一逻辑资源可有多版本，version/content_hash 表示当前版本。字段命名与 A3 提案的对照：bytes→size_bytes、media_type→mime_type、updated_at（平台侧）→source_updated_at。",
+  "type": "object",
+  "required": [
+    "id", "course_id", "kind", "title", "source_refs", "version", "content_hash",
+    "parse_status", "mime_type", "size_bytes", "access_level", "file_id",
+    "extent_value", "extent_unit", "chunk_count", "fetched_at", "source_updated_at",
+    "archived_at", "created_at", "updated_at"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "kind": {
+      "type": "string",
+      "enum": ["slides", "handout", "syllabus", "scan", "document", "link", "other"],
+      "description": "资源类别。link 类资源无文件（file_id/content_hash 为 null），以其 source_ref.canonical_url 引用。"
+    },
+    "title": { "type": "string", "minLength": 1, "description": "显示名，通常为文件名。" },
+    "source_refs": {
+      "type": "array",
+      "items": { "$ref": "source-ref.schema.json" },
+      "description": "平台来源（可多条：同一逻辑资源在多个平台/多条记录被观察到，如跨平台合并后）。手动导入为空数组。"
+    },
+    "version": { "type": "integer", "minimum": 1, "description": "当前版本号，从 1 递增；同名新内容生成新版本，不覆盖历史。" },
+    "content_hash": { "$ref": "common.schema.json#/$defs/content_hash" },
+    "parse_status": {
+      "type": "string",
+      "enum": ["pending", "processing", "ready", "failed", "skipped"],
+      "description": "解析状态；skipped 表示该类型不解析（如 link、.zip 课件包——仅存档与下载，解析任务以错误码 UNSUPPORTED_MEDIA_TYPE 说明原因）。需要 OCR 的扫描件不单设枚举值：如实落 failed，原因以任务错误码 NEEDS_OCR 表达（可重试），chunk_count 恒为 null。"
+    },
+    "mime_type": { "type": ["string", "null"] },
+    "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+    "access_level": {
+      "type": "string",
+      "enum": ["full", "preview_only", "restricted"],
+      "description": "内容的可获取级别：full=可下载；preview_only=仅可预览、不尝试下载；restricted=不可获取（版权/权限受限）。受限时不绕过，如实标注。"
+    },
+    "file_id": {
+      "type": ["string", "null"],
+      "description": "受控文件访问标识；经 GET /api/v1/files/{file_id} 下载（服务端做所有权检查）。服务器本地路径绝不出现在 API 中。"
+    },
+    "extent_value": { "type": ["integer", "null"], "minimum": 0, "description": "当前版本的篇幅量（如页数）；未知为 null。用于学习时长估算（minutes_per_unit）。" },
+    "extent_unit": {
+      "oneOf": [
+        { "type": "string", "enum": ["page", "slide"] },
+        { "type": "null" }
+      ],
+      "description": "篇幅单位：page=页；slide=幻灯片。未知为 null。"
+    },
+    "chunk_count": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "当前版本已解析片段数（派生只读；列表徽标用）。未知（尚未解析就绪/未统计）为 null；link 类等 skipped 资源恒为 null。"
+    },
+    "fetched_at": { "type": ["string", "null"], "format": "date-time", "description": "文件内容获取时间。" },
+    "source_updated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "平台侧最后更新时间（如平台未提供则为 null）；与记录自身的 updated_at 不同。"
+    },
+    "archived_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp", "description": "服务端记录自身的更新时间。" }
+  },
+  "additionalProperties": false
+}

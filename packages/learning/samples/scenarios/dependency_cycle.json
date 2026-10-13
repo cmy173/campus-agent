@@ -1,0 +1,69 @@
+{
+  "name": "dependency_cycle",
+  "description": "依赖环与未知前置：A↔B 互为前置，C 依赖 A，均进入“依赖冲突”；引用不存在前置的任务按已满足处理（告警）并可正常安排。",
+  "tasks": [
+    {
+      "id": "t_cyc_a",
+      "course_id": "crs_demo",
+      "type": "practice",
+      "title": "示例：环 A",
+      "estimated_minutes": 30,
+      "prerequisite_ids": ["t_cyc_b"]
+    },
+    {
+      "id": "t_cyc_b",
+      "course_id": "crs_demo",
+      "type": "practice",
+      "title": "示例：环 B",
+      "estimated_minutes": 30,
+      "prerequisite_ids": ["t_cyc_a"]
+    },
+    {
+      "id": "t_dep_c",
+      "course_id": "crs_demo",
+      "type": "practice",
+      "title": "示例：依赖环成员 C",
+      "estimated_minutes": 30,
+      "prerequisite_ids": ["t_cyc_a"]
+    },
+    {
+      "id": "t_dep_missing",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：引用不存在的前置",
+      "estimated_minutes": 30,
+      "prerequisite_ids": ["t_not_exist"]
+    },
+    {
+      "id": "t_ok",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：独立任务",
+      "estimated_minutes": 30
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "21:00"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": ["DEPENDENCY_CYCLE", "UNKNOWN_PREREQUISITE"],
+    "allowed_violations": [],
+    "scheduled_tasks": ["t_dep_missing", "t_ok"],
+    "unassigned": {
+      "t_cyc_a": "DEPENDENCY_CONFLICT",
+      "t_cyc_b": "DEPENDENCY_CONFLICT",
+      "t_dep_c": "DEPENDENCY_CONFLICT"
+    }
+  }
+}

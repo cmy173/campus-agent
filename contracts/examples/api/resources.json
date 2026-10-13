@@ -1,0 +1,185 @@
+{
+  "items": [
+    {
+      "id": "res_01a7",
+      "course_id": "crs_3f8a21",
+      "kind": "slides",
+      "title": "第03讲-线性表.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33001",
+          "canonical_url": "https://course.zju.edu.cn/file/33001",
+          "observed_at": "2026-10-08T09:30:00+08:00"
+        }
+      ],
+      "version": 2,
+      "content_hash": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 1893000,
+      "access_level": "full",
+      "file_id": "fil_01a7v2",
+      "extent_value": 46,
+      "extent_unit": "slide",
+      "chunk_count": 2,
+      "fetched_at": "2026-10-08T10:00:31+08:00",
+      "source_updated_at": "2026-10-07T16:40:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-09-30T11:00:00+08:00",
+      "updated_at": "2026-10-08T10:00:31+08:00"
+    },
+    {
+      "id": "res_01b2",
+      "course_id": "crs_3f8a21",
+      "kind": "handout",
+      "title": "讲义-附录A.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33002",
+          "canonical_url": "https://course.zju.edu.cn/file/33002",
+          "observed_at": "2026-10-08T09:31:00+08:00"
+        },
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33003",
+          "canonical_url": "https://course.zju.edu.cn/file/33003",
+          "observed_at": "2026-10-08T09:31:00+08:00"
+        }
+      ],
+      "version": 1,
+      "content_hash": "sha256:c1a8e37f02d96b4e85f3c1a96e207d54b3f8a1c647d05e92a6c3b8f15e94d270",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 512000,
+      "access_level": "full",
+      "file_id": "fil_01b2v1",
+      "extent_value": 12,
+      "extent_unit": "page",
+      "chunk_count": 2,
+      "fetched_at": "2026-10-08T10:01:02+08:00",
+      "source_updated_at": "2026-09-28T11:00:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:31:00+08:00",
+      "updated_at": "2026-10-08T10:01:02+08:00"
+    },
+    {
+      "id": "res_01c0",
+      "course_id": "crs_3f8a21",
+      "kind": "syllabus",
+      "title": "课程大纲.docx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33010",
+          "canonical_url": "https://course.zju.edu.cn/file/33010",
+          "observed_at": "2026-10-08T09:32:00+08:00"
+        }
+      ],
+      "version": 1,
+      "content_hash": "sha256:94d6b2f13a7c58e0d2f94a6bc8031e7f5b2a9d46e1f7c3508a64d2b90f3e81c7",
+      "parse_status": "pending",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "size_bytes": 86400,
+      "access_level": "full",
+      "file_id": "fil_01c0v1",
+      "extent_value": 3,
+      "extent_unit": "page",
+      "chunk_count": null,
+      "fetched_at": "2026-10-08T10:01:20+08:00",
+      "source_updated_at": "2026-09-20T10:00:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:32:00+08:00",
+      "updated_at": "2026-10-08T10:01:20+08:00"
+    },
+    {
+      "id": "res_01d4",
+      "course_id": "crs_3f8a21",
+      "kind": "scan",
+      "title": "实验指导书(受限).pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33020",
+          "canonical_url": "https://course.zju.edu.cn/file/33020",
+          "observed_at": "2026-10-08T09:33:00+08:00"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": "application/pdf",
+      "size_bytes": null,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-09-25T14:20:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:33:00+08:00",
+      "updated_at": "2026-10-08T09:33:00+08:00"
+    },
+    {
+      "id": "res_02e1",
+      "course_id": "crs_51c9d0",
+      "kind": "slides",
+      "title": "第05讲-搜索算法.pptx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33101",
+          "canonical_url": "https://course.zju.edu.cn/file/33101",
+          "observed_at": "2026-10-08T09:40:00+08:00"
+        }
+      ],
+      "version": 1,
+      "content_hash": "sha256:2e8f4a1c6d0b397ef5a21c8409d7e3b6c4f8a52d71e6b9403d0a8f2796c1e5b4",
+      "parse_status": "ready",
+      "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "size_bytes": 4231000,
+      "access_level": "full",
+      "file_id": "fil_02e1v1",
+      "extent_value": 60,
+      "extent_unit": "slide",
+      "chunk_count": 2,
+      "fetched_at": "2026-10-08T10:02:00+08:00",
+      "source_updated_at": "2026-10-06T18:00:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:40:00+08:00",
+      "updated_at": "2026-10-08T10:02:00+08:00"
+    },
+    {
+      "id": "res_03f1",
+      "course_id": "crs_9b6c40",
+      "kind": "slides",
+      "title": "数据结构-课件合集.pdf",
+      "source_refs": [
+        {
+          "platform": "zykt",
+          "external_id": "zykt-file-41001",
+          "canonical_url": "https://classroom.zju.edu.cn/course/20011/material/41001",
+          "observed_at": "2026-10-08T09:45:00+08:00"
+        }
+      ],
+      "version": 1,
+      "content_hash": "sha256:a7c3e91f5b2d804ce1f97a36d08b4e25c9a1f7d3620e8b54f3d0a9c17e5b2968",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 8450000,
+      "access_level": "full",
+      "file_id": "fil_03f1v1",
+      "extent_value": 210,
+      "extent_unit": "page",
+      "chunk_count": 2,
+      "fetched_at": "2026-10-08T10:03:10+08:00",
+      "source_updated_at": "2026-09-30T09:00:00+08:00",
+      "archived_at": null,
+      "created_at": "2026-10-08T09:45:00+08:00",
+      "updated_at": "2026-10-08T10:03:10+08:00"
+    }
+  ],
+  "next_cursor": "cur_res_p2"
+}

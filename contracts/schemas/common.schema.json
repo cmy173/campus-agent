@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Common definitions",
+  "description": "跨对象共享的基础定义。其它 schema 通过 $ref 引用本文件的 $defs。",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "不透明内部 ID（建议带类型前缀的 ULID/UUID，如 crs_、res_、tsk_）。平台 ID 不在此列。"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 含偏移量；API 默认返回 UTC（Z 结尾）。数据库统一存 UTC。"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 日期（YYYY-MM-DD），如计划窗口与例外日期（按用户时区解释）。"
+    },
+    "fact_source": {
+      "type": "string",
+      "enum": ["platform", "user", "inferred"],
+      "description": "事实来源：平台同步 / 用户录入 / 推断（推断可附 confidence）。"
+    },
+    "due_precision": {
+      "type": "string",
+      "enum": ["datetime", "date", "unknown"],
+      "description": "截止时间精度。unknown 时对应 due_at 必须为 null；date 时 due_at 表示该日期 00:00（按用户时区），含义为“当日截止”，不得当作精确时刻。"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "推断置信度（仅 fact_source=inferred 时使用）。"
+    },
+    "minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "整数分钟。"
+    },
+    "seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "秒。"
+    },
+    "content_hash": {
+      "oneOf": [
+        { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        { "type": "null" }
+      ],
+      "description": "内容哈希，格式 sha256:<64位十六进制>。无法计算/未获取时为 null（不猜测，null 不是“空内容”）。"
+    },
+    "review_mode": {
+      "type": "string",
+      "enum": ["ai", "bank", "hybrid"],
+      "description": "出卷来源模式：ai=模型生成 / bank=网络题库 / hybrid=先选可靠网络候选、再按缺口补生成（复习卷契约）。"
+    },
+    "question_type": {
+      "type": "string",
+      "enum": ["single_choice", "multiple_choice", "true_false", "fill_blank", "calculation", "short_answer", "proof"],
+      "description": "复习卷题型（封闭集合；新增题型走契约变更流程）。"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "medium", "hard"],
+      "description": "题目难度三档。"
+    }
+  }
+}

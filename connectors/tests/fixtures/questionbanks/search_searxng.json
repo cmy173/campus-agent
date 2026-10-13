@@ -1,0 +1,7 @@
+{"results": [
+  {"url": "https://qbpages.example/q/1", "title": "高数练习题页", "engine": "test", "content": "摘要内容绝不作为题干"},
+  {"url": "https://qbpages.example/q/2", "title": "需登录的题页", "engine": "test", "content": "登录后可见"},
+  {"url": "https://qbpages.example/q/3", "title": "空内容页", "engine": "test", "content": "无题目"},
+  {"url": "https://qbpages.example/q/1", "title": "重复 URL 应跳过", "engine": "test", "content": "dup"},
+  {"url": "javascript:alert(1)", "title": "非 http 应跳过", "engine": "test", "content": "x"}
+]}

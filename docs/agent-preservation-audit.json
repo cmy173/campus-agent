@@ -1,0 +1,14 @@
+{
+  "checked": 55,
+  "unchanged": 53,
+  "changed": [
+    "docs/agent-design/README.md",
+    "docs/agent-design/goal-implementation-prompt.md"
+  ],
+  "missing": [],
+  "backup_files": {
+    "changes.patch": true,
+    "pre-goal-changes.zip": true,
+    "manifest.json": true
+  }
+}

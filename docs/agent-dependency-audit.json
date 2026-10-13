@@ -1,0 +1,276 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@deepseek-ai/dsh": {
+      "name": "@deepseek-ai/dsh",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@deepseek-ai/dsh-acp-app",
+        "@deepseek-ai/dsh-mcp-client",
+        "@deepseek-ai/dsh-sdk-app",
+        "@deepseek-ai/dsh-sdk-minimal",
+        "@deepseek-ai/dsh-skill-office",
+        "@deepseek-ai/dsh-web-app"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-sdk-client"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "@deepseek-ai/dsh-acp": {
+      "name": "@deepseek-ai/dsh-acp",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/dsh-mcp-client"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-acp-app"
+      ],
+      "range": "<=0.2.1-alpha.1",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-acp"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/dsh-acp-app": {
+      "name": "@deepseek-ai/dsh-acp-app",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/dsh-acp"
+      ],
+      "effects": [],
+      "range": "<=0.2.1-alpha.1",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-acp-app"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/dsh-mcp-client": {
+      "name": "@deepseek-ai/dsh-mcp-client",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "@modelcontextprotocol/client"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh",
+        "@deepseek-ai/dsh-acp"
+      ],
+      "range": "<=0.2.1-alpha.1",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-mcp-client"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "@deepseek-ai/dsh-office-to-pdf": {
+      "name": "@deepseek-ai/dsh-office-to-pdf",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/libreoffice-kit"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-web-app"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-office-to-pdf"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/dsh-sdk-app": {
+      "name": "@deepseek-ai/dsh-sdk-app",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/dsh-skill-office"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-sdk-minimal"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-sdk-app"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/dsh-sdk-client": {
+      "name": "@deepseek-ai/dsh-sdk-client",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@deepseek-ai/dsh"
+      ],
+      "effects": [],
+      "range": "<=0.2.1-alpha.1",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-sdk-client"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "@deepseek-ai/dsh-sdk-minimal": {
+      "name": "@deepseek-ai/dsh-sdk-minimal",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/dsh-sdk-app"
+      ],
+      "effects": [],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-sdk-minimal"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/dsh-skill-office": {
+      "name": "@deepseek-ai/dsh-skill-office",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/libreoffice-kit"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh",
+        "@deepseek-ai/dsh-sdk-app"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-skill-office"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "@deepseek-ai/dsh-web-app": {
+      "name": "@deepseek-ai/dsh-web-app",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@deepseek-ai/dsh-office-to-pdf"
+      ],
+      "effects": [],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/dsh-web-app"
+      ],
+      "fixAvailable": true
+    },
+    "@deepseek-ai/libreoffice-kit": {
+      "name": "@deepseek-ai/libreoffice-kit",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "fflate"
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-office-to-pdf",
+        "@deepseek-ai/dsh-skill-office"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@deepseek-ai/libreoffice-kit"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "@modelcontextprotocol/client": {
+      "name": "@modelcontextprotocol/client",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1241338,
+          "name": "@modelcontextprotocol/client",
+          "dependency": "@modelcontextprotocol/client",
+          "title": "MCP TypeScript SDK: OAuth client could send credentials to an authorization server chosen by the MCP server",
+          "url": "https://github.com/advisories/GHSA-6qxp-vccf-f47h",
+          "severity": "high",
+          "cwe": [
+            "CWE-345",
+            "CWE-522"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": ">=2.0.0 <2.2.0"
+        }
+      ],
+      "effects": [
+        "@deepseek-ai/dsh-mcp-client"
+      ],
+      "range": "2.0.0 - 2.1.0",
+      "nodes": [
+        "node_modules/@modelcontextprotocol/client"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    },
+    "fflate": {
+      "name": "fflate",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1164782,
+          "name": "fflate",
+          "dependency": "fflate",
+          "title": "fflate unzipSync can enter an infinite loop when parsing malformed ZIP64 archives",
+          "url": "https://github.com/advisories/GHSA-px8p-9vwx-vf98",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-400"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=0.8.0 <0.8.3"
+        }
+      ],
+      "effects": [
+        "@deepseek-ai/libreoffice-kit"
+      ],
+      "range": "0.8.0 - 0.8.2",
+      "nodes": [
+        "node_modules/@deepseek-ai/libreoffice-kit/node_modules/fflate"
+      ],
+      "fixAvailable": {
+        "isSemVerMajor": true
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 7,
+      "high": 6,
+      "critical": 0,
+      "total": 13
+    },
+    "dependencies": {
+      "prod": 505,
+      "dev": 0,
+      "optional": 78,
+      "peer": 27,
+      "peerOptional": 0,
+      "total": 609
+    }
+  }
+}

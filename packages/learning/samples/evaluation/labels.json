@@ -1,0 +1,213 @@
+{
+  "version": "0.1.0",
+  "note": "D3 解析评估人工标注：对照 samples/evaluation/ 下的自编文档（由 tests/make_eval_docs.py 生成，内容非真实课件）逐项标注正文、页码/幻灯片位置与偏移量。标注独立于解析器输出撰写；test_eval_samples.py 用解析结果对照本文件，差异即评测发现（记录于 docs/D3-解析评估报告.md）。",
+  "context": {
+    "resource_version": 1,
+    "job_id": "job_eval_d3",
+    "observed_at": "2026-10-09T12:00:00+08:00"
+  },
+  "documents": [
+    {
+      "file": "doc01-lecture-handout.docx",
+      "format": "docx",
+      "origin": "自编《数据结构》讲义节选（中文正文，2 级标题）",
+      "sha256": "1b50a5fe8faeb2f5e547db89b6e6fd1708a365af7479235d9d05f3819294a152",
+      "expect": {
+        "status": "ready",
+        "units": 6,
+        "units_label": "paragraph",
+        "chunk_count": 6,
+        "message_contains": null,
+        "full_text": "第2章 线性表\n本讲讨论线性表的两种基本实现：顺序存储与链式存储，并比较二者在插入、删除与随机访问上的时间开销。\n2.1 顺序存储\n顺序表用一段连续空间保存元素，按下标直接寻址，随机访问为 O(1)；在表中间插入或删除需要搬移后续元素，平均开销为 O(n)。\n2.2 链式存储\n链表以结点和指针串联元素，按位置访问需要从头遍历，开销为 O(n)；已知位置指针时插入与删除只需修改指针，为 O(1)，但每个结点需要额外的指针空间。",
+        "anchors": [
+          {
+            "locator": {"kind": "text", "start_offset": 0, "end_offset": 7},
+            "contains": "第2章 线性表",
+            "kind": "heading",
+            "heading_level": 1,
+            "heading_path": ["第2章 线性表"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 8, "end_offset": 56},
+            "contains": "本讲讨论线性表的两种基本实现",
+            "kind": "body",
+            "heading_path": ["第2章 线性表"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 57, "end_offset": 65},
+            "contains": "2.1 顺序存储",
+            "kind": "heading",
+            "heading_level": 2,
+            "heading_path": ["第2章 线性表", "2.1 顺序存储"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 66, "end_offset": 129},
+            "contains": "顺序表用一段连续空间保存元素",
+            "kind": "body",
+            "heading_path": ["第2章 线性表", "2.1 顺序存储"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 130, "end_offset": 138},
+            "contains": "2.2 链式存储",
+            "kind": "heading",
+            "heading_level": 2,
+            "heading_path": ["第2章 线性表", "2.2 链式存储"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 139, "end_offset": 214},
+            "contains": "链表以结点和指针串联元素",
+            "kind": "body",
+            "heading_path": ["第2章 线性表", "2.2 链式存储"]
+          }
+        ],
+        "absent": [],
+        "limitations_contains": []
+      }
+    },
+    {
+      "file": "doc02-lecture-slides.pptx",
+      "format": "pptx",
+      "origin": "自编课件（中文，含表格 / 演讲者备注 / 纯图片页）",
+      "sha256": "784ed20075f75ade48924cdccf7ddd95e9c30854d80825a620d09ad9e4b1a1ce",
+      "expect": {
+        "status": "ready",
+        "units": 4,
+        "units_label": "slide",
+        "chunk_count": 9,
+        "message_contains": null,
+        "full_text": "数据结构 · 第4讲\n线性表：顺序与链接两种实现\n两种实现的比较\n顺序表按下标寻址，随机访问快；\n链表插入删除代价低，但每个结点需要指针空间。\n比较项 | 顺序表 | 链表\n随机访问 | O(1) | O(n)\n已知位置插入 | O(n) | O(1)\n课堂练习\n请在纸上写出单链表中删除给定结点的步骤。\n下课前提醒：作业2截止 10月20日 23:59。",
+        "anchors": [
+          {
+            "locator": {"kind": "slide", "slide": 1},
+            "contains": "数据结构 · 第4讲",
+            "kind": "heading",
+            "heading_level": 1,
+            "heading_path": ["数据结构 · 第4讲"]
+          },
+          {
+            "locator": {"kind": "slide", "slide": 1},
+            "contains": "线性表：顺序与链接两种实现",
+            "kind": "body",
+            "heading_path": ["数据结构 · 第4讲"]
+          },
+          {
+            "locator": {"kind": "slide", "slide": 2},
+            "contains": "比较项 | 顺序表 | 链表",
+            "kind": "table",
+            "heading_path": ["两种实现的比较"]
+          },
+          {
+            "locator": {"kind": "slide", "slide": 3},
+            "contains": "下课前提醒：作业2截止",
+            "kind": "notes",
+            "heading_path": ["课堂练习"]
+          }
+        ],
+        "no_chunks_at": [
+          {"kind": "slide", "slide": 4}
+        ],
+        "absent": [],
+        "limitations_contains": ["图片", "表格"]
+      }
+    },
+    {
+      "file": "doc03-notes.pdf",
+      "format": "pdf",
+      "origin": "自编英文讲义（文本层 PDF，3 页，每页标题 + 正文）",
+      "sha256": "3db4180a8ad6e40f01cc3c887d7bd927ac63c992462a0480fd78a577dc54d1ad",
+      "expect": {
+        "status": "ready",
+        "units": 3,
+        "units_label": "page",
+        "chunk_count": 6,
+        "message_contains": null,
+        "full_text": "1 Introduction\nThis handout reviews arrays and linked lists and compares their costs for indexing, insertion, and deletion in the worst case.\n1.1 Arrays\nArrays store elements in contiguous memory so that random access by index costs O(1) time.\n1.2 Linked lists\nLinked lists walk from the head to a position in O(n) time, while inserting at a known node costs O(1).",
+        "anchors": [
+          {
+            "locator": {"kind": "page", "page": 1},
+            "contains": "1 Introduction",
+            "kind": "heading",
+            "heading_level": 1,
+            "heading_path": ["1 Introduction"]
+          },
+          {
+            "locator": {"kind": "page", "page": 1},
+            "contains": "This handout reviews arrays and linked lists",
+            "kind": "body",
+            "heading_path": ["1 Introduction"]
+          },
+          {
+            "locator": {"kind": "page", "page": 2},
+            "contains": "1.1 Arrays",
+            "kind": "heading",
+            "heading_level": 2,
+            "heading_path": ["1 Introduction", "1.1 Arrays"]
+          },
+          {
+            "locator": {"kind": "page", "page": 3},
+            "contains": "1.2 Linked lists",
+            "kind": "heading",
+            "heading_level": 2,
+            "heading_path": ["1 Introduction", "1.2 Linked lists"]
+          }
+        ],
+        "absent": [],
+        "limitations_contains": ["文本层"]
+      }
+    },
+    {
+      "file": "doc04-scanned.pdf",
+      "format": "pdf",
+      "origin": "自编纯图形页 PDF（无文本层，模拟扫描件）",
+      "sha256": "162079a67e947e37802df91f0c1b3e9be8a0b8eb00f835141d281f2f8d605890",
+      "expect": {
+        "status": "needs_ocr",
+        "units": 2,
+        "units_label": "page",
+        "chunk_count": 0,
+        "message_contains": "扫描件",
+        "full_text": "",
+        "anchors": [],
+        "absent": [],
+        "limitations_contains": ["文本层"]
+      }
+    },
+    {
+      "file": "doc05-appendix.docx",
+      "format": "docx",
+      "origin": "自编附录（中文，含表格 / 公式 / 插图）",
+      "sha256": "6fc3ab13d5824b9049a684d58b3dd1da65690177f068863b495fb7156a3678f7",
+      "expect": {
+        "status": "ready",
+        "units": 3,
+        "units_label": "paragraph",
+        "chunk_count": 4,
+        "message_contains": null,
+        "full_text": "附录A 复杂度速查\n下表汇总两种实现在常见操作上的时间复杂度，供复习时对照：\n操作 | 顺序表 | 链表\n插入（已知位置） | O(n) | O(1)\n删除（已知位置） | O(n) | O(1)\n随机访问 | O(1) | O(n)\n注：上表假设已持有目标位置的指针；本页公式与插图未提取为文本，请按原文位置查阅。",
+        "anchors": [
+          {
+            "locator": {"kind": "text", "start_offset": 0, "end_offset": 9},
+            "contains": "附录A 复杂度速查",
+            "kind": "heading",
+            "heading_level": 1,
+            "heading_path": ["附录A 复杂度速查"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 39, "end_offset": 117},
+            "contains": "操作 | 顺序表 | 链表",
+            "kind": "table",
+            "heading_path": ["附录A 复杂度速查"]
+          },
+          {
+            "locator": {"kind": "text", "start_offset": 118, "end_offset": 158},
+            "contains": "注：上表假设已持有目标位置的指针",
+            "kind": "body",
+            "heading_path": ["附录A 复杂度速查"]
+          }
+        ],
+        "absent": ["x^2"],
+        "limitations_contains": ["图片", "公式", "表格"]
+      }
+    }
+  ]
+}

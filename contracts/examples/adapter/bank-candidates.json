@@ -1,0 +1,52 @@
+{
+  "description": "A 侧题库检索的归一候选样例（B 存快照与检索记录，D 评估可用性）。URL/ID 为示例域，非真实来源。",
+  "candidates": [
+    {
+      "id": "qbc_0102a",
+      "stem": "在长度为 n 的顺序表中，插入一个元素平均需要移动多少个元素？",
+      "question_type": "single_choice",
+      "options": [
+        { "key": "A", "text": "1" },
+        { "key": "B", "text": "n" },
+        { "key": "C", "text": "n/2" },
+        { "key": "D", "text": "log n" }
+      ],
+      "answer": "C",
+      "explanation": "顺序表插入操作平均移动 n/2 个元素。",
+      "knowledge_points": ["顺序存储结构", "插入操作的复杂度"],
+      "difficulty": "easy",
+      "source": {
+        "url": "https://example.org/question-bank/linear-list/1024",
+        "site_name": "示例题库",
+        "original_id": "ll-1024",
+        "locator": "第 3 题"
+      },
+      "retrieved_at": "2026-10-11T09:00:00+08:00",
+      "origin_type": "original",
+      "usage_limits": "示例数据；真实使用以来源页许可为准",
+      "confidence": 0.9,
+      "match_reason": "知识点“顺序存储结构”与题型单选匹配"
+    },
+    {
+      "id": "qbc_0103b",
+      "stem": "已知单链表中仅给出指向某结点 p 的指针（p 非尾结点），如何在 O(1) 时间内删除 p？",
+      "question_type": "short_answer",
+      "options": [],
+      "answer": null,
+      "explanation": null,
+      "knowledge_points": ["单链表"],
+      "difficulty": "medium",
+      "source": {
+        "url": "https://example.org/question-bank/linked-list/211",
+        "site_name": "示例题库",
+        "original_id": "ll-211",
+        "locator": null
+      },
+      "retrieved_at": "2026-10-11T09:00:05+08:00",
+      "origin_type": "original",
+      "usage_limits": null,
+      "confidence": 0.8,
+      "match_reason": "知识点“单链表操作”匹配；该来源未提供答案与解析（缺失保持 null，不伪造）"
+    }
+  ]
+}

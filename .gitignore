@@ -8,3 +8,22 @@ data/
 .test-tmp/
 *.sqlite3*
 *.log
+
+# V2 Node applications and local data
+node_modules/
+dist/
+build/
+coverage/
+*.exe
+var/
+*.db
+*.sqlite
+*.sqlite3*
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.worktrees/
+pip-*/
+pytest-of-*/

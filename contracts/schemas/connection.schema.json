@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Connection",
+  "description": "平台连接（API 资源）。status 透传 A 的 ConnectionState 语义，另含 disabled=用户停用（B 侧状态，不在适配器 state 枚举内）。",
+  "type": "object",
+  "required": [
+    "id",
+    "platform",
+    "display_name",
+    "status",
+    "last_checked_at",
+    "last_sync_at",
+    "last_error",
+    "recovery_action",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "xzzd",
+        "zykt"
+      ]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "展示名（如“学在浙大”）。"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "auth_required",
+        "network_error",
+        "blocked",
+        "disabled",
+        "unsupported",
+        "service_unavailable"
+      ],
+      "description": "ok=可用；auth_required=登录失效需重新登录；network_error=网络/上游不可达；blocked=平台拒绝或风控；disabled=用户停用。 unsupported=功能未接入；service_unavailable=本地连接器未启动或接入配置缺失。"
+    },
+    "last_checked_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "最近一次连接检查时间。"
+    },
+    "last_sync_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_error": {
+      "oneOf": [
+        {
+          "$ref": "error.schema.json#/$defs/ErrorInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "最近一次连接错误；无错误为 null。"
+    },
+    "recovery_action": {
+      "oneOf": [
+        {
+          "$ref": "connection-state.schema.json#/$defs/RecoveryAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "需要用户操作时的恢复指引（如重新登录）；无需操作为 null。message 为连接器窗口口径（CR002/B14：如“登录已失效，请在连接器窗口完成登录后重试”）。"
+    },
+    "entry_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri",
+      "description": "平台权威登录入口（服务端常量，打开即跳官方登录页）。双用途（CR002）：主路径由连接器用同一常量打开受控浏览器登录窗口；兜底为网页端 auth_required 时的“前往登录”链接。本期无回跳参数，登录后由连接器/用户触发检查衔接（CR001 裁定）。未收录的平台为 null。"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    }
+  },
+  "additionalProperties": false
+}

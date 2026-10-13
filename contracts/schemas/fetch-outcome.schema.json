@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FetchOutcome",
+  "description": "适配器文件获取结果（A3 §3.5 冻结版）。仅承诺“可获取数据流或明确不可获取原因”；受限资源不绕过。",
+  "type": "object",
+  "required": ["status", "handle", "denial"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "denied", "gone", "transient_error"],
+      "description": "ok=句柄可用；denied=不可获取（见 denial）；gone=资源已不存在；transient_error=暂时失败（可重试）。"
+    },
+    "handle": {
+      "oneOf": [{ "$ref": "#/$defs/Handle" }, { "type": "null" }],
+      "description": "status=ok 时必填，其余为 null。"
+    },
+    "denial": {
+      "oneOf": [{ "$ref": "#/$defs/Denial" }, { "type": "null" }],
+      "description": "status=denied 时必填，其余为 null。"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Handle": {
+      "type": "object",
+      "required": ["kind", "ref", "expires_at", "sha256", "size"],
+      "properties": {
+        "kind": { "type": "string", "const": "local_file", "description": "首版仅本机暂存文件；B 侧上传通道将暂存件转为受控 file_id。" },
+        "ref": { "type": "string", "minLength": 1, "description": "暂存位置的相对标识（由 B 约定上传通道消费）；签名 URL 视为短暂句柄，过期重取，不作为资源标识。" },
+        "expires_at": { "type": ["string", "null"], "format": "date-time" },
+        "sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$", "description": "上传前计算的内容哈希。" },
+        "size": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "Denial": {
+      "type": "object",
+      "required": ["reason", "message"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": ["preview_only", "permission_denied", "copyright_restricted"],
+          "description": "preview_only=仅可预览（对应 Resource.access_level）；permission_denied=无权限；copyright_restricted=版权限制。"
+        },
+        "message": { "type": "string", "minLength": 1, "description": "脱敏说明。" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

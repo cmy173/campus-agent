@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "conversation_url": "http://127.0.0.1:15174/chat/conv_8c3099badef632e86dc74ed2b2e6cd2a",
+  "checks": {
+    "temporary_constraint_preview": true,
+    "expired_action_refused": true,
+    "desktop_accept_apply_calendar": true,
+    "button_preserves_draft": true,
+    "narrow_reload_recovers_conversation_and_draft": true,
+    "narrow_text_revoke_calendar_empty": true
+  },
+  "runtime_evidence": "var/agent-integration-lwdz387_/evidence.json"
+}
