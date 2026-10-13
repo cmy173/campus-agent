@@ -197,7 +197,7 @@ def create_app(data_dir=None):
 
     @app.get('/static/{name}')
     def asset(name: str):
-        if name not in ('app.js', 'campus.js', 'academics.js', 'passport.js', 'style.css', 'academics.css'):
+        if name not in ('app.js', 'campus.js', 'academics.js', 'passport.js', 'style.css', 'academics.css', 'workspace.css'):
             raise HTTPException(404)
         return FileResponse(STATIC / name)
 

@@ -1,31 +1,31 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus Agent · 校园工作台</title><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/academics.css"><script src="/static/app.js" defer></script><script src="/static/campus.js" defer></script><script src="/static/academics.js" defer></script><script src="/static/passport.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus Agent · 校园工作台</title><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/academics.css"><link rel="stylesheet" href="/static/workspace.css"><script src="/static/app.js" defer></script><script src="/static/campus.js" defer></script><script src="/static/academics.js" defer></script><script src="/static/passport.js" defer></script></head>
 <body>
 <div class="shell">
   <aside class="sidebar">
-    <a class="brand" href="/"><span class="mark">C<span>↗</span></span><span>Campus Agent<small>你的校园，每件事都有出处</small></span></a>
+    <a class="brand" href="/"><span class="mark">C<span>↗</span></span><span>Campus Agent<small>你的校园协作助手</small></span></a>
     <div class="workspace-label">ZHEJIANG UNIVERSITY <span id="release-version">正在确认版本</span></div>
-    <nav aria-label="工作台导航">
+    <button class="new-conversation" data-view="home" id="new-conversation">＋ 开始新对话</button><nav aria-label="工作台导航">
       <button class="nav active" data-view="home"><span>◈</span> 校园助手 <kbd>01</kbd></button>
       <button class="nav" data-view="library"><span>▤</span> 我的资料 <kbd id="nav-count">0</kbd></button>
       <button class="nav" data-view="tasks"><span>☑</span> 待办与截止 <kbd id="task-count">0</kbd></button>
       <button class="nav" data-view="activities"><span>◇</span> 活动探索 <kbd>演示</kbd></button>
       <button class="nav" data-view="campus"><span>▦</span> 我的学业 <kbd>只读</kbd></button>
-      <button class="nav" data-view="settings"><span>⚙</span> 隐私与设置</button>
+
     </nav>
-    <div class="sidebar-note"><span class="status-dot"></span> 资料由你掌握<p>本地保存，按账号隔离。<br>每一次回答，都可回到原文。</p></div>
+    <section class="bulletin" aria-labelledby="bulletin-title"><div class="board-heading"><h2 id="bulletin-title">重要信息</h2><button id="board-refresh" type="button" title="重新读取本机缓存" aria-label="刷新公告板缓存">↻</button></div><p class="board-caption">待办与校园通知 · 本机缓存</p><div id="board-items" aria-live="polite"><p class="board-empty">登录后查看与你相关的重要信息。</p></div><button class="board-all" data-view="tasks">查看全部待办 →</button></section>
+    <div class="sidebar-tools"><button data-view="extensions" class="tool-entry">◇ 插件与 Skills <span>预留</span></button><button data-view="settings" class="tool-entry">⚙ 设置</button></div>
     <div class="account"><span class="avatar" id="avatar">C</span><div><strong id="account-name">尚未登录</strong><small id="account-mode">通行证 · 本机缓存</small></div><button type="button" id="login-open" class="text-button">登录</button><button id="logout" class="icon-button" title="退出登录" aria-label="退出登录">↪</button></div>
   </aside>
   <main>
     <header class="topbar"><span id="breadcrumb">工作台 / 校园助手</span><div><span class="mode-pill" id="mode-label"><i></i> 本地检索模式</span><span id="today"></span></div></header>
     <div class="view" id="view-home">
-      <section class="hero"><div class="eyebrow">LESS SEARCHING. MORE LEARNING.</div><h1>把校园琐事，<br><em>留给一个对话框。</em></h1><p>从你的通知和学习资料出发，找到答案，理清接下来要做的事。</p><div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="paper"><i></i><i></i><i></i><b>✓</b></div><span class="spark">✳</span><span class="mini">有据可查 ↗</span></div></section>
-      <section class="stats" aria-label="工作台概览"><article><span>已整理资料</span><strong id="stat-docs">0 <small>份</small></strong><p>保留原文位置</p></article><article><span>未完成事项</span><strong id="stat-tasks">0 <small>项</small></strong><p>规则提取，等你核对</p></article><article><span>七天内截止</span><strong id="stat-due">0 <small>项</small></strong><p>按北京时间计算</p></article></section>
-      <section class="assistant-panel"><div class="section-top"><h2><span class="assistant-icon">✳</span> 从这里开始</h2><button class="text-button" id="clear-chat">清空对话</button></div>
-        <div class="suggestions"><button data-query="查看近期待办">◎ 整理近期待办</button><button data-query="实验报告截止时间">◷ 查询作业截止</button><button data-view="library">＋ 上传第一份资料</button></div>
+      <div class="sr-only" aria-hidden="true"><span id="stat-docs">0</span><span id="stat-tasks">0</span><span id="stat-due">0</span></div>
+      <section class="assistant-panel"><div class="section-top"><h2><span class="assistant-icon">✳</span> 校园助手 <span class="chat-subtitle">让学习和生活，更从容一点</span></h2><button class="text-button" id="clear-chat">清空对话</button></div>
+        <div class="suggestions"><button data-query="查看近期待办">整理待办</button><button data-view="campus">查看我的课表</button><button data-view="library">＋ 添加资料</button></div>
         <div id="messages" aria-live="polite"><div class="welcome"><span>✦</span><p>你好，我是你的校园资料助手。<br><small>上传资料后，试着询问一个具体问题。也可以先导入演示资料体验。</small></p><button class="secondary" id="demo-home">体验演示资料 ↗</button></div></div>
-        <form id="chat-form"><label class="sr-only" for="query">输入问题</label><textarea id="query" rows="2" maxlength="2000" placeholder="例如：实验报告什么时候截止？" required></textarea><div class="composer-bottom"><label class="model-toggle"><input type="checkbox" id="use-model" disabled> 使用 OpenAI <span id="model-hint">未配置</span></label><button class="primary" id="send" type="submit">发送 <span>↗</span></button></div></form><p class="footnote">启用 OpenAI 时，问题与最多 4 段相关原文将发往 OpenAI。回答请结合引用核对。</p>
+        <form id="chat-form"><label class="sr-only" for="query">输入问题</label><textarea id="query" rows="2" maxlength="2000" placeholder="问问校园助手，例如：这份通知有哪些需要注意的截止时间？" required></textarea><div class="composer-bottom"><label class="model-toggle"><input type="checkbox" id="use-model" disabled> 使用 OpenAI <span id="model-hint">未配置</span></label><button class="primary" id="send" type="submit">发送 <span>↗</span></button></div></form><p class="footnote">启用 OpenAI 时，问题与最多 4 段相关原文将发往 OpenAI。回答请结合引用核对。</p>
       </section>
     </div>
     <div class="view hidden" id="view-library"><div class="page-heading"><div class="eyebrow">YOUR KNOWLEDGE, CONNECTED</div><h1>我的资料</h1><p>把分散的文件放在一起，让每一次查找都有依据。</p></div>
@@ -65,7 +65,8 @@
       </details>
       <details class="settings-card academic-source-details"><summary>个人基本信息</summary><div id="campus-profile"></div></details>
     </div>
-    <footer>Campus Agent <span>·</span> 浙江大学试点原型 <span>·</span> v0.2 <span class="footer-right">让信息回到学习本身。</span></footer>
+    <div class="view hidden" id="view-extensions"><div class="page-heading"><div class="eyebrow">EXTENSIONS</div><h1>插件与 Skills</h1><p>为校园助手扩展更多能力。</p></div><section class="settings-card extension-placeholder"><span class="extension-symbol">◇</span><h2>给未来的能力，留一个位置</h2><p>这里将集中管理插件与 Skills。目前尚未提供安装、启用或执行扩展包的功能。</p><span class="badge">规划中</span><p class="footnote">已有校园连接仍可在“我的学业 → 连接与同步”中管理。</p><button class="secondary" data-view="campus">查看校园连接 →</button></section></div>
+    <footer>Campus Agent <span>·</span> 本地校园工作台</footer>
   </main>
 </div>
 <dialog id="auth-dialog"><form id="auth-form"><span class="mark">C<span>↗</span></span><div class="eyebrow">WELCOME TO YOUR CAMPUS</div><h2 id="auth-title">登录浙大通行证</h2><p id="auth-description">登录后自动读取本人基本信息、课表和成绩。密码仅用于本次认证；下次打开默认展示本浏览器已有账号的缓存。</p><label><span id="auth-username-label">通行证账号</span><input id="username" autocomplete="username" maxlength="128" required></label><label><span id="auth-password-label">通行证密码</span><input id="password" type="password" autocomplete="off" maxlength="128" required></label><div id="auth-captcha" class="hidden"><label>验证码<input id="authcode" maxlength="12" autocomplete="off"></label><img id="auth-captcha-image" alt="通行证登录验证码"></div><button type="button" id="auth-refresh" class="text-button">刷新登录流程与验证码</button><p id="auth-error" class="error" role="alert"></p><button class="primary wide" id="auth-submit">登录并获取信息</button><button type="button" class="text-button wide" id="auth-cancel">关闭 / 取消登录</button><button type="button" class="text-button wide" id="auth-cache-back">继续查看当前缓存</button><button type="button" class="text-button wide" id="auth-switch">旧版本地资料登录</button></form></dialog>
