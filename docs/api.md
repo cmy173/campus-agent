@@ -1,5 +1,9 @@
 # 本地 REST API
 
+学院通知正文复用 `GET /api/campus/query/college_notices` 与 `POST /api/campus/sync/college_notices`，查询参数只有 `limit`（整数 1–5，默认 3）；POST 体为 `{"query":{"limit":3}}`。身份、学院和来源由服务端决定，无法用 `owner_id`、`college`、`url` 覆盖。当前只匹配已接入的竺可桢学院来源。
+
+结果新增可选 `selection`，含 `college`、`status`（matched/missing/unsupported/ambiguous）、`profile_fetched_at`、`profile_stale`。记录提供正文、正文哈希、附件链接、原始发布日期和来源。缓存与部分错误可同时返回，首页有限窗口始终标为 partial。完整语义见 [学院通知正文](college-notices.md)。
+
 教务未知自定义 HTTP 响应（如尚未核实语义的 921）在旧同步诊断中标记 UPSTREAM_STATUS_UNKNOWN，reason=HTTP_CUSTOM_STATUS，并立即暂停而保留当前 pending 学期。仅 500–599 计入 SERVER_ERRORS_PAUSED；当前版本 `2026-10-12.custom-status`。新统一结果对此仍用 PROTOCOL_CHANGED 表示响应无法确认，不把状态码猜成限流、认证失效或服务器宕机。
 
 通行证取消入口 POST `/api/auth/passport/cancel`，JSON `{"flow_id":"当前浏览器流程"}`。需要既有同源请求头，绑定该浏览器的流程 Cookie；已签发会话的迟到取消还核对对应本机会话摘要。只撤销此流程，不删除已有资料；其他浏览器或无效流程不能取消。认证失败响应新增安全分类 AUTH_CONTEXT_INVALID/CAPTCHA_REQUIRED/ACCESS_REJECTED/RATE_LIMITED，取消为 FLOW_CANCELLED；不回显校方正文或凭据。详见 [通行证失败恢复](passport-login.md)。
@@ -28,14 +32,17 @@ v0.2 仅允许回环地址访问，无 CORS。写请求需 `X-Campus-Request: 1`
 | POST /api/campus/reconnect | 复用当前通行证会话即时换取教务票据并重新同步；不接收密码或任意 service URL |
 | POST /api/auth/logout | 撤销当前会话 |
 | GET /api/me | 用户名与 CSRF token |
-| GET /api/model | 模型配置状态，不返回密钥 |
+| GET /api/model | 模型配置状态，不返回密钥；`notice` 子对象为通知整理提供方状态 |
 | POST /api/documents | 原始字节；X-Filename 为 URL 编码名称，X-Document-Kind 为 notice/material |
 | GET /api/documents | 当前账号资料与状态 |
-| GET /api/documents/{id} | 资料详情与带位置的 chunks |
+| GET /api/documents/{id} | 资料详情、带 ref 与位置的 chunks、官方来源 `source` 与 `analyses` |
 | GET /api/documents/{id}/download | 下载原件 |
-| DELETE /api/documents/{id} | 级联删除原件、片段、待办 |
+| DELETE /api/documents/{id} | 级联删除原件、片段、待办、来源与分析 |
+| POST /api/documents/{id}/analysis | JSON `mode:rules\|model`，model 还需 `consent:true`；触发一次整理并返回当前状态 |
+| POST /api/college-notices/import | JSON 仅 `record_id`；由服务端按当前账号缓存构造资料、官方来源与附件清单 |
+| GET /api/notice-analyses | 当前账号全部通知类资料的来源、整理状态与结果，附模型配置 |
 | GET /api/tasks | 当前账号全部待办 |
-| PATCH /api/tasks/{id} | JSON state:pending/done、due:带时区 ISO 日期或 null；标记已核对 |
+| PATCH /api/tasks/{id} | JSON state:pending/done/ignored、due:带时区 ISO 日期或 null；标记已核对 |
 | POST /api/chat | JSON query、可选 use_model；返回 answer/citations/steps/mode 及可选 warning/tasks |
 | GET /api/activities?target=2 | 目标 0–30 的虚构推荐 |
 | GET /api/audit | 最近 50 条本账号操作记录 |
@@ -66,6 +73,14 @@ v0.2 仅允许回环地址访问，无 CORS。写请求需 `X-Campus-Request: 1`
 `/api/me` 返回 `mode:passport|offline|legacy`。有有效本机会话时默认打开缓存；无会话时不会凭用户名打开数据。新入口的 prepare 每分钟最多 6 次、login/reconnect 最多 3 次。CAS flow 同时绑定 HttpOnly cookie 和请求 flow_id；失败流程消耗后需重新准备，不自动重试密码。旧 register/login 接口保留兼容，前端仅提供旧资料登录，不作为主要入口。
 
 上传首次返回 202，同账号相同内容返回 200 和 duplicate=true。状态 queued → processing → ready/failed。重启时未完成任务标为失败，可删除重传。相同内容去重不修改类型，选错资料类型时删除后重传。
+
+`POST /api/college-notices/import` 只接受 `record_id`；`owner`、来源 URL、附件 URL 与标题都不是入参，全部由服务端在当前账号的通知缓存中重新校验后构造，缓存中没有该记录返回 404，标识格式非法返回 400。资料内容为“标题行 + 官方正文”，附件不进正文，另存为结构化清单（`ref`、`name`、`url`、`parsed:false`）。解析完成后自动写入离线规则结果，`GET /api/documents/{id}` 与 `GET /api/notice-analyses` 返回 `source` 与 `analyses`。
+
+`POST /api/documents/{id}/analysis` 的 `mode:rules` 不需要同意也不联网；`mode:model` 必须 `consent:true`，未配置提供方返回 409，未同意返回 400，非通知类资料返回 400，未解析完成返回 409。请求立即返回当前状态，整理在后台线程执行，界面按 `status`（running/ready/partial/failed）轮询。`analyses[].error` 为 `{code,message}`，`code` 取 `TIMEOUT`、`RATE_LIMITED`、`AUTH_REJECTED`、`NETWORK`、`REDIRECT`、`EMPTY`、`TRUNCATED`、`RESPONSE_TOO_LARGE`、`UPSTREAM`、`NOT_CONFIGURED`、`CONFIG_INVALID`、`INTERNAL`、`INTERRUPTED` 或 `CONTRACT_*`（`CONTRACT_SCHEMA`、`CONTRACT_EVIDENCE`、`CONTRACT_REF`、`CONTRACT_URL`、`CONTRACT_YEAR_FABRICATED`、`CONTRACT_TIME_FABRICATED`、`CONTRACT_DERIVATION_REQUIRED`、`CONTRACT_CONFLICT_UNRESOLVED`、`CONTRACT_SIZE`、`CONTRACT_ENUM`、`CONTRACT_DATE`、`CONTRACT_INVALID_JSON`、`CONTRACT_EMPTY`）。错误消息为固定文案，不含模型响应正文、密钥或请求头。失败保留上次成功的 `payload` 与 `result_at`。
+
+`analyses[].payload` 含 `notice_summary`、`coverage`(full/partial)、`coverage_note`、`events`、`open_questions`，模型结果另含 `extractor`、`model`、`prompt_version`、`evidence_corrected`、`input_coverage`。`events[]` 为 `{ref,title,summary,audience,actions,location,location_needs_attachment,attachment_refs,times,open_questions,evidence}`，`times[]` 为 `{kind,raw,value,precision,derived,derivation,conflict}`，`evidence[]` 为 `{ref,quote}`。附件链接只由服务端从 `source.attachments` 按 `ref` 映射，payload 中不含 URL。
+
+待办新增 `origin`(rules/model)、`event_ref`、`analysis_key`、`evidence`（含 `ref`、`quote`、`chunk`、`locator`）、`time_kind`、`time_precision`、`location`、`needs_attachment`、`attachment_refs`、`derived_note`；`state` 增加 `ignored`。重新整理按 `(event_ref,time_kind,title)` 合并：已核对、已编辑、已完成或已忽略的事项保留，未处理候选就地更新，新结果不再支持的未处理候选被删除。每账号每小时最多 12 次模型整理与 60 次通知导入。
 
 每用户最多 100 份资料，全局最多 10 个排队/解析任务；两条线程调度解析进程，单进程超时 30 秒。原件存于 SQLite BLOB，派生内容通过外键关联。
 

@@ -208,7 +208,8 @@ def install_passport_routes(app, store, campus, authenticate, hash_password):
                 if previous:
                     db.execute('DELETE FROM sessions WHERE token=?', (previous['token'],))
                 db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
-                db.execute('INSERT INTO sessions VALUES(?,?,?,?)', (digest, owner, csrf, time.time()+DEVICE_SECONDS))
+                db.execute('INSERT INTO sessions(token,owner,csrf,expires) VALUES(?,?,?,?)',
+                           (digest, owner, csrf, time.time()+DEVICE_SECONDS))
                 completed[flow] = {'owner':owner,'token':digest,'client':running['client'],'expires':time.monotonic()+300}
             if previous and previous['owner'] != owner:
                 await run_in_threadpool(campus.disconnect, previous['owner'])

@@ -1,5 +1,9 @@
 # 架构设计
 
+2026-10-12 通知整理增量：新增 `notice_contract`（版本化提示词与严格输出校验）、`notice_model`（可替换的提供方适配器，当前 DeepSeek Chat Completions + `json_object`）、`notice_analysis`（应用服务：离线规则与模型整理、身份与版本重校验、候选事项按身份合并）。模型提取适配器与校园平台适配器完全分离：前者只用固定 HTTPS 常量和服务端密钥，不读校园 Cookie，也不受 `CAMPUS_*_NETWORK_POLICY` 影响；后者不变。模型调用在数据库事务外执行，写入前重新校验账号、资料存在性、正文版本与 `run_id`，因此删除资料、切换账号或被更新一次运行取代后的迟到响应会被丢弃。持久层新增 `document_sources`（官方来源、平台记录 ID、正文版本、结构化附件清单）与 `notice_analyses`（按账号+正文版本+提示词版本+模型配置唯一），`tasks` 增量加列并新增 `ignored` 状态。资料与附件文字仍是不可信数据：不改变系统指令、不触发工具、不产生链接，全部候选事项初始待核对。边界、契约、恢复语义、已知限制与三类验证记录见 [通知整理](notice-extraction.md)。
+
+学院通知增量：`CampusService` 在账号锁内从服务端基本信息缓存匹配适配器的 `college_names`，`ckc_public` 只解析固定 WebPlus 列表和正文；`PublicPageTransport` 统一管理无凭据公开页面传输。“待办与截止”页面调用统一 query/sync，显式保存正文时复用已有资料、检索和待办流程。详细边界见 [学院通知](college-notices.md)。
+
 2026-10-12：校园连接器已实现统一 `CampusService.query/sync/connection_status/disconnect`，拆分 CAS、网络、平台协议、数据契约与 SQLite Repository。学业看板及通知摘要 API 使用统一服务，旧登录和分批课表续传保留兼容。增加无校园认证的公开教务通知摘要，真实读取与持久缓存闭环已验证；教务/ETA 本轮只做合成迁移回归。当前职责、依赖图、同步边界和扩展步骤见 [连接器架构与指南](connectors.md)。下面带旧日期的接口建议及进展为历史记录；校园现行错误码和结果以新契约为准。
 
 2026-10-10 当前状态：本机通行证、ETA 六项基本信息及课表已进行一次本人测试账号联调，全套 158 项测试通过；接口超时/拒绝时保留缓存。正式授权、其他账号与整体试点验收仍需独立验证。以下保留原日期的阶段记录。
@@ -36,7 +40,9 @@ flowchart TD
 | 实体 | 核心字段与约束 |
 |---|---|
 | Document / Chunk | 文件 hash、格式、存储 key、页码/段落、解析版本、来源 ID |
-| Notice / Task | 来源 ID、正文、deadline（可空）、原始时间文本、提取方法、确认状态 |
+| DocumentSource | 平台、记录 ID、官方来源、学院、标题、发布日期、正文 SHA、结构化附件清单（ref/name/url/parsed）、未读标记 |
+| NoticeAnalysis | 资料、正文版本、提取器、提示词版本、模型、运行 ID、状态、结果、错误码、尝试次数、用量 |
+| Notice / Task | 来源 ID、正文、deadline（可空）、原始时间文本与精度、时间类别、地点、提取方法、证据引用、确认状态（含忽略） |
 | Course / CreditRule | 学年、专业、类别、先修、替代关系、规则出处及版本 |
 | Activity | 起止、报名截止、类别、名额、资格、学分、规则来源及有效期 |
 | ToolRun | 请求 ID、身份、工具、参数摘要、状态、错误码、耗时 |

@@ -73,7 +73,7 @@ def install_campus_routes(app, store, authenticate):
         context = UserContext(authenticate(request)['owner'])
         params = dict(request.query_params)
         platform = params.pop('platform', None)
-        if capability == 'notices' and 'limit' in params and re.fullmatch(r'[0-9]{1,2}', params['limit']):
+        if capability in ('notices', 'college_notices') and 'limit' in params and re.fullmatch(r'[0-9]{1,2}', params['limit']):
             params['limit'] = int(params['limit'])
         try:
             result = await run_in_threadpool(manager.service.query, capability, params, context, platform=platform)

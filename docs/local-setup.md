@@ -79,6 +79,24 @@ Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
 
 请求失败、拒答、引用错误或超时时显示原因并回退本地原文，不伪造模型答案。不自动重试收费请求。
 
+## DeepSeek：通知整理由你在本机配置
+
+通知整理与上面的 OpenAI 问答是两套独立配置，可只启用其一。未配置时通知仍可保存、检索并离线规则提取。
+
+```powershell
+$deepseekSecret = Read-Host 'DeepSeek API Key' -AsSecureString
+$env:DEEPSEEK_API_KEY = [System.Net.NetworkCredential]::new('', $deepseekSecret).Password
+$env:DEEPSEEK_MODEL = 'deepseek-flash'   # 可省略，这是默认值
+.\.venv\Scripts\python.exe -m campus_agent.server
+Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
+```
+
+接口固定为 `https://api.deepseek.com/chat/completions`，使用 `response_format={"type":"json_object"}`；不接受浏览器或通知内容指定的 API URL，不跟随重定向，不受 `CAMPUS_NETWORK_POLICY` 与 `CAMPUS_PUBLIC_NETWORK_POLICY` 影响。该提供方没有严格 `json_schema` 模式，因此结构由服务端提示词版本 `notice-extract-v1` 与 `campus_agent/notice_contract.py` 的校验共同约束：枚举、长度、日期合法性、段落与附件引用存在性、原文摘录可定位、禁止输出链接，缺年份或缺时刻不得补造，跨段落合并必须标记推导依据。校验不通过即记为失败并保留上次成功结果，不伪造 AI 成功。
+
+启用前界面必须勾选同意项，说明会发送：通知标题、正文段落、发布日期、学院名称、平台记录 ID 与附件名称。不发送校园 Cookie、CAS ticket、账号密码、个人档案、附件 URL 或官方原文链接；附件不下载、不解析。正文超过 24000 字符时只分析前缀并标记为部分结果。每次输出上限 4000 token、超时 90 秒，每账号最多 12 次模型整理/小时、60 次通知导入/小时，重启后计数重置；这不是财务硬预算，应同时在供应商侧设置额度。
+
+模型产出的每条事项初始为“待核对”，需要你确认、修改或忽略；引用能定位到原文不等于语义正确。真实成功补全尚未联调，详见 [通知整理](notice-extraction.md) 与 [验证记录](validation.md)。参考：[DeepSeek API 文档](https://api-docs.deepseek.com/)、[JSON 输出说明](https://api-docs.deepseek.com/guides/json_mode/)。
+
 ## 测试
 
 ```powershell

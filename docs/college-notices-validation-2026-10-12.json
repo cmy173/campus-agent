@@ -1,0 +1,39 @@
+{
+  "verified_at": "2026-10-12T19:05:03.471770+08:00",
+  "verification_kind": "real credential-free public pages; synthetic profile and local owner",
+  "network_policy": "system",
+  "platform": "ckc_public",
+  "capability": "college_notices",
+  "source": "https://webplus.zju.edu.cn/_s597/qbtz/list.psp",
+  "selection_status": "matched",
+  "record_count": 3,
+  "body_characters": [
+    759,
+    1016,
+    2439
+  ],
+  "attachment_counts": [
+    1,
+    2,
+    4
+  ],
+  "sources": [
+    "https://webplus.zju.edu.cn/_s597/2026/1010/c78853a3212562/page.psp",
+    "https://webplus.zju.edu.cn/_s597/2026/1010/c78853a3212634/page.psp",
+    "https://webplus.zju.edu.cn/_s597/2026/1008/c78853a3211976/page.psp"
+  ],
+  "fetched_at": "2026-10-12T19:04:55.742554+08:00",
+  "completeness": "partial",
+  "error": null,
+  "offline_query_preserved": true,
+  "disconnect_preserved": true,
+  "restart_preserved": true,
+  "not_verified": [
+    "live campus login/profile refresh",
+    "other colleges",
+    "historical pagination",
+    "attachment or image contents",
+    "deadline accuracy on a labelled real corpus",
+    "other network environments"
+  ]
+}

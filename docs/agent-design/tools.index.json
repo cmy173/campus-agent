@@ -1,0 +1,259 @@
+{
+  "status": "design-only-not-registered",
+  "design_date": "2026-10-13",
+  "runtime_recommendation": "DeepSeek Harness; integration not yet validated",
+  "tools": [
+    {
+      "id": "T01",
+      "name": "connections.status",
+      "model_name": "campus_connections_status",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T02",
+      "name": "connections.check",
+      "model_name": "campus_connections_check",
+      "implementation_basis": "A / N",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T03",
+      "name": "connections.sync",
+      "model_name": "campus_connections_sync",
+      "implementation_basis": "A / N",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T04",
+      "name": "courses.list",
+      "model_name": "campus_courses_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T05",
+      "name": "courses.discover",
+      "model_name": "campus_courses_discover",
+      "implementation_basis": "A / N",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T06",
+      "name": "courses.import",
+      "model_name": "campus_courses_import",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T07",
+      "name": "materials.list",
+      "model_name": "campus_materials_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T08",
+      "name": "materials.import",
+      "model_name": "campus_materials_import",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T09",
+      "name": "materials.search",
+      "model_name": "campus_materials_search",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T10",
+      "name": "materials.read",
+      "model_name": "campus_materials_read",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T11",
+      "name": "recordings.list",
+      "model_name": "campus_recordings_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T12",
+      "name": "recordings.transcript",
+      "model_name": "campus_recordings_transcript",
+      "implementation_basis": "A / N",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T13",
+      "name": "assignments.list",
+      "model_name": "campus_assignments_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T14",
+      "name": "tasks.list",
+      "model_name": "campus_tasks_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T15",
+      "name": "tasks.build",
+      "model_name": "campus_tasks_build",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T16",
+      "name": "tasks.update",
+      "model_name": "campus_tasks_update",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T17",
+      "name": "tasks.feedback",
+      "model_name": "campus_tasks_feedback",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T18",
+      "name": "availability.read",
+      "model_name": "campus_availability_read",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T19",
+      "name": "availability.update",
+      "model_name": "campus_availability_update",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T20",
+      "name": "plans.read",
+      "model_name": "campus_plans_read",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T21",
+      "name": "plans.preview",
+      "model_name": "campus_plans_preview",
+      "implementation_basis": "A / P",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T22",
+      "name": "plans.apply",
+      "model_name": "campus_plans_apply",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T23",
+      "name": "plans.revoke",
+      "model_name": "campus_plans_revoke",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T24",
+      "name": "reviews.materials",
+      "model_name": "campus_reviews_materials",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T25",
+      "name": "reviews.preview",
+      "model_name": "campus_reviews_preview",
+      "implementation_basis": "A / P",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T26",
+      "name": "reviews.generate",
+      "model_name": "campus_reviews_generate",
+      "implementation_basis": "A / G+W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T27",
+      "name": "reviews.list",
+      "model_name": "campus_reviews_list",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T28",
+      "name": "reviews.read",
+      "model_name": "campus_reviews_read",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T29",
+      "name": "reviews.revise",
+      "model_name": "campus_reviews_revise",
+      "implementation_basis": "A / G+W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T30",
+      "name": "reviews.export",
+      "model_name": "campus_reviews_export",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T31",
+      "name": "jobs.read",
+      "model_name": "campus_jobs_read",
+      "implementation_basis": "A / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T32",
+      "name": "jobs.cancel",
+      "model_name": "campus_jobs_cancel",
+      "implementation_basis": "A / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T33",
+      "name": "jobs.retry",
+      "model_name": "campus_jobs_retry",
+      "implementation_basis": "A / W 或 G+W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T34",
+      "name": "campus.query",
+      "model_name": "campus_campus_query",
+      "implementation_basis": "B / R",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T35",
+      "name": "notices.import",
+      "model_name": "campus_notices_import",
+      "implementation_basis": "B / W",
+      "documentation": "tools.md"
+    },
+    {
+      "id": "T36",
+      "name": "notices.analyze",
+      "model_name": "campus_notices_analyze",
+      "implementation_basis": "B / P 或 G+W",
+      "documentation": "tools.md"
+    }
+  ]
+}

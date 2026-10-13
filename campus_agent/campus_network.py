@@ -68,6 +68,37 @@ class PlatformBudget:
 READ_BUDGET = PlatformBudget()
 
 
+class PublicPageTransport:
+    """Bounded credential-free reads; a separate, explicit public-site network policy.
+
+    New public college pages follow the system by default. There is no fallback
+    between channels; CAS and other modules keep their existing configuration.
+    """
+    def __init__(self, allowed, policy=None):
+        self.allowed = allowed
+        self.opener = build_opener(policy or os.environ.get('CAMPUS_PUBLIC_NETWORK_POLICY', 'system'))
+
+    def get(self, url):
+        if not self.allowed(url):
+            raise CampusError('FORBIDDEN', '公开来源未登记')
+        READ_BUDGET.take(urlsplit(url).hostname)
+        request = urllib.request.Request(url, headers={'User-Agent': 'CampusAgent/0.3'})
+        try:
+            with self.opener.open(request, timeout=10) as response:
+                if response.code != 200 or response.geturl() != url:
+                    raise CampusError('PROTOCOL_CHANGED', '公开页面响应无法确认')
+                raw = response.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise CampusError('PROTOCOL_CHANGED', '公开页面超出读取上限')
+                return raw, dict(response.headers)
+        except urllib.error.HTTPError as exc:
+            code = 'RATE_LIMITED' if exc.code == 429 else 'FORBIDDEN' if exc.code in (401, 403) else 'PROTOCOL_CHANGED'
+            raise CampusError(code, '公开页面请求失败') from None
+        except (OSError, urllib.error.URLError, http.client.HTTPException, EOFError) as exc:
+            reason, _ = transport_failure(exc)
+            raise CampusError('TIMEOUT' if reason == 'TIMEOUT' else 'NETWORK_UNREACHABLE', '公开页面网络请求失败') from None
+
+
 def check_url(url):
     try:
         parsed = urlsplit(url)

@@ -22,5 +22,9 @@ jobs:
       - run: node --check campus_agent/static/campus.js
       - run: node --check campus_agent/static/academics.js
       - run: node --check campus_agent/static/passport.js
+      - run: node --check campus_agent/static/college-notices.js
+      - run: node --check campus_agent/static/notice-analysis.js
       - run: node tests/frontend-auth.test.cjs
       - run: node --test tests/frontend-passport-recovery.test.cjs
+      - run: node --test tests/frontend-college-notices.test.cjs
+      - run: node --test tests/frontend-notice-analysis.test.cjs

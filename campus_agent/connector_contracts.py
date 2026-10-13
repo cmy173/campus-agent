@@ -1,5 +1,6 @@
 """Small, validated contracts for implemented read capabilities only."""
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 import re
 from typing import Literal, Protocol
@@ -8,6 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 from .academic_defaults import SEMESTER_PATTERN
 from .campus_common import CampusError
+from .campus_college_sources import COLLEGE_SOURCES, is_college_article, is_college_attachment
 
 
 class ErrorCode(str, Enum):
@@ -98,6 +100,11 @@ class NoticesQuery(Query):
     limit: int = Field(default=6, ge=1, le=6)
 
 
+class CollegeNoticesQuery(Query):
+    # College and source are resolved from the authenticated account, not accepted here.
+    limit: int = Field(default=3, ge=1, le=5)
+
+
 class Record(BaseModel):
     model_config = ConfigDict(extra='forbid')
     source: str = ''
@@ -160,6 +167,60 @@ class Notice(Record):
     published_at: str | None = None
 
 
+class NoticeAttachment(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=500)
+    url: str
+
+    @field_validator('url')
+    @classmethod
+    def safe_url(cls, value):
+        if not is_college_attachment(value):
+            raise ValueError('Unregistered attachment URL')
+        return value
+
+
+class CollegeNotice(Record):
+    id: str = Field(pattern=r'^[a-z][a-z0-9_]{0,31}:\d{1,12}$')
+    college: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=500)
+    published_at: str
+    body: str = Field(min_length=1, max_length=100_000)
+    body_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    attachments: list[NoticeAttachment] = Field(default_factory=list, max_length=30)
+    # Image-only material and attachments are not silently counted as parsed text.
+    has_unread_content: bool = False
+
+    @field_validator('source')
+    @classmethod
+    def safe_source(cls, value):
+        if not is_college_article(value):
+            raise ValueError('Unregistered college article URL')
+        return value
+
+    @field_validator('published_at')
+    @classmethod
+    def published_date(cls, value):
+        datetime.strptime(value, '%Y-%m-%d')
+        return value
+
+    @model_validator(mode='after')
+    def consistent_origin(self):
+        origin = next(source for source in COLLEGE_SOURCES if source.article_id(self.source))
+        if self.id != origin.key+':'+origin.article_id(self.source) or self.college != origin.college:
+            raise ValueError('College notice identity does not match its registered source')
+        if any(not origin.attachment_allowed(link.url) for link in self.attachments):
+            raise ValueError('Attachment does not belong to this notice source')
+        return self
+
+
+class CollegeSelection(BaseModel):
+    college: str = ''
+    status: Literal['matched', 'missing', 'unsupported', 'ambiguous'] = 'missing'
+    profile_fetched_at: str | None = None
+    profile_stale: bool = True
+
+
 class QueryResult(BaseModel):
     records: list[dict] = Field(default_factory=list)
     source: str
@@ -171,6 +232,7 @@ class QueryResult(BaseModel):
     next_cursor: str | None = None
     warnings: list[dict] = Field(default_factory=list)
     error: ConnectorError | None = None
+    selection: CollegeSelection | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +244,7 @@ class ConnectorSpec:
     read_only: bool = True
     pagination: bool = False
     incremental_sync: bool = False
+    college_names: tuple[str, ...] = ()
 
 
 @dataclass
@@ -190,6 +253,7 @@ class FetchResult:
     completeness: str = 'complete'
     warnings: list[dict] | None = None
     invalidated_fields: tuple[str, ...] = ()
+    error: CampusError | None = None
 
 
 class Connector(Protocol):

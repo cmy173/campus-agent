@@ -1,5 +1,7 @@
 # Campus Agent
 
+新增 [按账号学院匹配通知正文](docs/college-notices.md)：当前试点竺可桢学院，在“待办与截止”查看/同步公开通知，并显式保存到资料与候选待办。学院来自服务端已获取的基本信息；其他院系尚未接入。
+
 校园平台统一服务、公开通知摘要接入、网络策略与新增连接器开发说明见 [连接器指南](docs/connectors.md)。本轮真实公共验证与校园账号验证边界分别记录，不将合成测试作为真实接入证据。
 
 面向浙江大学学生的校园资料工作台。**v0.2 已实现可运行的本地 Web 闭环**：上传资料、提取待办、检索原文、核对时间及删除资料。支持由用户在本机配置的 OpenAI 接口，默认关闭。
@@ -44,6 +46,7 @@
 |---|---|
 | 上传、检索、原文引用、待办核对 | 已实现并以合成资料验证 |
 | OpenAI 问答 | 接口和模拟响应测试完成，真实密钥/模型尚未联调 |
+| 学院通知整理事件与待核对事项 | 离线规则提取已实现；DeepSeek 整理接口与模拟响应测试完成，真实端点已验证连通与 401 分类，真实成功补全尚未联调 |
 | 活动推荐 | 仅虚构数据，不代表浙大学分规则 |
 | 浙大通行证、本科教务与 ETA 基本信息同步 | 整合后合成测试通过；真实联调记录来自上游，尚未在本次复验；接口失败保留缓存，仅本机使用 |
 | 实时通知、其他平台、自动报名 | 未接入，需要对应接口与授权 |
@@ -64,7 +67,7 @@
 
 ## 文档与代码
 
-[愿景](docs/vision.md) · [需求](docs/requirements.md) · [架构](docs/architecture.md) · [平台调研](docs/integrations.md) · [安全](docs/security.md) · [技术选型](docs/tech-stack.md) · [MVP](docs/mvp.md) · [路线图](docs/roadmap.md) · [待决策事项](docs/open-questions.md) · [API](docs/api.md)
+[愿景](docs/vision.md) · [需求](docs/requirements.md) · [架构](docs/architecture.md) · [平台调研](docs/integrations.md) · [安全](docs/security.md) · [技术选型](docs/tech-stack.md) · [MVP](docs/mvp.md) · [路线图](docs/roadmap.md) · [待决策事项](docs/open-questions.md) · [API](docs/api.md) · [通知整理](docs/notice-extraction.md)
 
 `core.py` 为阶段 0 原型；`web.py` 为 REST、身份与编排；`storage.py` 管理 SQLite；`parser_worker.py` 解析文件；`services.py` 提取与检索；`llm.py` 适配 OpenAI；`static/` 为无需构建的原生 HTML/CSS/JS 前端；`server.py` 为启动入口。
 

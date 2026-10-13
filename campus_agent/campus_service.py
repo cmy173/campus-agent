@@ -2,6 +2,7 @@
 from dataclasses import asdict
 from datetime import datetime
 import json
+import re
 import threading
 import time
 
@@ -10,14 +11,21 @@ from .core import TZ
 from .campus_common import CampusError
 from .campus_repository import SQLiteCacheRepository
 from .connector_contracts import (UserContext, QueryResult, CoursesQuery, GradesQuery,
-    ProfileQuery, NoticesQuery, Course, Grade, Profile, Notice, standard_error)
+    ProfileQuery, NoticesQuery, CollegeNoticesQuery, CollegeNotice, CollegeSelection,
+    Course, Grade, Profile, Notice, standard_error)
 from .connectors.zdbk import ZdbkAdapter
 from .connectors.eta import EtaAdapter
 from .connectors.notices import PublicNoticesAdapter
+from .connectors.college_notices import CkcNoticesAdapter
+from .campus_college_sources import normalize_college
 from .campus_endpoints import TIMETABLE, GRADES
 
 CONTRACTS = {'courses': (CoursesQuery, Course), 'grades': (GradesQuery, Grade),
-             'profile': (ProfileQuery, Profile), 'notices': (NoticesQuery, Notice)}
+             'profile': (ProfileQuery, Profile), 'notices': (NoticesQuery, Notice),
+             'college_notices': (CollegeNoticesQuery, CollegeNotice)}
+
+# Mirrors CollegeNotice.id; a client may only name a record it was already shown.
+RECORD_ID = r'[a-z][a-z0-9_]{0,31}:\d{1,12}'
 
 
 class ConnectorRegistry:
@@ -52,13 +60,21 @@ class CampusService:
         self.sessions = sessions
         self.snapshots = sessions.repository
         self.repository = repository or SQLiteCacheRepository(sessions.store)
-        self.registry = registry or ConnectorRegistry((ZdbkAdapter(), EtaAdapter(), PublicNoticesAdapter()))
+        self.registry = registry or ConnectorRegistry((ZdbkAdapter(), EtaAdapter(), PublicNoticesAdapter(), CkcNoticesAdapter()))
         self.guard = threading.Lock()
         self.attempts = {}
 
     def _resolve(self, capability, query, context, platform):
         if not isinstance(context, UserContext):
             raise CampusError('FORBIDDEN', '需要服务端身份上下文')
+        if 'campus.read' not in context.permissions:
+            raise CampusError('FORBIDDEN', '缺少读取权限')
+        selection = None
+        if capability == 'college_notices':
+            selection, selected_platform = self._college_selection(context)
+            if selection.status != 'matched' or (platform is not None and platform != selected_platform):
+                raise CampusError('UNSUPPORTED', '账号学院尚无可确认的通知来源')
+            platform = selected_platform
         adapter = self.registry.select(capability, platform)
         if not set(adapter.spec.permissions) <= context.permissions:
             raise CampusError('FORBIDDEN', '缺少读取权限')
@@ -68,15 +84,78 @@ class CampusService:
             query = query_type.model_validate(query)
         if type(query) is not query_type:
             raise ValueError('Query type does not match capability')
-        scope = json.dumps(query.model_dump(), sort_keys=True, ensure_ascii=False)
+        scope_data = query.model_dump()
+        if selection is not None:
+            scope_data['college'] = normalize_college(selection.college)
+        scope = json.dumps(scope_data, sort_keys=True, ensure_ascii=False)
         return adapter, query, record_type, scope
+
+    def _college_selection(self, context):
+        """Only the authenticated owner's server-stored college field selects a source.
+
+        Prefer newer field evidence, including an explicit newer empty college.
+        The legacy merged profile can include a verified ZDBK field absent from ETA.
+        """
+        section = self.snapshots.read(context.owner).get('profile') or {}
+        source = section.get('field_sources', {}).get('college', {})
+        candidates = []
+        if section:
+            candidates.append((source.get('fetched_at') or section.get('fetched_at') or '',
+                section.get('data', {}).get('college', ''), source.get('stale', section.get('stale', True))))
+        cached = self.repository.read(context.owner, 'eta', 'profile', '{}')
+        if cached:
+            for row in cached.get('records', []):
+                evidence = row.get('field_sources', {}).get('college', {})
+                # An explicit empty field invalidates older profile evidence too.
+                stamp = evidence.get('fetched_at') or row.get('fetched_at') or cached.get('fetched_at') or ''
+                candidates.append((stamp, row.get('college', ''), evidence.get('stale', cached.get('freshness') != 'fresh')))
+        if not candidates:
+            return CollegeSelection(), None
+        latest = max(c[0] for c in candidates)
+        choices = [c for c in candidates if c[0] == latest]
+        values = {normalize_college(c[1]) for c in choices}
+        if len(values) != 1:
+            return CollegeSelection(status='ambiguous', profile_fetched_at=latest or None), None
+        college = values.pop()
+        stale = any(c[2] for c in choices)
+        try:
+            stale = stale or (datetime.now(TZ)-datetime.fromisoformat(latest)).total_seconds() > 6*3600
+        except (ValueError, TypeError):
+            stale = True
+        selection = CollegeSelection(college=college, status='unsupported' if college else 'missing',
+            profile_fetched_at=latest or None, profile_stale=stale)
+        matches = [a.spec.platform_id for a in self.registry.adapters.values()
+            if 'college_notices' in a.spec.capabilities and college and
+            college in {normalize_college(n) for n in a.spec.college_names}]
+        if len(matches) == 1:
+            selection.status = 'matched'
+            return selection, matches[0]
+        if len(matches) > 1:
+            selection.status = 'ambiguous'
+        return selection, None
+
+    def _run(self, method, capability, query, context, platform):
+        if not isinstance(context, UserContext) or 'campus.read' not in context.permissions:
+            return method(capability, query, context, platform=platform)
+        # Bind profile selection and the selected cache scope under the same owner lock.
+        with self.sessions.lock(context.owner):
+            result = method(capability, query, context, platform=platform)
+            if capability == 'college_notices':
+                result.selection, _ = self._college_selection(context)
+            return result
+
+    def query(self, capability, query, context, *, platform=None):
+        return self._run(self._query_locked, capability, query, context, platform)
+
+    def sync(self, capability, query, context, *, platform=None):
+        return self._run(self._sync_locked, capability, query, context, platform)
 
     def _blank(self, capability, platform):
         safe_capability = capability if capability in CONTRACTS else 'unknown'
         if platform in self.registry.adapters:
             safe_platform = platform
         elif platform is None:
-            safe_platform = self.registry.defaults.get(safe_capability, 'unknown')
+            safe_platform = 'unknown' if capability == 'college_notices' else self.registry.defaults.get(safe_capability, 'unknown')
         else:
             safe_platform = 'unknown'
         return QueryResult(source=safe_capability, platform=safe_platform)
@@ -178,7 +257,7 @@ class CampusService:
                 result.freshness = 'unknown'
         return result
 
-    def query(self, capability, query, context, *, platform=None):
+    def _query_locked(self, capability, query, context, *, platform=None):
         try:
             adapter, query, _, scope = self._resolve(capability, query, context, platform)
         except CampusError as exc:
@@ -200,10 +279,11 @@ class CampusService:
     @staticmethod
     def _identity(capability, record):
         fields = {'courses': ('year','semester','code','name','weekday','periods','start_period','weeks','season','location'),
-                  'grades': ('selection_id','term','code','name'), 'profile': ('student_id',), 'notices': ('id',)}[capability]
+                  'grades': ('selection_id','term','code','name'), 'profile': ('student_id',),
+                  'notices': ('id',), 'college_notices': ('id',)}[capability]
         return tuple(record.get(k, '') for k in fields)
 
-    def sync(self, capability, query, context, *, platform=None):
+    def _sync_locked(self, capability, query, context, *, platform=None):
         try:
             adapter, query, record_type, scope = self._resolve(capability, query, context, platform)
         except CampusError as exc:
@@ -228,6 +308,7 @@ class CampusService:
                 if incoming.completeness not in ('complete', 'partial', 'unknown'):
                     raise CampusError('PROTOCOL_CHANGED', '无效完整性标记')
                 warning_messages = {'PARTIAL':'部分条目未确认，已保留缓存',
+                    'RECENT_COLLEGE_NOTICES':'仅同步学院通知首页中的有限条目；附件、图片内容未解析，正文可能不包含全部要求',
                     'LIMITED_SCOPE':'仅公开登录页近期/置顶通知摘要；标题可能截断，未读取正文或历史列表'}
                 warnings = [{'code': w.get('code','PARTIAL') if w.get('code') in warning_messages else 'PARTIAL',
                              'message': warning_messages.get(w.get('code'),warning_messages['PARTIAL'])}
@@ -257,12 +338,14 @@ class CampusService:
                 else:
                     rows = list({self._identity(capability,r):r for r in rows}.values())
                 result.records = rows
-                if not empty_retained:
+                if not empty_retained and (incoming.records or incoming.error is None):
                     result.fetched_at = result.last_attempt_at
                 result.completeness = 'partial' if empty_retained else incoming.completeness
                 result.freshness = 'stale' if empty_retained or any(r.get('stale') or
                     any(v.get('stale') for v in r.get('field_sources',{}).values()) for r in rows) else 'fresh'
-                result.warnings, result.error, result.next_cursor = warnings, None, None
+                result.warnings, result.error, result.next_cursor = warnings, standard_error(incoming.error) if incoming.error else None, None
+                if incoming.error:
+                    result.freshness = 'stale' if result.fetched_at else 'unknown'
             except (CampusError, ValidationError, ValueError, TypeError) as exc:
                 result.error = standard_error(exc)
                 result.freshness = 'stale' if result.fetched_at else 'unknown'
@@ -270,6 +353,32 @@ class CampusService:
                     self.sessions.expire_platform(adapter.spec.platform_id, context.owner)
             self.repository.write(context.owner, adapter.spec.platform_id, capability, scope, result.model_dump(mode='json'))
             return result
+
+    def cached_college_notice(self, context, record_id):
+        """Build a notice import from this account's own validated cache only.
+
+        The caller supplies an opaque record ID; origin URL, attachments, title and
+        publication date always come from a re-validated cached record, never from the
+        request. Returns None when the account has no such cached notice.
+        """
+        if not isinstance(context, UserContext) or 'campus.read' not in context.permissions:
+            raise CampusError('FORBIDDEN', '需要服务端身份上下文')
+        if not isinstance(record_id, str) or not re.fullmatch(RECORD_ID, record_id):
+            raise CampusError('UNSUPPORTED', '通知记录标识无效')
+        with self.sessions.lock(context.owner):
+            for platform, adapter in self.registry.adapters.items():
+                if 'college_notices' not in adapter.spec.capabilities:
+                    continue
+                for scope in self.repository.scopes(context.owner, platform, 'college_notices'):
+                    cached = self.repository.read(context.owner, platform, 'college_notices', scope)
+                    for row in (cached or {}).get('records', []):
+                        if row.get('id') != record_id:
+                            continue
+                        try:
+                            return platform, CollegeNotice.model_validate(row)
+                        except ValidationError:
+                            raise CampusError('PROTOCOL_CHANGED', '缓存通知记录无法确认') from None
+        return None
 
     def connection_status(self, context):
         if not isinstance(context, UserContext) or 'campus.read' not in context.permissions:
