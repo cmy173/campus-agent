@@ -26,7 +26,7 @@ export function useConversationController(id?: string) {
   const providers = useProviders()
   const courses = useCourses()
   const conversations = useQuery({ queryKey: ['agent', 'list'], queryFn: agentApi.list, enabled: API_MODE === 'real' })
-  const conversation = useQuery({ queryKey: ['agent', 'conversation', id], queryFn: () => agentApi.read(id!), enabled: Boolean(id),
+  const conversation = useQuery({ queryKey: ['agent', 'conversation', id], queryFn: ({ signal }) => agentApi.read(id!, signal), enabled: Boolean(id),
     refetchInterval: query => query.state.data?.turns?.some(isActive) ? 650 : false })
   const turns = conversation.data?.turns ?? []
   const active = turns.some(isActive)
@@ -124,6 +124,7 @@ export function useConversationController(id?: string) {
   async function cancel(turnId: string) {
     try {
       const cancelled = await agentApi.cancel(turnId)
+      await queryClient.cancelQueries({ queryKey: ['agent', 'conversation', id] })
       queryClient.setQueryData<AgentConversation>(['agent', 'conversation', id], old => old ? {
         ...old, turns: old.turns?.map(t => t.id === turnId ? cancelled : t),
       } : old)

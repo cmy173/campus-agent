@@ -45,6 +45,22 @@ class TurnRequest(tools.Input):
     attachment_ids: list[str] = Field(default_factory=list, max_length=32)
 
 
+class TurnResponse(tools.Input):
+    id: str
+    conversation_id: str
+    text: str
+    status: Literal['queued', 'running', 'stopping', 'succeeded', 'failed', 'cancelled', 'interrupted']
+    response: str
+    error: dict[str, Any] | None
+    created_at: str
+    updated_at: str
+    attachment_ids: list[str]
+
+
+class TurnWithEvents(TurnResponse):
+    events: dict[str, Any]
+
+
 class AcceptActionRequest(tools.Input):
     operation: Literal["apply", "revoke"]
 
@@ -184,11 +200,16 @@ def internal_browser(req: BrowserToolRequest, auth=Depends(runtime_authority)):
     runtime, turn, conversation = auth
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'SCOPE_DENIED', '浏览器调用不属于本轮会话')
-    result = runtime.browser.rpc(conversation['id'], req.method, name=req.name, arguments=req.arguments, turn_id=turn['id'])
-    if req.method == 'call':
-        status = runtime.browser.rpc(conversation['id'], 'status')
-        deliver_downloads(runtime, conversation['id'], status, turn['id'])
-    return result
+    with runtime.call_lock(turn['id']):
+        if runtime.store.turn(turn['id'])['status'] != 'running':
+            raise ApiError(409, 'TURN_STOPPED', '本轮正在停止，不再启动浏览器操作')
+        result = runtime.browser.rpc(conversation['id'], req.method, name=req.name, arguments=req.arguments, turn_id=turn['id'])
+        if runtime.store.turn(turn['id'])['status'] != 'running':
+            raise ApiError(409, 'TURN_STOPPED', '本轮正在停止，浏览器操作已结束')
+        if req.method == 'call':
+            status = runtime.browser.rpc(conversation['id'], 'status')
+            deliver_downloads(runtime, conversation['id'], status, turn['id'])
+        return result
 
 
 @router.put('/settings')
@@ -333,13 +354,13 @@ def owned_turn(turn_id: str, owner: str):
     return runtime, turn
 
 
-@router.get("/turns/{turn_id}")
+@router.get("/turns/{turn_id}", response_model=TurnWithEvents)
 def read_turn(turn_id: str, owner: str = Depends(browser_owner), after: int = Query(default=0, ge=0)):
     runtime, turn = owned_turn(turn_id, owner)
     return turn | {"events": runtime.store.events(turn_id, after)}
 
 
-@router.post("/turns/{turn_id}/cancel")
+@router.post("/turns/{turn_id}/cancel", response_model=TurnResponse)
 def cancel_turn(turn_id: str, owner: str = Depends(browser_owner)):
     runtime, _ = owned_turn(turn_id, owner)
     runtime.cancel(turn_id)

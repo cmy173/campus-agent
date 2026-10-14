@@ -1,9 +1,9 @@
 /** Owned persistent browser. Public Playwright + MCP APIs; no model loop. */
 import { createServer } from 'node:http';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, writeSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { createConnection } from '@playwright/mcp';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
@@ -20,10 +20,13 @@ for (const item of ledger.reviews) if (item.status === 'executing') item.status 
 let context, client, activeConversation, headed = false, generation = 0;
 let activeOperation;
 const stoppedTurns = new Set();
+const unsafeTurns = new Set();
 let chain = Promise.resolve();
 const downloads = new Set();
 const observedSecrets = new Set();
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const activityFrame = data => writeSync(1, '\n' + JSON.stringify({ kind: 'activity', data,
+  proof: createHmac('sha256', token).update(JSON.stringify(data)).digest('hex') }) + '\n');
 const persist = async () => {
   const temp = ledgerPath + '.tmp';
   await writeFile(temp, JSON.stringify(ledger), { mode: 0o600 });
@@ -270,6 +273,7 @@ async function dispatch(body) {
   }
   if (body.method !== 'call') throw fail('INVALID_INPUT', '不支持的浏览器操作');
   const { name, arguments: args = {} } = body;
+  if (name === 'browser_run_code_unsafe') unsafeTurns.add(body.turn_id || 'manual');
   if (name === 'browser_close') { await stop(); return text({ running: false, message: '浏览器已关闭，登录配置保留。' }); }
   const began = generation;
   let result, executeName = name, executeArgs = args;
@@ -313,14 +317,21 @@ const server = createServer(async (req, res) => {
     for await (const chunk of req) { size += chunk.length; if (size > 2_000_000) throw fail('INVALID_INPUT', '浏览器请求过大'); chunks.push(chunk); }
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const task = body.method === 'stop' ? (async () => {
+      const reset_required = body.turn_id ? unsafeTurns.has(body.turn_id) : unsafeTurns.size > 0;
       if (body.turn_id) {
         stoppedTurns.add(body.turn_id);
-        if (activeOperation?.turn_id !== body.turn_id) return { running: !!context, interrupted: false };
+        if (activeOperation?.turn_id !== body.turn_id && !reset_required) return { running: !!context, interrupted: false };
+        if (activeOperation?.turn_id && activeOperation.turn_id !== body.turn_id)
+          throw fail('BROWSER_OTHER_TURN_ACTIVE', '浏览器正在处理另一个轮次，停止收尾仍在等待');
       }
-      await stop(); return { running: false, interrupted: true };
+      await stop(); return { running: false, interrupted: true, reset_required };
     })() : chain.then(async () => {
       activeOperation = { turn_id: body.turn_id, conversation_id: body.conversation_id };
-      try { return await dispatch(body); } finally { activeOperation = undefined; }
+      activityFrame({ ...activeOperation, name: body.name || body.method });
+      try { return await dispatch(body); } finally {
+        activeOperation = undefined;
+        activityFrame(null);
+      }
     });
     if (body.method !== 'stop') chain = task.catch(() => {});
     const result = await task;

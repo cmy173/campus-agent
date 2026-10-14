@@ -36,6 +36,8 @@ export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }:
   const { events, error, controlError, interruptChild, stoppingChildren } = useTurnEvents(turn)
   const activity = projectTurnEvents(events, turn)
   const runningTool = activity.tools.findLast(tool => tool.status === 'running')
+  const lastStopEvent = events.findLast(event => ['stop_requested', 'stop_incomplete'].includes(event.kind))
+  const incompleteStop = turn.status === 'stopping' && lastStopEvent?.kind === 'stop_incomplete'
   const results = events.filter(e => e.kind === 'tool_result' && e.data.result)
   const modelErrors = turn.status === 'failed' || turn.status === 'interrupted'
     ? events.filter(e => e.kind === 'model_error' && typeof e.data.message === 'string')
@@ -49,7 +51,10 @@ export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }:
     </div>
     <div className="agent-assistant-message">
       <Typography.Text strong>校园助手</Typography.Text>
-      {isActive(turn) && <div role="status" className="agent-running">{runningTool ? runningTool.label + '…' : '正在处理…'} <Button size="small" onClick={() => onCancel(turn.id)}>停止本轮</Button></div>}
+      {isActive(turn) && <div role="status" className="agent-running">{turn.status === 'stopping' ? '停止中，正在结束本轮工具…' : runningTool ? runningTool.label + '…' : '正在处理…'}
+        <Button aria-label={incompleteStop ? '重试停止' : '停止本轮'} size="small" disabled={turn.status === 'stopping' && !incompleteStop}
+          loading={turn.status === 'stopping' && !incompleteStop} onClick={() => onCancel(turn.id)}>{incompleteStop ? '重试停止' : '停止本轮'}</Button></div>}
+      {incompleteStop && <Alert type="warning" title="停止收尾尚未完成" description="本轮仍处于停止中，可以重试停止。" />}
       {activity.progressText && <Typography.Paragraph className="agent-answer">{activity.progressText}</Typography.Paragraph>}
       {turn.response && <Typography.Paragraph className="agent-answer">{turn.response}</Typography.Paragraph>}
       <FileActivities events={events} conversationId={turn.conversation_id} onOpen={onFile} />

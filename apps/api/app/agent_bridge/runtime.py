@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import threading
 import sys
+import time
 import requests
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -22,6 +23,7 @@ from .. import secrets_store
 from .settings import SettingsStore, harness_server
 from .files import ConversationFiles
 from .browser import BrowserHost
+from ..process_owner import spawn_owned
 
 
 class Runtime:
@@ -32,6 +34,7 @@ class Runtime:
         self.lock = threading.RLock()
         self.processes: dict[str, subprocess.Popen] = {}
         self.threads: dict[str, threading.Thread] = {}
+        self.stop_threads: dict[str, threading.Thread] = {}
         self.call_locks: dict[str, threading.RLock] = {}
         self.conversation_locks: dict[str, threading.Lock] = {}
         self.control_addresses: dict[str, tuple[str, str]] = {}
@@ -110,7 +113,7 @@ class Runtime:
             workspace.mkdir(parents=True, exist_ok=True)
             with self.lock:
                 self.workspaces[tid] = workspace
-            proc = subprocess.Popen([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
+            proc = spawn_owned([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
                                     cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
                                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -151,6 +154,7 @@ class Runtime:
                     self.store.finish(tid, "failed", error=data)
                 self.store.event(tid, kind, data)
             proc.wait(timeout=10)
+            proc.campus_owner.close()
             if answered and proc.returncode == 0:
                 self.store.finish(tid, "succeeded", response=answer)
             else:
@@ -163,10 +167,12 @@ class Runtime:
                 timer.cancel()
             if proc:
                 self._stop(proc)
+                proc.campus_owner.close()
             with self.lock:
                 self.processes.pop(tid, None)
                 self.threads.pop(tid, None)
-                self.call_locks.pop(tid, None)
+                if self.store.turn(tid)['status'] != 'stopping':
+                    self.call_locks.pop(tid, None)
                 self.control_addresses.pop(tid, None)
                 self.workspaces.pop(tid, None)
 
@@ -200,13 +206,17 @@ class Runtime:
     @staticmethod
     def _stop(proc):
         if proc.poll() is not None:
+            if getattr(proc, 'campus_owner', None):
+                proc.campus_owner.terminate()
             return
         try:
             proc.stdin.write('{"cancel":true}\n')
             proc.stdin.flush()
             proc.wait(timeout=8)
         except (OSError, ValueError, subprocess.TimeoutExpired):
-            if os.name == "nt":
+            if getattr(proc, 'campus_owner', None):
+                proc.campus_owner.terminate()
+            elif os.name == "nt":
                 # Only the PID of the subprocess owned above, never a supplied PID.
                 subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=10)
             else:
@@ -214,12 +224,7 @@ class Runtime:
             proc.wait(timeout=5)
 
     def _timeout(self, tid: str):
-        self.store.finish(tid, "failed", error={"code": "TURN_TIMEOUT", "message": f"本轮处理达到 {self.store.limits.turn_seconds} 秒配置上限", "retryable": True})
-        with self.lock:
-            proc = self.processes.get(tid)
-        if proc:
-            self._stop(proc)
-        self._interrupt_browser(tid)
+        self._begin_stop(tid, 'failed', {"code": "TURN_TIMEOUT", "message": f"本轮处理达到 {self.store.limits.turn_seconds} 秒配置上限", "retryable": True})
 
     def _interrupt_browser(self, tid: str):
         with self.browser.lock:
@@ -228,16 +233,62 @@ class Runtime:
             try:
                 self.browser.rpc(self.store.turn(tid)['conversation_id'], 'stop', turn_id=tid)
             except ApiError:
-                pass
+                return False
+        return True
 
     def cancel(self, tid: str):
-        self.store.finish(tid, "cancelled")
+        self._begin_stop(tid, 'cancelled')
+
+    def _begin_stop(self, tid: str, target: str, error=None):
+        with self.lock:
+            if tid in self.stop_threads:
+                return
+            requested = self.store.request_stop(tid, target, error)
+            if not requested and self.store.turn(tid)['status'] != 'stopping':
+                return
+            self.store.event(tid, 'stop_requested', {'message': '正在结束本轮运行与工具调用。'})
+            runner = self.threads.get(tid)
+            call_lock = self.call_lock(tid)
+            with self.browser.lock:
+                browser_alive = self.browser.process is not None and self.browser.process.poll() is None
+            if not runner and not browser_alive:
+                self.store.complete_stop(tid)
+                return
+            worker = threading.Thread(target=self._drain_stop, args=(tid, runner, call_lock), name='campus-stop-' + tid, daemon=True)
+            self.stop_threads[tid] = worker
+            worker.start()
+
+    def _drain_stop(self, tid, runner, call_lock):
+        sdk_errors = []
         with self.lock:
             proc = self.processes.get(tid)
-        if proc:
-            # Don't block the browser for the SDK's shutdown grace period.
-            threading.Thread(target=self._stop, args=(proc,), daemon=True).start()
-        threading.Thread(target=self._interrupt_browser, args=(tid,), daemon=True).start()
+        def stop_sdk():
+            try:
+                if proc:
+                    self._stop(proc)
+            except Exception as error:
+                sdk_errors.append(error)
+        sdk_stop = threading.Thread(target=stop_sdk, daemon=True)
+        sdk_stop.start()
+        try:
+            while not self._interrupt_browser(tid):
+                time.sleep(0.1)
+            sdk_stop.join()
+            if sdk_errors:
+                raise sdk_errors[0]
+            if runner and runner is not threading.current_thread():
+                runner.join()
+            # API business calls may outlive the SDK connection. Wait for their
+            # original lock, not a new lock after the runner removed its entry.
+            with call_lock:
+                self.store.complete_stop(tid)
+            with self.lock:
+                self.call_locks.pop(tid, None)
+        except Exception:
+            self.store.event(tid, 'stop_incomplete', {'message': '停止收尾尚未完成，仍保留停止中状态；请检查进程状态。'})
+        finally:
+            with self.lock:
+                self.stop_threads.pop(tid, None)
 
     def close(self):
         with self.lock:
@@ -247,6 +298,10 @@ class Runtime:
         for thread in threads:
             thread.join(timeout=12)
         self.browser.close()
+        with self.lock:
+            stopping = list(self.stop_threads.values())
+        for thread in stopping:
+            thread.join(timeout=12)
 
 
 @lru_cache(maxsize=1)

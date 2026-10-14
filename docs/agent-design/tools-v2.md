@@ -12,7 +12,7 @@
 - “按校园资料整理技能处理这些附件”：按需加载 Skill，复用说明中的流程。技能本身不是完成证据，仍须实际执行。
 - “分成两个子任务分别处理，最后汇总”：Harness 分配子任务，聊天展示子任务状态及结果。可以单独停止子任务，等待实际结束事件后显示已停止；后台跨轮生命周期与重启恢复仍在建设。
 
-普通本地读取、计算与可撤销操作自动执行。用户可以停止当前轮次；未返回结果的操作不会因为会话结束被标为成功。浏览器标准表单和明确准备的网页按钮操作已接入一次确认；任意通用脚本的完整停止语义仍待审计。
+普通本地读取、计算与可撤销操作自动执行。停止先显示“停止中”，进程与在途调用收尾后显示“已停止”；未返回结果不会因为会话结束被标为成功。浏览器提交已接入一次确认；延迟/CPU脚本、普通派生进程及当前轮次实际停止通过，跨轮及各子Agent浏览器归属仍待完善。
 
 ## 设置入口
 
@@ -78,7 +78,7 @@
 | 时间安排 | campus_availability_read、campus_plans_read、campus_plans_preview、campus_plans_apply、campus_plans_revoke | 现有具体预览/接受/应用/撤销通过；自然语言直接安排的自动授权改造待完成 |
 | 领域后台任务 | campus_jobs_read、campus_jobs_cancel | 实际任务状态和取消已回归 |
 | MCP | mcp__<server>__<tool>；list_mcp_resources、list_mcp_resource_templates、read_mcp_resource | 实际计算服务发现、执行、错误、断连/重连；资源工具已注册，资源读取专门验收待补 |
-| 浏览器 | mcp__campus_browser__browser_* | 实际 Edge 读取/下载/填写、标准表单与明确网页按钮的一次确认、登录 Cookie/存储重启保留、普通导航停止已验证；真实学校试用与任意后台脚本停止仍待补 |
+| 浏览器 | mcp__campus_browser__browser_* | Edge读取/下载/填写、一次确认、登录状态重启保留、导航及root延迟/CPU脚本停止已验证；真实学校试用、跨轮及独立子Agent浏览器归属待补 |
 
 ## 运行与维护
 
@@ -119,6 +119,8 @@ verify-capabilities 使用受控模型/搜索响应及真实文件、命令、�
 浏览器工具包括导航/后退、页面快照与查找、表单填写/点击/键盘/选择/上传、标签页、对话框、截图、网络检查、浏览器脚本以及明确操作预览。复用固定 @playwright/mcp0.0.83 和对应 Playwright1.64.0-alpha-1790635538000 公共接口；没有依赖 Codex 的开发浏览器工具。
 
 独立实际验证：node apps/agent-runtime/verify-browser.mjs。完整 API/Harness 验证仍使用 tools/verify_agent_runtime.py。受控站点、受控模型及真实文件/进程分开记录；这些证据不替代真实 DeepSeek 和学校账号试用。架构与后续停止审计见 browser-v2.md。
+
+停止回归还包括 tools/verify_browser_cancellation.py（--cpu验证事件循环阻塞）及 tools/verify_process_ownership.py。它们运行实际本地进程和页面，不调用付费模型。实现及范围见 runtime-lifecycle-v2.md。
 
 ## 子任务停止与官方协议验证
 

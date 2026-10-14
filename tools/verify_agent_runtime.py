@@ -43,12 +43,15 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
     slow_started = threading.Event()
     child_b_waiting, release_child_b = threading.Event(), threading.Event()
     browser_submissions = []
+    stopped_script_started, stopped_script_late = threading.Event(), threading.Event()
 
     class Provider(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
 
         def do_GET(self):
+            if self.path == '/browser/started':
+                stopped_script_started.set()
             self.send_response(200)
             if self.path == '/browser/download':
                 self.send_header('Content-Disposition', 'attachment; filename="browser-campus.txt"')
@@ -61,6 +64,10 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
             self.wfile.write(page.encode('utf-8'))
 
         def do_POST(self):
+            if self.path == '/browser/late':
+                self.rfile.read(int(self.headers.get('Content-Length', '0')))
+                stopped_script_late.set()
+                self.send_response(200); self.end_headers(); self.wfile.write(b'ok'); return
             if self.path == '/browser/submit':
                 from urllib.parse import parse_qs
                 values = parse_qs(self.rfile.read(int(self.headers['Content-Length'])).decode())
@@ -129,6 +136,25 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 slow_started.set()
                 time.sleep(2)
             user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
+            if user_text.startswith('[V2停止演练]'):
+                results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                if not results:
+                    stopped_script_started.clear()
+                    stopped_script_late.clear()
+                delay = 90000 if serve else 15000
+                code = f'''async (page) => {{
+                  await page.goto('http://127.0.0.1:{provider.server_port}/browser/form');
+                  await fetch('http://127.0.0.1:{provider.server_port}/browser/started');
+                  await new Promise(resolve => setTimeout(resolve, {delay}));
+                  await fetch('http://127.0.0.1:{provider.server_port}/browser/late', {{method:'POST',body:'fixture'}});
+                  return '脚本执行完成';
+                }}'''
+                calls = [] if results else [{'id': 'stop_script_' + str(len(receipts)), 'type': 'function', 'function': {
+                    'name': 'mcp__campus_browser__browser_run_code_unsafe', 'arguments': json.dumps({'code': code})}}]
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': '\n'.join(results) if results else None,
+                    'tool_calls': calls}, 'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             if user_text.startswith('[V2浏览器回执]'):
                 context = json.loads(messages[last_user]['content'].splitlines()[1])
                 self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
@@ -356,7 +382,7 @@ with SessionLocal() as db:
             events = body.pop("events")
             items.extend(events["items"])
             after = events["next_cursor"]
-            if body["status"] not in {"queued", "running"}:
+            if body["status"] not in {"queued", "running", "stopping"}:
                 body["events"] = items
                 return body
             time.sleep(0.2)
@@ -419,8 +445,13 @@ with SessionLocal() as db:
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
         assert slow_started.wait(timeout=15), "controlled provider was not reached before cancellation"
         cancelled = post("/turns/" + cancel_turn["id"] + "/cancel", {})
-        assert cancelled["status"] == "cancelled"
-        # Send immediately: no artificial shutdown delay hides SDK lease races.
+        assert cancelled["status"] in ('stopping', 'cancelled')
+        if cancelled['status'] == 'stopping':
+            held = client.post(base + f'/api/v1/agent/conversations/{cid}/turns', json={'text': '等待物理停止'},
+                headers={'Idempotency-Key': 'while-stopping'}, timeout=10)
+            assert held.status_code == 409 and held.json()['error']['code'] == 'TURN_IN_PROGRESS'
+        assert wait_turn(cancel_turn['id'])['status'] == 'cancelled'
+        # Start after observed teardown, not a guessed sleep interval.
         resumed = post(f"/conversations/{cid}/turns", {"text": "取消后继续核对原文"}, {"Idempotency-Key": "integration-after-cancel"})
         completed = wait_turn(resumed["id"])
         evidence["after_cancel_turn"] = completed
@@ -429,6 +460,18 @@ with SessionLocal() as db:
         assert cancelled["status"] == "cancelled"
         assert not [e for e in cancelled["events"] if e["kind"] == "tool_result"], "cancelled model response caused new tool execution"
         evidence["cancelled_turn"] = cancelled
+        unsafe = post(f'/conversations/{cid}/turns', {'text': '[V2停止演练] 执行浏览器脚本并允许停止'}, {'Idempotency-Key': 'stop-browser-script'})
+        assert stopped_script_started.wait(15), 'Actual browser code did not start'
+        began_stop = time.monotonic()
+        stopping = post('/turns/' + unsafe['id'] + '/cancel', {})
+        assert stopping['status'] in ('stopping', 'cancelled')
+        stopped = wait_turn(unsafe['id'])
+        assert stopped['status'] == 'cancelled'
+        assert time.monotonic() - began_stop < 10, 'Root cancellation waited for the delayed browser operation'
+        assert not stopped_script_late.is_set()
+        evidence['browser_script_cancelled_turn'] = stopped
+        evidence['browser_script_cancel_checks'] = {'actual_script_started': True, 'stopping_until_teardown': True,
+            'actual_browser_and_sdk_owned_processes_stopped': True, 'delayed_operation_did_not_execute': True}
         # Restart the actual API, keep the client cookie and both journals, then
         # resume again. No progress file or simulated memory substitutes for this.
         api.terminate()
@@ -444,7 +487,7 @@ with SessionLocal() as db:
                 pass
             time.sleep(0.1)
         recovered = client.get(base + "/api/v1/agent/conversations/" + cid, timeout=10).json()
-        assert len(recovered["turns"]) == 4 and recovered["current_course_id"] == "course_synthetic"
+        assert len(recovered["turns"]) == 5 and recovered["current_course_id"] == "course_synthetic"
         restarted_turn = post(f"/conversations/{cid}/turns", {"text": "重启后继续核对材料"}, {"Idempotency-Key": "integration-after-restart"})
         completed = wait_turn(restarted_turn["id"])
         evidence["after_api_restart_turn"] = completed
@@ -667,6 +710,7 @@ with SessionLocal() as db:
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:
         release_child_b.set()
+        evidence['stop_fixture'] = {'started': stopped_script_started.is_set(), 'late': stopped_script_late.is_set()}
         (run_dir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "model-receipts.json").write_text(json.dumps(receipts, ensure_ascii=False, indent=2), encoding="utf-8")
         client.close()

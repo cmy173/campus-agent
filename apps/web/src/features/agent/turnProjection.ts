@@ -27,6 +27,16 @@ const labels: Record<string, string> = {
   create_goal: '创建持续任务', get_goal: '查看持续任务', update_goal: '更新持续任务',
   todo_write: '更新步骤', job_list: '查看后台命令', job_output: '读取命令结果', job_kill: '停止命令',
 }
+const browserLabels: Record<string, string> = {
+  browser_navigate: '打开网页', browser_navigate_back: '返回网页', browser_snapshot: '读取页面',
+  browser_find: '查找页面内容', browser_fill_form: '填写表单', browser_type: '输入内容', browser_click: '点击页面',
+  browser_press_key: '操作键盘', browser_select_option: '选择选项', browser_file_upload: '上传网页附件',
+  browser_tabs: '管理浏览器页面', browser_handle_dialog: '处理网页对话框', browser_take_screenshot: '获取页面截图',
+  browser_network_requests: '检查网页请求', browser_network_request: '读取网页请求', browser_run_code_unsafe: '执行浏览器脚本',
+  browser_prepare_action: '准备提交预览', browser_wait_for: '等待页面', browser_close: '关闭浏览器',
+}
+const toolLabel = (name: string) => labels[name] ?? (name.startsWith('mcp__campus_browser__') ?
+  browserLabels[name.slice('mcp__campus_browser__'.length)] ?? '浏览器操作' : name)
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -72,7 +82,7 @@ export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
         if (!callId) continue
         const name = string(data.name) || 'unknown'
         const id = sessionId + ':' + callId
-        tools.set(id, { id, sessionId, callId, name, label: labels[name] ?? name,
+        tools.set(id, { id, sessionId, callId, name, label: toolLabel(name),
           status: 'running', arguments: string(data.arguments), output: '' })
       } else if (event.type === 'tool/result') {
         const message = record(data.message)
@@ -100,7 +110,7 @@ export function projectTurnEvents(events: AgentEvent[], turn: AgentTurn) {
       if (child?.status === 'running') children.set(id, { ...child, status: 'stopping' })
     }
   }
-  const terminal = !['queued', 'running'].includes(turn.status)
+  const terminal = !['queued', 'running', 'stopping'].includes(turn.status)
   const settle = <T extends { status: ToolActivity['status'] }>(activity: T): T =>
     terminal && ['running', 'stopping'].includes(activity.status) ? { ...activity, status: stoppedStatus(turn.status) } : activity
   return {

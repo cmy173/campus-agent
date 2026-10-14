@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
 import queue
 import secrets
@@ -17,6 +19,7 @@ import requests
 
 from ..config import REPO_ROOT
 from ..errors import ApiError
+from ..process_owner import spawn_owned
 
 
 class BrowserField(BaseModel):
@@ -84,6 +87,31 @@ class BrowserHost:
         self.url = ''
         self.token = ''
         self.closing = False
+        self.active_operation = None
+        self.unsafe_turns = set()
+
+    def _read_frames(self, proc, ready):
+        seen_ready = False
+        try:
+            for line in proc.stdout:
+                try:
+                    frame = json.loads(line)
+                except ValueError:
+                    continue  # Ordinary code stdout is not a control frame.
+                if not isinstance(frame, dict):
+                    continue
+                if frame.get('ready') and not seen_ready:
+                    seen_ready = True
+                    ready.put(frame)
+                elif frame.get('kind') == 'activity':
+                    with self.lock:
+                        if self.process is proc:
+                            payload = json.dumps(frame.get('data'), ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+                            expected = hmac.new(self.token.encode(), payload, hashlib.sha256).hexdigest()
+                            if hmac.compare_digest(expected, str(frame.get('proof', ''))):
+                                self.active_operation = frame.get('data')
+        except (OSError, ValueError):
+            pass
 
     def _start(self):
         with self.lock:
@@ -91,6 +119,16 @@ class BrowserHost:
                 raise ApiError(503, 'BROWSER_CLOSED', '应用正在关闭，浏览器操作已停止')
             if self.process is not None and self.process.poll() is None:
                 return
+            if self.process is not None:
+                stale, self.process = self.process, None
+                stale.campus_owner.close()
+                for stream in (stale.stdin, stale.stdout):
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+                self.active_operation = None
+                self.unsafe_turns.clear()
             node = shutil.which('node')
             root = REPO_ROOT / 'apps' / 'agent-runtime'
             if not node or not (root / 'node_modules/@playwright/mcp/package.json').is_file():
@@ -107,14 +145,14 @@ class BrowserHost:
             scratch.mkdir(exist_ok=True)
             env.update(CAMPUS_BROWSER_HOME=str(self.home.resolve()), CAMPUS_BROWSER_TOKEN=self.token,
                        TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
-            proc = subprocess.Popen([node, str(root / 'browser-host.mjs')], cwd=root, env=env,
+            proc = spawn_owned([node, str(root / 'browser-host.mjs')], cwd=root, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             self.process = proc
             ready = queue.Queue(maxsize=1)
-            threading.Thread(target=lambda: ready.put(proc.stdout.readline()), daemon=True).start()
+            threading.Thread(target=self._read_frames, args=(proc, ready), daemon=True).start()
             try:
-                frame = json.loads(ready.get(timeout=30))
+                frame = ready.get(timeout=30)
                 if not frame.get('ready') or not frame.get('url', '').startswith('http://127.0.0.1:'):
                     raise ValueError('Invalid browser readiness')
                 self.url = frame['url']
@@ -126,16 +164,28 @@ class BrowserHost:
         self._start()
         with self.lock:
             url, token = self.url, self.token
+            if method == 'call' and arguments.get('name') == 'browser_run_code_unsafe':
+                self.unsafe_turns.add(arguments.get('turn_id') or 'manual')
         try:
             response = requests.post(url + '/rpc', headers={'Authorization': 'Bearer ' + token},
-                json={'conversation_id': cid, 'method': method, **arguments}, timeout=150, allow_redirects=False)
+                json={'conversation_id': cid, 'method': method, **arguments}, timeout=2 if method == 'stop' else 150, allow_redirects=False)
             data = response.json()
         except (requests.RequestException, ValueError):
+            if method == 'stop':
+                with self.lock:
+                    current = self.active_operation
+                    tid = arguments.get('turn_id')
+                    owned = not tid or (current and current.get('turn_id') == tid) or (not current and tid in self.unsafe_turns)
+                if owned:
+                    self.close(terminal=False, force=True)
+                    return {'running': False, 'interrupted': True, 'forced': True}
             # A lost response may follow a real submit: never replay automatically.
             raise ApiError(502, 'BROWSER_CONNECTION_LOST', '浏览器连接中断；若刚提交，请先核对页面回执再操作', retryable=True) from None
         if not response.ok or not data.get('ok'):
             code = data.get('code', 'BROWSER_OPERATION_FAILED')
             raise ApiError(409, code, data.get('message', '浏览器操作未完成'), retryable=code not in ('BROWSER_ACTION_CHANGED', 'NOT_FOUND'))
+        if method == 'stop' and data['result'].get('reset_required'):
+            self.close(terminal=False, force=True)
         return data['result']
 
     def peek(self, cid: str, *, saved_only=False):
@@ -156,14 +206,18 @@ class BrowserHost:
         return {'running': False, 'headed': False, 'pages': [], 'reviews': reviews,
                 'downloads': [item for item in ledger['downloads'] if item['conversation_id'] == cid]}
 
-    def close(self, *, terminal=True):
+    def close(self, *, terminal=True, force=False):
         with self.lock:
             self.closing = self.closing or terminal
             proc, self.process = self.process, None
             self.url = self.token = ''
+            self.active_operation = None
+            self.unsafe_turns.clear()
         if proc is None:
             return
         try:
+            if force:
+                proc.campus_owner.terminate()
             proc.stdin.close()
             proc.wait(timeout=12)
         except (OSError, subprocess.TimeoutExpired):
@@ -174,6 +228,7 @@ class BrowserHost:
                     proc.kill()
                 proc.wait(timeout=5)
         finally:
+            proc.campus_owner.close()
             proc.stdout.close()
 
 

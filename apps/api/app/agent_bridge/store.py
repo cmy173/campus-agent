@@ -65,6 +65,8 @@ class Store:
             """)
             if 'attachment_ids' not in {r[1] for r in db.execute('PRAGMA table_info(turns)')}:
                 db.execute("ALTER TABLE turns ADD COLUMN attachment_ids TEXT NOT NULL DEFAULT '[]'")
+            if 'stop_target' not in {r[1] for r in db.execute('PRAGMA table_info(turns)')}:
+                db.execute('ALTER TABLE turns ADD COLUMN stop_target TEXT')
 
     @contextmanager
     def connection(self):
@@ -79,8 +81,8 @@ class Store:
 
     def recover(self):
         with self.connection() as db:
-            db.execute("UPDATE turns SET status='interrupted',token_hash=NULL,error=?,updated_at=? "
-                       "WHERE status IN ('queued','running')",
+            db.execute("UPDATE turns SET status='interrupted',token_hash=NULL,stop_target=NULL,error=?,updated_at=? "
+                       "WHERE status IN ('queued','running','stopping')",
                        (encoded({"code": "RUNTIME_INTERRUPTED", "message": "服务已重启；已保留调用记录，请重新发送本轮请求", "retryable": True}), now()))
 
     def create(self, owner: str, settings: dict) -> dict:
@@ -142,7 +144,7 @@ class Store:
                 if old["request_hash"] != fingerprint:
                     raise ApiError(409, "IDEMPOTENCY_CONFLICT", "同一请求键不能用于不同消息")
                 return self._turn(old), None
-            if db.execute("SELECT 1 FROM turns WHERE conversation_id=? AND status IN ('queued','running')", (cid,)).fetchone():
+            if db.execute("SELECT 1 FROM turns WHERE conversation_id=? AND status IN ('queued','running','stopping')", (cid,)).fetchone():
                 raise ApiError(409, "TURN_IN_PROGRESS", "当前会话仍在处理上一条消息")
             for file_id in attachment_ids:
                 if not db.execute('SELECT 1 FROM conversation_files WHERE id=? AND conversation_id=?', (file_id, cid)).fetchone():
@@ -177,6 +179,17 @@ class Store:
         with self.connection() as db:
             db.execute("UPDATE turns SET status=?,response=?,error=?,token_hash=NULL,updated_at=? "
                        "WHERE id=? AND status IN ('queued','running')", (status, response, encoded(error) if error else None, now(), tid))
+
+    def request_stop(self, tid: str, target: str, error: dict | None = None) -> bool:
+        if target not in ('cancelled', 'failed'):
+            raise ValueError('Invalid stop result')
+        with self.connection() as db:
+            return bool(db.execute("UPDATE turns SET status='stopping',stop_target=?,error=?,token_hash=NULL,updated_at=? "
+                "WHERE id=? AND status IN ('queued','running')", (target, encoded(error) if error else None, now(), tid)).rowcount)
+
+    def complete_stop(self, tid: str):
+        with self.connection() as db:
+            db.execute("UPDATE turns SET status=stop_target,stop_target=NULL,updated_at=? WHERE id=? AND status='stopping'", (now(), tid))
 
     def event(self, tid: str, kind: str, data: dict):
         with self.connection() as db:

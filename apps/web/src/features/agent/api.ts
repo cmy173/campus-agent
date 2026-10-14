@@ -16,7 +16,7 @@ export interface AgentTurn {
   id: string
   conversation_id: string
   text: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+  status: 'queued' | 'running' | 'stopping' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
   response: string
   error: ErrorInfo | null
   created_at: string
@@ -133,7 +133,7 @@ export const agentApi = {
   testMcp: (name: string) => apiRequest<DiagnosticResult>(`/agent/settings/mcp/${encodeURIComponent(name)}/test`, { method: 'POST', body: {} }),
   testSearch: (provider_id?: string) => apiRequest<DiagnosticResult>('/agent/settings/search/test', { method: 'POST', body: { provider_id } }),
   list: () => apiRequest<{ items: AgentConversation[]; next_cursor: null }>('/agent/conversations'),
-  read: (id: string) => apiRequest<AgentConversation>(`/agent/conversations/${encodeURIComponent(id)}`),
+  read: (id: string, signal?: AbortSignal) => apiRequest<AgentConversation>(`/agent/conversations/${encodeURIComponent(id)}`, { signal }),
   create: (provider_id: string, course_id?: string) => apiRequest<AgentConversation>('/agent/conversations', {
     method: 'POST', body: { provider_id, send_to_provider: true, course_id: course_id ?? null },
   }),
@@ -150,7 +150,7 @@ export const agentApi = {
     { method: 'POST', body: { operation }, idempotencyKey: key }),
 }
 
-export const isActive = (turn: AgentTurn) => turn.status === 'queued' || turn.status === 'running'
+export const isActive = (turn: AgentTurn) => turn.status === 'queued' || turn.status === 'running' || turn.status === 'stopping'
 
 export const toolLabels: Record<string, string> = {
   'connections.status': '连接状态', 'courses.list': '查找课程', 'assignments.list': '核对作业',

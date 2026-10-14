@@ -606,7 +606,8 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/TurnWithEvents'
         '422':
           description: Validation Error
           content:
@@ -631,7 +632,8 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/TurnResponse'
         '422':
           description: Validation Error
           content:
@@ -1696,6 +1698,121 @@ components:
       required:
       - text
       title: TurnRequest
+    TurnResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        conversation_id:
+          type: string
+          title: Conversation Id
+        text:
+          type: string
+          title: Text
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - stopping
+          - succeeded
+          - failed
+          - cancelled
+          - interrupted
+          title: Status
+        response:
+          type: string
+          title: Response
+        error:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          title: Attachment Ids
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - conversation_id
+      - text
+      - status
+      - response
+      - error
+      - created_at
+      - updated_at
+      - attachment_ids
+      title: TurnResponse
+    TurnWithEvents:
+      properties:
+        id:
+          type: string
+          title: Id
+        conversation_id:
+          type: string
+          title: Conversation Id
+        text:
+          type: string
+          title: Text
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - stopping
+          - succeeded
+          - failed
+          - cancelled
+          - interrupted
+          title: Status
+        response:
+          type: string
+          title: Response
+        error:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          title: Attachment Ids
+        events:
+          additionalProperties: true
+          type: object
+          title: Events
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - conversation_id
+      - text
+      - status
+      - response
+      - error
+      - created_at
+      - updated_at
+      - attachment_ids
+      - events
+      title: TurnWithEvents
     ValidationError:
       properties:
         loc:
