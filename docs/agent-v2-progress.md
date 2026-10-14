@@ -214,3 +214,49 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 协作：只提交 Codex 文件。实现者继续负责桌面、性能与 CI/归档；建议 CI 增加 node apps/agent-runtime/verify-tool-groups.mjs。用户已选择有数据 owner 进行任务 E，已授权真实模型与搜索总预算 100 元；尚未完成学校登录。真实付费请求截至此记录未发出。
 
 条件 3 的按需发现缺口已验证；整个合同仍未完成，真实数据迁移、官方模型/搜索与学校登录态需继续。
+
+## 2026-10-14 增量：验收 Codex 遗产（它额度耗尽退出），并补齐条件 9 的前后对照
+
+Codex 在完成任务 A 后因额度耗尽退出，实现者成为唯一执行者。先**独立复跑它的全部验收**，不采信它的文字结论，
+再接手它的文件范围（`apps/agent-runtime/**`、`apps/api/app/agent_bridge/runtime.py`）。
+
+### 遗产验收结果（全部由实现者本轮真实复跑，HEAD=6690c6f）
+
+| 验证项 | 命令 | 实测结果 |
+| --- | --- | --- |
+| API 套件 | `apps/api/.venv/Scripts/python.exe -m pytest -q`（隔离数据库/目录） | **322 passed** |
+| 根回归 + 启动器 | `python -m pytest tests tools/test_launcher.py -q` | **203 passed + 80 subtests** |
+| 工具分组（上游公开 registry/scope） | `node apps/agent-runtime/verify-tool-groups.mjs` | **PASS**（默认面/子任务加载/独立作用域隔离/晚注册/重连/重复加载/额外策略） |
+| 按需发现（真实 Edge 导航） | `apps/api/.venv/Scripts/python.exe tools/verify_tool_discovery.py` | **exit 0**，3 次模型调用；默认隐藏延后组、加载后仅出现浏览器组、其余仍隐藏 |
+| 受控模型完整集成 | `apps/api/.venv/Scripts/python.exe tools/verify_agent_runtime.py` | **exit 0，103 次受控模型调用，ok=true** |
+| 契约新鲜度 | `python tools/export_agent_contract.py --check` | **exit 0**，42 paths / 49 schemas |
+| 启动器 | `python tools/dev.py --check` | **exit 0** |
+| 前端 | `npx tsc -b` / `npx vitest run --maxWorkers=2` / `npx vite build` | tsc **exit 0**；**27 文件 149 passed**；build **exit 0**（大 chunk 提示为已知项） |
+
+本轮另以独立基准复现了它的核心数字：默认请求 **45 项 / 33861 B**（改造前全量 83 项 / 63406 B），
+且该请求下 `campus_connections_status` 真实执行、回执 `{"status":"ok"}`、额外确认 0。
+
+### 条件 9：改造前后对照已补齐，并查出**一项可重复的明显回退**
+
+- 受控任务改用 `campus_connections_status` + 回答（两侧都真实声明的工具）；原 `write→read→pwsh` 任务在首轮系统
+  上**根本无法执行**——首轮模型可见面只有 16 个校园工具，没有任何本地文件/命令工具（实测该轮以 RUNTIME_FAILED 结束）。
+  这是能力差异而非耗时差异，已如实记录；`local-files` 任务只在改造后一侧保留数字。
+- 实测（同机、同夹具、同任务、同脚本）：启动 2961 → 2718.5 ms（持平）；首个可见事件 289 → 281.5 ms（持平）；
+  **入队→首个模型请求 1781 → 5062.5 ms（+3.28 s，可重复）**；工具往返 141 → 203 ms；尾部 101.5 → 476.5 ms；
+  每轮模型请求 2 → 2；额外确认 0 → 0；schema 16/10771 B → 45/33861 B。
+- 定位：回退集中在“把这一轮送到模型面前”之前。`runtime.py` 每轮起一个全新 runner（注释明确：a fresh runner
+  resumes the same JSONL session），而 profile 从 16 行手写树改成完整 `@deepseek-ai/dsh-base`（`dependencies` 93 项），
+  并且每轮都要真起浏览器 MCP 子进程（`playwright` + `@playwright/mcp` 实测导入 539 ms，`failOnStartupError: true`）。
+  两次受控实验证明该 MCP 是**硬启动依赖**：不生成 MCP 行 → runner 274 ms 内结束；让子进程立即退出且
+  `failOnStartupError: false` → 238 ms 内结束（实验在一次性 worktree 内做，事后 `git checkout` 还原并确认干净）。
+- 上游 SDK 文档明确 `DeepSeekHarness` **owns one runtime subprocess across many sessions**（子进程 lazy 启动、
+  `close` 前一直由该实例持有），因此正确修法是**让 runtime 子进程跨轮复用**，而不是每轮重启。
+- 详细数字、证据路径与建议修法见 `docs/agent-v2-performance.md`「改造前后对照」。条件 9 记为
+  **对照已补齐、存在可重复明显回退、待修复后复测**，不记为完成。
+
+### 其余状态
+
+条件 1/2/6/8/10 已有本轮或前轮证据；条件 4/5 的真实官方模型、真实搜索与学校登录态仍在用户侧解锁范围内
+（用户已授权真实模型/搜索预算；学校登录尚未完成）。下一步按优先级：修每轮 runner 启动回退 → 条件 10 的
+CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
+
