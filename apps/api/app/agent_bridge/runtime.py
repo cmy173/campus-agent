@@ -192,6 +192,23 @@ class Runtime:
                 import traceback
                 traceback.print_exc()
 
+    def _failure(self, tid: str, data: dict | None) -> dict:
+        """Prefer the concrete cause the runtime already journaled for this turn.
+
+        The plugin reports provider/budget failures through `/internal/model-error`, which the
+        API records as a `model_error` event; only after that does the harness abort with a
+        generic HARNESS_FAILED frame (or the process ends without any answer). Surfacing the
+        recorded cause keeps the user-visible error actionable, e.g. BUDGET_EXCEEDED instead
+        of "运行时未完成". This runs on the failure path, so it must never raise.
+        """
+        if data and data.get('code') not in ('HARNESS_FAILED', 'RUNTIME_FAILED'):
+            return data
+        try:
+            recorded = self.store.last_failure(tid)
+        except Exception:
+            recorded = None
+        return recorded or data or {'code': 'RUNTIME_FAILED', 'message': '运行时未完成，可查看本轮事件后重试', 'retryable': True}
+
     def _runner_signature(self, configuration, runtime_settings, workspace):
         """Everything baked into an owned runner process at startup.
 
@@ -390,7 +407,7 @@ class Runtime:
                     answer = data["response"]
                     answered = True
                 elif kind == "error":
-                    self.store.finish(tid, "failed", error=data)
+                    self.store.finish(tid, "failed", error=self._failure(tid, data))
                     failed = True
                 elif kind == 'goal.state':
                     goal_phase = (data.get('goal') or {}).get('phase')
@@ -410,10 +427,12 @@ class Runtime:
             if answered:
                 self.store.finish(tid, "succeeded", response=answer)
             elif not failed:
-                self.store.finish(tid, "failed", error={"code": "RUNTIME_FAILED", "message": "运行时已结束，未得到完整回答", "retryable": True})
+                self.store.finish(tid, "failed", error=self._failure(
+                    tid, {"code": "RUNTIME_FAILED", "message": "运行时已结束，未得到完整回答", "retryable": True}))
         except Exception:
             # Never surface raw SDK/stderr/transport details which may contain model inputs.
-            self.store.finish(tid, "failed", error={"code": "RUNTIME_FAILED", "message": "运行时未完成，可查看本轮事件后重试", "retryable": True})
+            self.store.finish(tid, "failed", error=self._failure(
+                tid, {"code": "RUNTIME_FAILED", "message": "运行时未完成，可查看本轮事件后重试", "retryable": True}))
         finally:
             if timer:
                 timer.cancel()

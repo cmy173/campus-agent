@@ -21,14 +21,32 @@ class FakeStore:
     def __init__(self):
         self.bound = []
         self.grants = {}
-        self.limits = type('Limits', (), {'max_output_tokens': 16384})()
+        self.turns = {}
+        self.failures = {}
+        self.finished = []
+        self.recorded = []
+        self.limits = type('Limits', (), {'max_output_tokens': 16384, 'turn_seconds': 1800})()
 
     def bind_token(self, tid, token):
         self.bound.append((tid, token))
         return True
 
     def turn(self, tid):
-        return {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running'}
+        return self.turns.get(tid, {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running'})
+
+    def running(self, tid):
+        return self.turn(tid)['status'] == 'running'
+
+    def finish(self, tid, status, *, response='', error=None):
+        self.finished.append((tid, status, response, error))
+        if tid in self.turns:
+            self.turns[tid]['status'] = status
+
+    def event(self, tid, kind, data):
+        self.recorded.append((tid, kind, data))
+
+    def last_failure(self, tid):
+        return self.failures.get(tid)
 
     def conversation(self, cid, owner=None):
         return {'id': cid, 'settings': {'provider': {'id': 'provider_a'}, 'course_ids': []}}
@@ -200,3 +218,54 @@ def test_prewarm_failure_discards_the_process(runtime, monkeypatch):
     prewarm(runtime, 'conv_broken')
     assert runtime.runners == {}
     assert 'conv_broken' not in runtime.store.grants
+
+
+def fail_turn(instance, monkeypatch, stdout, tid='turn_fail', recorded=None):
+    """Drive one turn through `_run_owned` with a runner that emitted `stdout` and then ended."""
+    turn = {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running', 'text': '你好', 'attachment_ids': []}
+    instance.store.turns[tid] = turn
+    if recorded is not None:
+        instance.store.failures[tid] = recorded
+    monkeypatch.setattr(instance, '_runtime_inputs',
+                        lambda settings: ({'provider': 'p', 'model': 'm', 'key': None},
+                                          {'search': {'key': None, 'base_url': '', 'model': ''}, 'skill_dirs': [],
+                                           'mcp_servers': [], 'workspace': ''}, instance.home))
+    monkeypatch.setattr(instance, '_runner_env', lambda cid, token, *rest: {'CAMPUS_BRIDGE_TOKEN': token})
+    monkeypatch.setattr(instance, '_runner_signature', lambda *rest: 'sig')
+    process = FakeProcess(pid=8100, stdout=stdout)
+    process.alive = False
+    handle = {'proc': process, 'signature': 'sig', 'token': 'tok', 'capture': None, 'controls': None,
+              'turns': 0, 'last_used': time.monotonic()}
+    monkeypatch.setattr(instance, '_acquire_runner', lambda *args, **kwargs: (handle, True))
+    monkeypatch.setattr(instance, '_discard_runner', lambda *args, **kwargs: None)
+    instance._run_owned(turn, 'tok')
+    return instance.store.finished[-1]
+
+
+def test_a_recorded_budget_failure_becomes_the_turn_error(runtime, monkeypatch):
+    """The harness frame only says HARNESS_FAILED; the precise cause is already journaled."""
+    recorded = {'code': 'BUDGET_EXCEEDED', 'message': '本轮模型调用达到配置预算。', 'retryable': False}
+    stdout = json.dumps({'kind': 'error', 'turn': 1,
+                         'data': {'code': 'HARNESS_FAILED', 'message': 'Harness 本轮未完成', 'retryable': True}}) + '\n'
+    tid, status, response, error = fail_turn(runtime, monkeypatch, stdout, recorded=recorded)
+    assert status == 'failed' and response == ''
+    assert error == recorded, 'BUDGET_EXCEEDED must stay actionable instead of the generic harness failure'
+
+
+def test_a_specific_runner_error_is_kept_as_is(runtime, monkeypatch):
+    specific = {'code': 'PREWARM_FAILED', 'message': '运行时预热未完成', 'retryable': True}
+    stdout = json.dumps({'kind': 'error', 'data': specific, 'turn': 1}) + '\n'
+    _, status, _, error = fail_turn(runtime, monkeypatch, stdout,
+                                    recorded={'code': 'BUDGET_EXCEEDED', 'message': '不该被采用', 'retryable': False})
+    assert status == 'failed' and error == specific
+
+
+def test_a_turn_that_ends_without_an_answer_reports_the_recorded_cause(runtime, monkeypatch):
+    recorded = {'code': 'PROVIDER_TIMEOUT', 'message': 'DeepSeek 模型请求超时', 'retryable': True}
+    _, status, _, error = fail_turn(runtime, monkeypatch, '', recorded=recorded)
+    assert status == 'failed' and error == recorded
+
+
+def test_a_turn_without_any_recorded_cause_stays_generic(runtime, monkeypatch):
+    _, status, _, error = fail_turn(runtime, monkeypatch, '')
+    assert status == 'failed' and error['code'] == 'RUNTIME_FAILED'

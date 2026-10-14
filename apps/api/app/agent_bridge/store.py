@@ -246,6 +246,20 @@ class Store:
         items = [{"seq": r["seq"], "kind": r["kind"], "data": json.loads(r["data"]), "created_at": r["created_at"]} for r in rows]
         return {"items": items, "next_cursor": items[-1]["seq"] if items else after}
 
+    def last_failure(self, tid: str) -> dict | None:
+        """The concrete model failure this turn already recorded, if any.
+
+        The runtime reports the precise provider/budget failure through
+        `/internal/model-error` (journaled as `model_error`) *before* the harness aborts the
+        turn, and the harness frame that follows only says HARNESS_FAILED. Keeping the
+        recorded cause lets the turn error stay actionable, e.g. BUDGET_EXCEEDED instead of
+        "运行时未完成".
+        """
+        with self.connection() as db:
+            row = db.execute("SELECT data FROM events WHERE turn_id=? AND kind='model_error' "
+                             "ORDER BY seq DESC LIMIT 1", (tid,)).fetchone()
+        return json.loads(row['data']) if row is not None else None
+
     def child(self, tid: str, child_id: str) -> dict:
         with self.connection() as db:
             rows = db.execute("SELECT kind,data FROM events WHERE turn_id=? AND kind IN ('subagent.started','subagent.finished') ORDER BY seq", (tid,)).fetchall()
