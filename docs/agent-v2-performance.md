@@ -149,7 +149,83 @@ python tools/benchmark_local_overhead.py --label current --runs 2
    `CAMPUS_BENCH_ROOT=<该目录> python tools/benchmark_local_overhead.py --label before --runs 2`；
 2. 或从快照 `D:/AI/campus-agent-goal-backups/20261013-v2-start` 还原旧应用，在同一环境用同一夹具测量。
 
+> 本节状态：**已解锁**。第 1 条已执行（workbench 复制到工作区内 `.test-tmp/v2-round/before-workbench`），
+> 见下一节「改造前后对照」；同时也暴露出一项可重复的明显回退，正在按合同处理。
+
 在此之前，本文件的“当前”数字与重复性结论成立；条件 9 的对照半项保持未完成。
+
+## 改造前后对照（条件 9，2026-10-14 第二轮：真实测得）
+
+### 方法
+
+| 项 | 值 |
+| --- | --- |
+| 机器/夹具 | 同一台机器、同一个本地受控模型夹具（无互联网、无远程模型波动） |
+| 受控任务 | `campus_connections_status` 一次真实工具调用 + 汇总回答，每轮两次 |
+| 改造前 | 保留的首轮 workbench，复制到 `.test-tmp/v2-round/before-workbench` |
+| 改造后 | `HEAD=6690c6f` 的独立 worktree `.test-tmp/v2-round/after-clean`（干净提交状态，不混入任何未提交改动） |
+| 命令 | `CAMPUS_BENCH_ROOT=<目录> python tools/benchmark_local_overhead.py --task campus-status --label <before\|after>-campus --runs 2` |
+
+**为什么不用原来的 `write→read→pwsh` 任务做对照**：首轮系统**在线缆上只声明 16 个校园工具**
+（`campus_connections_status` 等，实测 `tool_schema_names`），模型可见面里**没有任何本地文件/命令工具**，
+受控夹具发出的 `write` 调用无法被它执行（实测该任务的轮次以 `RUNTIME_FAILED` 结束）。
+这是能力差异而不是耗时差异，因此改用两边都真实声明的 `campus-status` 任务；`local-files` 任务只在
+改造后一侧记录（见前文表格）。
+
+### 实测数字（同环境、同任务、同脚本）
+
+| 指标 | 改造前（首轮 workbench） | 改造后（HEAD 6690c6f） | 差异 |
+| --- | --- | --- | --- |
+| 启动：进程起 → `/api/v1/health` 200 | 2961 ms | 2718.5 ms | 持平（两侧都在 2.2–3.0 s 波动） |
+| 入队 → 首个可见事件 | 289 ms | 281.5 ms | 持平 |
+| 入队 → 首个模型请求到达夹具 | **1781 ms** | **5062.5 ms** | **+3281.5 ms（可重复）** |
+| 工具往返（夹具侧：请求工具 → 带结果的下一次请求） | 141 ms | 203 ms | +62 ms |
+| 最后一个模型响应 → 轮次终态 | 101.5 ms | 476.5 ms | +375 ms |
+| 入队 → 轮次结束 | 2023.5 ms | 5718.5 ms | +3695 ms |
+| 每轮模型请求次数 | 2 | 2 | 持平 |
+| 每轮工具调用 | 1（真实执行，回执 `{"status":"ok"}`） | 1（同上） | 持平 |
+| 额外确认次数 | 0 | 0 | 持平 |
+| 每次请求携带的工具 schema | 16 项 / 10771 B | 45 项 / 33861 B | +29 项 / +23090 B（已由按需发现从 83 项压到 45 项） |
+
+证据：
+`.test-tmp/v2-round/before-workbench/var/v2-bench-fso8qg55/benchmark-before-campus.json`、
+`.test-tmp/v2-round/after-clean/var/v2-bench-zzbkkezo/benchmark-after-campus.json`（两侧 `ok: true`，
+即任务真的跑通、工具真的执行、落盘/回执与确认数断言全部通过）。
+
+### 结论：存在一项可重复的明显回退，定位到「每轮 runner 启动」
+
+回退不是分散在各处，而是集中在**一个阶段**：入队到第一个模型请求之间多花 3.28 秒。同一夹具下
+模型响应是即时的，事件投影也快（首个可见事件 281 ms），工具往返只有 203 ms。也就是说每轮有约 5 秒
+花在“把这一轮送到模型面前”之前。harness 会话日志进一步确认内部执行很快：
+`turn/start → turn/end` 在改造后是 483 ms、改造前是 323 ms（会话内 `request/header` 分别在 +208 ms / +24 ms）。
+
+成因（均以配置与实测为据，不是推断）：
+
+1. **每轮起一个全新 runner**：`apps/api/app/agent_bridge/runtime.py` 明确写着
+   “A fresh runner resumes the same official JSONL session after each turn.”，因此启动成本是**每轮**支付。
+   首轮同样每轮起新进程，所以回退来源不是“起了新进程”，而是**新进程要装的东西重了很多**。
+2. **profile 从 16 行显式树改成完整 `@deepseek-ai/dsh-base` 包**：
+   `apps/agent-runtime/prepare-profile.mjs` 固定 `bundles = ['@deepseek-ai/dsh-base']`，
+   该包 `dependencies` 实测 **93 项**（运行时目录下 `@deepseek-ai/*` 共 289 个包）；
+   改造前的 profile 是 `bundles: []` + 16 行手写树（timer/llm/session/system-prompt/tools/agent/…）。
+3. **每轮都要真起浏览器 MCP 子进程**：profile 里 `campus-mcp-0` 指向 `campus-mcp.mjs` → `browser-host.mjs`，
+   后者静态导入 `playwright` 与 `@playwright/mcp`（实测这两个导入就要 **539 ms**），且 `failOnStartupError: true`。
+   这是**硬依赖**，两次受控实验证明不能简单拿掉：
+   - 直接不生成 MCP 行 → runner 在 274 ms 内结束，连一次 `/internal/*` 桥接请求都没发；
+   - 保留行但让子进程立即退出（`failOnStartupError: false`）→ runner 在 238 ms 内结束。
+   （两次实验都在 `.test-tmp/v2-round/after-clean` 这个一次性 worktree 内进行，事后 `git checkout` 还原并确认干净。）
+
+### 建议的修法（按收益排序，属运行时/profile 所有者范围）
+
+1. **让浏览器 MCP 的生命周期跟随 `browser` 工具分组**：默认 profile 不再起浏览器 MCP，模型调用
+   `load_tools({group:'browser'})` 时再起（这正是刚落地的按需发现的自然延伸），同时保留“加载失败不影响
+   其他工具”的降级路径，避免现在这种“浏览器没起来 → 整个 runner 结束”。
+2. **或每条会话只保留一个 runner 进程**，把后续轮次投进去（JSONL 恢复路径已经存在，可作为降级）。
+   这一条能把整块每轮启动成本直接去掉。
+3. 复测判据（必须同时满足）：`ok: true`、`first_request_ms_median` 回到约 1.8 s 量级、
+   `tool_results` 仍为 `{"status":"ok"}`、额外确认仍为 0。
+
+修复并复测之前，条件 9 记“对照已补齐、但存在可重复明显回退，按合同待诊断修复后验收”，不记为完成。
 
 ## 使用约定
 
