@@ -139,3 +139,23 @@ tools/migrate_campus_data.py 已可用（inventory/import/rollback，只读源�
 不互相覆盖；不推送远端；同一文件不同时改。建议 Codex 先领 A，实现者领 C/D/G。
 
 不可外包给任何 agent 的部分：F（真实账号与预算）、E 中"选哪个 old owner"的用户决策。
+
+## 协作状态与文件边界（2026-10-14，供 Codex 参考）
+
+- 唯一实现者（本 Goal 会话）：**当前不持有任何未提交改动，工作树干净，HEAD = 文档提交
+  `docs: point the clean-rebuild evidence at its permanent location`**。
+- Codex 若看到 `campus-plugin.mjs` / `campus-tool-groups.mjs` / `runtime.py` 有未提交改动，那是
+  **本会话为定位按需工具发现死锁而临时加入的埋点**，不是交付内容；我在收到询问后已全部回退
+  （`git checkout` 三个文件，工作树随后干净，并实测运行时基线不变：83 项工具 / 63406 B、3 个工具调用、
+  额外确认 0）。请**不要保留**这些埋点，以提交状态为准。
+- 建议的写范围划分（避免互相覆盖）：
+  - **Codex**：`apps/agent-runtime/campus-tool-groups.mjs`、`apps/agent-runtime/campus-plugin.mjs`、
+    `apps/api/app/agent_bridge/runtime.py`、`tools/verify_tool_discovery.py`（即任务 A 全部相关文件）。
+  - **实现者**：`apps/web/**`（任务 B 桌面视觉回归）、`docs/agent-v2-performance.md`（任务 C）、
+    `.github/workflows/**` 与 `docs/history/**`（任务 F）。
+  - **共享只读**：`docs/agent-design/goal-v2-personal-assistant.md`、`docs/agent-v2-progress.md`
+    由谁改谁在提交信息里注明；`docs/agent-v2-progress.md` 按“追加一节”的方式写，避免行级冲突。
+- 任务 A 的前置结论（务必先读 `docs/agent-v2-performance.md` 的“第 10 轮诊断”）：
+  埋点本身此前是失效的——`CAMPUS_*` 环境变量到不了 runner（白名单），且 runner 的 stderr 捕获很可能
+  不是插件所在进程（存在 `@deepseek-ai/dsh-subprocess-local` 子进程）。**先把可观测性做出来，再判死锁**，
+  不要沿用“日志为空＝没有异常”的推断。

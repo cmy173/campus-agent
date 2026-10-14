@@ -102,6 +102,34 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 `restrict`），据此判断是上游限制还是本仓库的组合方式问题；若不成立，则退回上游 PTC 呈现模式
 （`tool-presentation` 的 `ptc`，需要 host 侧 `dsh-ptc-runtime-node`，基座已挂载该行）。
 
+### 第 10 轮诊断：埋点本身失效，先解决可观测性再谈死锁
+
+本轮尝试给插件加埋点以定位停在哪一步，结果暴露了**两个独立的可观测性缺陷**，它们使此前的“无日志”
+不能被解释为“插件静默阻塞”：
+
+1. **`CAMPUS_*` 环境变量传不到 runner**。`apps/api/app/agent_bridge/runtime.py` 构建 runner 环境时用的是
+   白名单（PATH/PATHEXT/SystemRoot/…），自定义 `CAMPUS_*` 开关会被丢弃。因此任何依赖 `CAMPUS_*` 的
+   诊断/开关在 runner 内都是未设置状态（本轮临时加过透传，已回退）。
+2. **runner 的 stderr 捕获可能不是插件所在进程的 stderr**。捕获机制本身已验证可用：用 `spawn_owned`
+   起 `node -e "console.error('DIRECT-STDERR-MARKER')"` 并把 stderr 指向目标文件，日志内容正确落盘
+   （实测 `captured: 'DIRECT-STDERR-MARKER\n'`）。但在真实运行中，即使把 `console.error` 放在插件
+   `apply()` 第一行（无 env 守卫），捕获文件仍为 0 字节。注意依赖里存在
+   `@deepseek-ai/dsh-subprocess-local`（带 `ensure-spawn-helper.mjs` postinstall），**插件很可能运行在
+   子进程/孙进程里**，因此它的 stdout/stderr 不是 runner 的那一份。
+
+**给接手者的正确顺序**（不要把“文件为空”当成“没有异常”）：
+
+1. 先证明可观测性：确认 `CAMPUS_*` 能到达真正的插件进程（必要时在 `runtime.py` 增加
+   `CAMPUS_*` 透传，并同时验证子进程继承），并把埋点写到**明确的绝对路径文件**（`appendFileSync`）
+   而不是依赖 stderr。
+2. 再证明 `apply()` 被进入（模块加载期与 apply 期各打一个标记）。
+3. 只有以上成立后，才逐步加 `schemas()` / `restrict()` / `register()` 标记定位死锁点。
+4. 最小复现优先级：agent 作用域只 `register` 一个空工具、不做 `restrict`；再单独试 `restrict`。
+5. 回退路径：若 agent 作用域注册/限制在本组合下不可用，改用上游 PTC 呈现模式，并相应调整受控集成脚本。
+
+本轮结束时 **工作树已回到已验收状态**（`git status` 干净、HEAD 为文档提交），
+实测运行时基线不变：83 项工具 / 63406 B、3 个工具调用成功、额外确认 0。
+
 结论：同环境重复运行差异在 ±12% 内，且方向为持平或略好；**没有出现可重复的明显回退**。
 `pwsh` 是本机进程启动开销（约 0.6 秒）主导，`write`/`read` 约 50 ms 级别；普通本地任务不产生额外确认。
 
