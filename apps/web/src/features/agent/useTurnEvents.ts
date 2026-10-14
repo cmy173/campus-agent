@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { apiErrorText } from '../../lib/api/http'
 import { agentApi, isActive } from './api'
-import type { AgentEvent, AgentTurn } from './api'
+import type { AgentEvent, AgentTurn, PersistentGoal } from './api'
 
 /** Transport, pagination and reconnect state are independent of result presentation. */
 export function useTurnEvents(turn: AgentTurn) {
+  const queryClient = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [error, setError] = useState('')
   const [controlError, setControlError] = useState('')
+  const [goalError, setGoalError] = useState('')
+  const [pausingGoal, setPausingGoal] = useState(false)
+  const pauseRef = useRef(false)
+  const [resumingGoal, setResumingGoal] = useState(false)
+  const resumeRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const cursor = useRef({ id: turn.id, value: 0 })
   const stoppingRef = useRef(new Set<string>())
   const [stoppingChildren, setStoppingChildren] = useState<string[]>([])
@@ -48,5 +55,28 @@ export function useTurnEvents(turn: AgentTurn) {
       setStoppingChildren([...stoppingRef.current])
     }
   }
-  return { events, error, controlError, interruptChild, stoppingChildren }
+  async function pauseGoal(goal: PersistentGoal) {
+    if (pauseRef.current) return
+    pauseRef.current = true
+    setPausingGoal(true)
+    setGoalError('')
+    try { await agentApi.pauseGoal(turn.id, { id: goal.id, revision: goal.revision }) }
+    catch (e) { setGoalError(apiErrorText(e)) }
+    finally { pauseRef.current = false; setPausingGoal(false) }
+  }
+  async function resumeGoal(goal: PersistentGoal) {
+    if (resumingGoal) return
+    const payload = { id: goal.id, revision: goal.revision,
+      ...(goal.roundsStarted >= goal.maxGoalRounds ? { maxGoalRounds: goal.maxGoalRounds + 64 } : {}) }
+    const fingerprint = JSON.stringify(payload)
+    if (resumeRef.current?.fingerprint !== fingerprint) resumeRef.current = { fingerprint, key: crypto.randomUUID() }
+    setResumingGoal(true)
+    setGoalError('')
+    try {
+      await agentApi.resumeGoal(turn.conversation_id, payload, resumeRef.current.key)
+      await queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', turn.conversation_id] })
+    } catch (e) { setGoalError(apiErrorText(e)) }
+    finally { setResumingGoal(false) }
+  }
+  return { events, error, controlError, interruptChild, stoppingChildren, goalError, pauseGoal, pausingGoal, resumeGoal, resumingGoal }
 }

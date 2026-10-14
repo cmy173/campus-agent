@@ -1,9 +1,9 @@
 @import './agent-theme.css';
 
-.agent-page { display: flex; flex-direction: column; gap: var(--agent-space); height: calc(100dvh - 104px); min-height: 560px; max-width: var(--agent-content-width); margin: 0 auto; }
+.agent-page { display: flex; flex-direction: column; gap: var(--agent-space); height: calc(100dvh - 84px); min-height: 0; max-width: var(--agent-content-width); margin: 0 auto; }
 .agent-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .agent-context-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.agent-transcript { flex: 1; overflow-y: auto; min-height: 140px; padding: 8px 6px; overscroll-behavior: contain; overflow-anchor: none; }
+.agent-transcript { flex: 1; min-width: 0; overflow-y: auto; min-height: 80px; padding: 8px 6px; overscroll-behavior: contain; overflow-anchor: none; }
 .agent-welcome { padding: 28px 12px; max-width: 740px; }
 .agent-turn { display: flex; flex-direction: column; gap: 16px; margin: 16px 0 28px; }
 .agent-user-message { align-self: flex-end; max-width: 86%; padding: 12px 16px; border-radius: 16px 16px 4px 16px; background: var(--agent-user-surface); overflow-wrap: anywhere; }
@@ -39,7 +39,7 @@
 .agent-sheet-preview td { min-width: 110px; max-width: 280px; padding: 7px 10px; border: 1px solid var(--agent-border); white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-sheet-preview th { position: sticky; left: 0; min-width: 32px; padding: 7px; background: var(--agent-surface-subtle); color: var(--agent-note); border: 1px solid var(--agent-border); }
 @media (max-width: 600px) {
-  .agent-page { height: calc(100dvh - 88px); min-height: 600px; gap: 12px; }
+  .agent-page { height: calc(100dvh - 72px); min-height: 0; gap: 12px; }
   .agent-toolbar .ant-btn { padding-inline: 10px; }
   .agent-context-row > .ant-select { flex: 1; min-width: 140px !important; }
   .agent-welcome { padding: 12px 0; }
@@ -47,4 +47,32 @@
   .agent-user-message { max-width: 92%; }
   .agent-composer-footer .ant-typography { font-size: 12px; }
   .agent-source-action .ant-btn { max-width: 100%; height: auto; white-space: normal; }
+}
+
+.agent-layout-notices:empty, .agent-layout-setup:empty { display: none; }
+.agent-layout-notices { display: flex; flex-direction: column; gap: 8px; }
+.agent-layout-toolbar, .agent-layout-context, .agent-layout-composer, .agent-layout-setup { min-width: 0; }
+.agent-task-workspace .ant-drawer-body { padding: 16px; }
+.agent-task-workspace .ant-card-extra { margin-left: 8px; }
+.agent-task-workspace .ant-card-head { flex-wrap: wrap; }
+.agent-preview-controls { margin-bottom: 12px; }
+.agent-preview .agent-page { height: calc(100dvh - 144px); }
+.agent-page[data-layout="studio"] { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto auto minmax(80px, 1fr) auto auto; }
+.agent-page[data-layout="studio"] .agent-layout-toolbar { grid-column: 1 / -1; }
+.agent-page[data-layout="studio"] .agent-layout-context { grid-column: 1; grid-row: 2 / 6; padding: 18px; background: var(--agent-surface); border: 1px solid var(--agent-border); border-radius: var(--agent-radius); }
+.agent-page[data-layout="studio"] .agent-context-row { flex-direction: column; align-items: flex-start; }
+.agent-page[data-layout="studio"] .agent-layout-notices, .agent-page[data-layout="studio"] .agent-transcript,
+.agent-page[data-layout="studio"] .agent-layout-setup, .agent-page[data-layout="studio"] .agent-layout-composer { grid-column: 2; }
+@media (max-width: 700px) {
+  .agent-page[data-layout="studio"] { display: flex; }
+  .agent-page[data-layout="studio"] .agent-layout-context { padding: 10px; }
+  .agent-page[data-layout="studio"] .agent-context-row { flex-direction: row; }
+}
+@media (max-width: 600px) {
+  .agent-task-workspace .ant-drawer-body { padding: 10px; }
+  .agent-context-row { gap: 8px; }
+  .agent-toolbar { gap: 8px; }
+  .agent-toolbar .ant-typography { font-size: 13px; }
+  .agent-toolbar h3.ant-typography { font-size: 21px; }
+  .agent-composer { padding: 9px; }
 }

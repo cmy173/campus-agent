@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getDb, resetMockDb, tickJobs } from '../../lib/api/mock/db'
-import { SettingsPage } from './SettingsPage'
+import { PersonalSettings } from './PersonalSettings'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -17,7 +17,7 @@ function renderPage() {
       <ConfigProvider locale={zhCN}>
         <AntApp>
           <MemoryRouter>
-            <SettingsPage />
+            <PersonalSettings />
           </MemoryRouter>
         </AntApp>
       </ConfigProvider>
@@ -29,7 +29,7 @@ beforeEach(() => {
   resetMockDb()
 })
 
-describe('SettingsPage 数据导出（C19b）', () => {
+describe('PersonalSettings 数据导出（C19b）', () => {
   it('ICS 导出按钮提交任务并产出 ICS 独立产物（exp_ics_*）', async () => {
     const user = userEvent.setup()
     renderPage()

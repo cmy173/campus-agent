@@ -708,6 +708,110 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/turns/{turn_id}/goal/pause:
+    post:
+      tags:
+      - campus-agent
+      summary: Pause Goal
+      operationId: pause_goal_api_v1_agent_turns__turn_id__goal_pause_post
+      parameters:
+      - name: turn_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Turn Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalPauseRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/goal/resume:
+    post:
+      tags:
+      - campus-agent
+      summary: Resume Goal
+      operationId: resume_goal_api_v1_agent_conversations__conversation_id__goal_resume_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: idempotency-key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalResumeRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/goal-state:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Goal State
+      operationId: internal_goal_state_api_v1_agent_internal_goal_state_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelLeaseRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/internal/schemas:
     post:
       tags:
@@ -927,6 +1031,425 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ModelErrorRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{cid}/schedules:
+    get:
+      tags:
+      - campus-agent-schedules
+      summary: List Schedules
+      operationId: list_schedules_api_v1_agent_conversations__cid__schedules_get
+      parameters:
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleListView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - campus-agent-schedules
+      summary: Create Schedule
+      operationId: create_schedule_api_v1_agent_conversations__cid__schedules_post
+      parameters:
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{cid}/schedules/{sid}:
+    patch:
+      tags:
+      - campus-agent-schedules
+      summary: Update Schedule
+      operationId: update_schedule_api_v1_agent_conversations__cid__schedules__sid__patch
+      parameters:
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cid
+      - name: sid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - campus-agent-schedules
+      summary: Delete Schedule
+      operationId: delete_schedule_api_v1_agent_conversations__cid__schedules__sid__delete
+      parameters:
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cid
+      - name: sid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleDelete'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{cid}/schedules/{sid}/history:
+    get:
+      tags:
+      - campus-agent-schedules
+      summary: Schedule History
+      operationId: schedule_history_api_v1_agent_conversations__cid__schedules__sid__history_get
+      parameters:
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cid
+      - name: sid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleHistoryView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/schedules:
+    post:
+      tags:
+      - campus-agent-schedules
+      summary: Schedule Tool
+      operationId: schedule_tool_api_v1_agent_internal_schedules_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleTool'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/ScheduleView'
+                - $ref: '#/components/schemas/ScheduleListView'
+                - $ref: '#/components/schemas/ScheduleHistoryView'
+                title: Response Schedule Tool Api V1 Agent Internal Schedules Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/status:
+    get:
+      tags:
+      - campus-workspace
+      summary: Status
+      operationId: status_api_v1_agent_campus_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/agent/campus/query:
+    post:
+      tags:
+      - campus-workspace
+      summary: Query
+      operationId: query_api_v1_agent_campus_query_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/sync:
+    post:
+      tags:
+      - campus-workspace
+      summary: Sync
+      operationId: sync_api_v1_agent_campus_sync_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/disconnect:
+    post:
+      tags:
+      - campus-workspace
+      summary: Disconnect
+      operationId: disconnect_api_v1_agent_campus_disconnect_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusDisconnectRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/academics:
+    get:
+      tags:
+      - campus-workspace
+      summary: Academics
+      operationId: academics_api_v1_agent_campus_academics_get
+      parameters:
+      - name: day
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Day
+      - name: term
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Term
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/imports:
+    get:
+      tags:
+      - campus-workspace
+      summary: Imports
+      operationId: imports_api_v1_agent_campus_imports_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/agent/campus/imports/{batch_id}/documents/{document_id}:
+    get:
+      tags:
+      - campus-workspace
+      summary: Document
+      operationId: document_api_v1_agent_campus_imports__batch_id__documents__document_id__get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/imports/{batch_id}/documents/{document_id}/download:
+    get:
+      tags:
+      - campus-workspace
+      summary: Download
+      operationId: download_api_v1_agent_campus_imports__batch_id__documents__document_id__download_get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
       responses:
         '200':
           description: Successful Response
@@ -1199,6 +1722,45 @@ components:
       - conversation_id
       - method
       title: BrowserToolRequest
+    CampusDisconnectRequest:
+      properties:
+        clear_cache:
+          type: boolean
+          title: Clear Cache
+          default: false
+      additionalProperties: false
+      type: object
+      title: CampusDisconnectRequest
+    CampusQueryRequest:
+      properties:
+        capability:
+          type: string
+          enum:
+          - courses
+          - grades
+          - profile
+          - notices
+          - college_notices
+          title: Capability
+        query:
+          additionalProperties: true
+          type: object
+          title: Query
+        platform:
+          anyOf:
+          - type: string
+            enum:
+            - zdbk
+            - eta
+            - zdbk_public
+            - ckc_public
+          - type: 'null'
+          title: Platform
+      additionalProperties: false
+      type: object
+      required:
+      - capability
+      title: CampusQueryRequest
     ControlAddressRequest:
       properties:
         conversation_id:
@@ -1264,6 +1826,47 @@ components:
       additionalProperties: false
       type: object
       title: Empty
+    GoalPauseRequest:
+      properties:
+        id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Id
+        revision:
+          type: integer
+          minimum: 1.0
+          title: Revision
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - revision
+      title: GoalPauseRequest
+    GoalResumeRequest:
+      properties:
+        id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Id
+        revision:
+          type: integer
+          minimum: 1.0
+          title: Revision
+        maxGoalRounds:
+          anyOf:
+          - type: integer
+            maximum: 10000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Maxgoalrounds
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - revision
+      title: GoalResumeRequest
     HTTPValidationError:
       properties:
         detail:
@@ -1462,6 +2065,80 @@ components:
       - call_id
       - name
       title: NativeToolLeaseRequest
+    OccurrenceView:
+      properties:
+        id:
+          type: string
+          title: Id
+        schedule_id:
+          type: string
+          title: Schedule Id
+        schedule_revision:
+          type: integer
+          title: Schedule Revision
+        conversation_id:
+          type: string
+          title: Conversation Id
+        scheduled_at:
+          type: string
+          title: Scheduled At
+        title:
+          type: string
+          title: Title
+        prompt:
+          type: string
+          title: Prompt
+        state:
+          type: string
+          enum:
+          - pending
+          - dispatching
+          - admitted
+          - skipped
+          - cancelled
+          - failed
+          title: State
+        turn_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Turn Id
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        created_at:
+          type: string
+          title: Created At
+        turn_status:
+          anyOf:
+          - type: string
+            enum:
+            - queued
+            - running
+            - stopping
+            - succeeded
+            - failed
+            - cancelled
+            - interrupted
+          - type: 'null'
+          title: Turn Status
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - schedule_id
+      - schedule_revision
+      - conversation_id
+      - scheduled_at
+      - title
+      - prompt
+      - state
+      - turn_id
+      - error_code
+      - created_at
+      title: OccurrenceView
     PdfPreview:
       properties:
         kind:
@@ -1525,6 +2202,224 @@ components:
       additionalProperties: false
       type: object
       title: RuntimeSettings
+    ScheduleCreate:
+      properties:
+        title:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Title
+        prompt:
+          type: string
+          maxLength: 6000
+          minLength: 1
+          title: Prompt
+        timing:
+          $ref: '#/components/schemas/Timing'
+        missed_policy:
+          type: string
+          enum:
+          - latest
+          - skip
+          title: Missed Policy
+          default: latest
+      additionalProperties: false
+      type: object
+      required:
+      - title
+      - prompt
+      - timing
+      title: ScheduleCreate
+    ScheduleDelete:
+      properties:
+        revision:
+          type: integer
+          minimum: 1.0
+          title: Revision
+      additionalProperties: false
+      type: object
+      required:
+      - revision
+      title: ScheduleDelete
+    ScheduleHistoryView:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/OccurrenceView'
+          type: array
+          title: Items
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      title: ScheduleHistoryView
+    ScheduleListView:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ScheduleView'
+          type: array
+          title: Items
+        execution_scope:
+          type: string
+          const: application_running
+          title: Execution Scope
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - execution_scope
+      title: ScheduleListView
+    ScheduleTool:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        call_id:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Call Id
+        operation:
+          type: string
+          enum:
+          - create
+          - list
+          - update
+          - delete
+          - history
+          title: Operation
+        id:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Id
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - call_id
+      - operation
+      title: ScheduleTool
+    ScheduleUpdate:
+      properties:
+        revision:
+          type: integer
+          minimum: 1.0
+          title: Revision
+        title:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Title
+        prompt:
+          anyOf:
+          - type: string
+            maxLength: 6000
+            minLength: 1
+          - type: 'null'
+          title: Prompt
+        timing:
+          anyOf:
+          - $ref: '#/components/schemas/Timing'
+          - type: 'null'
+        missed_policy:
+          anyOf:
+          - type: string
+            enum:
+            - latest
+            - skip
+          - type: 'null'
+          title: Missed Policy
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      required:
+      - revision
+      title: ScheduleUpdate
+    ScheduleView:
+      properties:
+        id:
+          type: string
+          title: Id
+        conversation_id:
+          type: string
+          title: Conversation Id
+        revision:
+          type: integer
+          title: Revision
+        title:
+          type: string
+          title: Title
+        prompt:
+          type: string
+          title: Prompt
+        timing:
+          $ref: '#/components/schemas/Timing'
+        missed_policy:
+          type: string
+          enum:
+          - latest
+          - skip
+          title: Missed Policy
+        enabled:
+          type: boolean
+          title: Enabled
+        deleted:
+          type: boolean
+          title: Deleted
+        next_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next At
+        next_local:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Local
+        execution_scope:
+          type: string
+          const: application_running
+          title: Execution Scope
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - conversation_id
+      - revision
+      - title
+      - prompt
+      - timing
+      - missed_policy
+      - enabled
+      - deleted
+      - next_at
+      - next_local
+      - execution_scope
+      - created_at
+      - updated_at
+      title: ScheduleView
     SearchSettings:
       properties:
         base_url:
@@ -1633,6 +2528,54 @@ components:
       - text
       - truncated
       title: TextPreview
+    Timing:
+      properties:
+        kind:
+          type: string
+          enum:
+          - at
+          - after
+          - every
+          - daily
+          - weekly
+          title: Kind
+        time_zone:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Time Zone
+        at:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: At
+        seconds:
+          anyOf:
+          - type: integer
+            maximum: 315360000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Seconds
+        time:
+          anyOf:
+          - type: string
+            maxLength: 8
+          - type: 'null'
+          title: Time
+        weekdays:
+          anyOf:
+          - items:
+              type: integer
+            type: array
+          - type: 'null'
+          title: Weekdays
+      additionalProperties: false
+      type: object
+      required:
+      - kind
+      - time_zone
+      title: Timing
     ToolRequest:
       properties:
         conversation_id:

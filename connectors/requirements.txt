@@ -16,3 +16,6 @@ pytest>=8.0          # 套件运行器（亦可用 python -m unittest discover -
 # 真实受控浏览器会话阶段（A17/A20–A22，会话侧独立环境）另需 playwright——
 # 全为延迟导入，离线测试不依赖：pip install playwright；用法与通道见 docs/A6、docs/A21-A22。
 # playwright>=1.40
+
+# Migrated ZJU CAS/ETA/WebVPN wire protocols.
+cryptography==50.0.2

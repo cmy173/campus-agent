@@ -8,8 +8,8 @@ export function NotFoundPage() {
       title="页面不存在"
       subTitle="你访问的页面地址无效或已被移动。"
       extra={
-        <Link to="/today">
-          <Button type="primary">回到今日</Button>
+        <Link to="/chat">
+          <Button type="primary">回到对话</Button>
         </Link>
       }
     />

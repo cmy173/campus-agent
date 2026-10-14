@@ -22,7 +22,7 @@ import {
   Typography,
 } from 'antd'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import { PlanDiffTag } from '../../components/tags'
 import {
@@ -165,7 +165,7 @@ function WeekView({
   )
 }
 
-export function PlanPage() {
+export function PlanEditor() {
   const { message } = AntApp.useApp()
   const planQuery = useCurrentPlan()
   const tasksQuery = useAllTasks(true)

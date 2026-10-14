@@ -60,8 +60,10 @@ def test_plan_cannot_disclose_foreign_task_in_unscheduled_or_warning(db, context
 
 
 def test_inventory_is_exact_and_inputs_closed():
-    assert len(SPECS) == 16
-    assert len({s["model_name"] for s in schemas()}) == 16
+    assert len(SPECS) == 24
+    assert len({s["model_name"] for s in schemas()}) == 24
+    assert {'campus.status', 'campus.query', 'campus.sync', 'campus.academics', 'campus.notice.read',
+            'campus.imported.read', 'campus.webvpn.entry', 'campus.notice.import'} <= set(SPECS)
     assert all(s["input_schema"]["additionalProperties"] is False for s in schemas())
 
 

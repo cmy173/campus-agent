@@ -1,6 +1,6 @@
 import { BookOutlined } from '@ant-design/icons'
 import { Alert, Button, Card, Col, Row, Space, Tag, Typography } from 'antd'
-import { Link } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import { useCourses, useConnections } from '../../lib/api/hooks'
 import { platformLabel } from '../../lib/platforms'
@@ -8,7 +8,7 @@ import { AttachSourceRefButton } from './AttachSourceRef'
 import { PlatformCourseImport } from './PlatformCourseImport'
 import { API_MODE } from '../../lib/api/http'
 
-export function CourseListPage() {
+export function CourseLibrary() {
   const coursesQuery = useCourses()
   const connections = useConnections()
   const courses = coursesQuery.data?.items ?? []
@@ -34,7 +34,7 @@ export function CourseListPage() {
         {courses.length === 0 ? (
           <StateView state="empty" emptyText="还没有课程，先连接平台或手动导入资料">
             <Link to="/onboarding">
-              <Button type="primary">开始首次使用引导</Button>
+              <Button type="primary">打开账号与连接设置</Button>
             </Link>
           </StateView>
         ) : (

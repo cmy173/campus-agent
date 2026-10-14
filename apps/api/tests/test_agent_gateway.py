@@ -140,6 +140,63 @@ def test_runtime_settings_preserve_credentials_and_resolve_for_owned_process(gat
     assert client.put('/api/v1/agent/settings', json=public).json()['search']['has_api_key'] is False
 
 
+def test_goal_pause_uses_current_owned_revision_and_never_claims_completion(gateway, monkeypatch):
+    client, runtime, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    token = tokens[tid]
+    internal(client, token, 'control-address', {'conversation_id': cid, 'url': 'http://127.0.0.1:19192'})
+    goal = {'id': 'goal_actual', 'revision': 3, 'phase': 'active', 'activation': 'armed',
+            'objective': '整理资料', 'roundsStarted': 1, 'maxGoalRounds': 4}
+    calls = []
+    def respond(url, **kwargs):
+        calls.append((url, kwargs))
+        payload = kwargs['json']
+        status = 409 if payload.get('operation') == 'pause' and payload.get('revision') != goal['revision'] else 200
+        if status == 200 and payload.get('operation') == 'pause':
+            goal.update(phase='paused', activation='disarmed', revision=4)
+        response = requests.Response()
+        response.status_code = status
+        response._content = json.dumps({'goal': goal, 'agent_status': 'running'}).encode()
+        return response
+    monkeypatch.setattr('app.agent_bridge.runtime.requests.post', respond)
+    path = f'/api/v1/agent/turns/{tid}/goal/pause'
+    read = internal(client, token, 'goal-state', {'conversation_id': cid})
+    assert read.json()['goal']['phase'] == 'active'
+    assert internal(client, token, 'goal-state', {'conversation_id': 'other'}).status_code == 403
+    assert client.post(path, json={'id': goal['id'], 'revision': 2}).json()['error']['code'] == 'GOAL_CHANGED'
+    paused = client.post(path, json={'id': goal['id'], 'revision': 3})
+    assert paused.status_code == 200 and paused.json()['goal']['phase'] == 'paused'
+    assert runtime.store.turn(tid)['status'] == 'running', 'Pause acknowledgement is not process quiescence'
+    assert runtime.store.events(tid)['items'][-1]['data']['goal']['phase'] == 'paused'
+    assert calls[-1][1]['headers']['Authorization'] == 'Bearer ' + token
+    client.cookies.clear()
+    assert client.post(path, json={'id': goal['id'], 'revision': 4}).status_code == 404
+    runtime.store.finish(tid, 'succeeded', response='进度已保存')
+    assert internal(client, token, 'goal-state', {'conversation_id': cid}).status_code == 403
+    with pytest.raises(ApiError) as ended:
+        runtime.goal_control(tid, {'operation': 'read'})
+    assert ended.value.code == 'TURN_STOPPED'
+
+
+def test_goal_resume_admission_is_durable_owned_and_idempotent(gateway):
+    client, runtime, _, _ = gateway
+    cid = conversation(client)
+    path = f'/api/v1/agent/conversations/{cid}/goal/resume'
+    payload = {'id': 'goal_saved', 'revision': 4, 'maxGoalRounds': 66}
+    headers = {'Idempotency-Key': 'resume-saved'}
+    resumed = client.post(path, json=payload, headers=headers)
+    assert resumed.status_code == 202, resumed.text
+    tid = resumed.json()['id']
+    assert runtime.store.events(tid)['items'][0]['kind'] == 'accepted_goal_resume'
+    assert runtime.store.events(tid)['items'][0]['data'] == payload
+    assert client.post(path, json=payload, headers=headers).json()['id'] == tid
+    changed = client.post(path, json=payload | {'revision': 5}, headers=headers)
+    assert changed.status_code == 409 and changed.json()['error']['code'] == 'IDEMPOTENCY_CONFLICT'
+    client.cookies.clear()
+    assert client.post(path, json=payload, headers=headers).status_code == 404
+
+
 def test_mcp_settings_actual_connection_diagnostic(gateway, tmp_path):
     import sys
     from app.config import REPO_ROOT
@@ -290,7 +347,7 @@ def test_internal_auth_scope_contract_and_idempotent_call(gateway):
     tid = turn(client, cid)
     token = tokens[tid]
     assert client.post("/api/v1/agent/internal/schemas", json={}).status_code == 403
-    assert len(internal(client, token, "schemas", {}).json()) == 16
+    assert len(internal(client, token, "schemas", {}).json()) == 24
     request = {"conversation_id": cid, "call_id": "one", "name": "courses.list", "arguments": {}}
     first = internal(client, token, "tool", request)
     assert first.status_code == 200

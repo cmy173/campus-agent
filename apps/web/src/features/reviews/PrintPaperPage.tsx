@@ -1,7 +1,8 @@
 import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons'
 import { Button, Space, Spin, Tag, Typography } from 'antd'
 import { useEffect, useMemo } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { ReviewQuestionView } from './ReviewQuestionView'
 import { useReviewPaper } from '../../lib/api/hooks'
 import { toApiError } from '../../lib/api/http'
@@ -28,7 +29,7 @@ export function PrintPaperPage() {
       document.title = `${paper.title} · v${paper.revision} · ${variant === 'answers' ? '答案版' : '学生版'}`
     }
     return () => {
-      document.title = '浙大学习工作台'
+      document.title = 'Campus Agent · 校园助手'
     }
   }, [paper, variant])
 

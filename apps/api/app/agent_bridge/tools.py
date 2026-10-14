@@ -116,6 +116,34 @@ class ActionArgs(Input):
     action_id: str = Field(min_length=1, max_length=128)
 
 
+class CampusQueryArgs(Input):
+    capability: Literal["courses", "grades", "profile", "notices", "college_notices"]
+    query: dict[str, Any] = Field(default_factory=dict)
+    platform: Literal["zdbk", "eta", "zdbk_public", "ckc_public"] | None = None
+
+
+class CampusAcademicArgs(Input):
+    day: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    term: str | None = Field(default=None, max_length=64)
+
+
+class CampusNoticeArgs(Input):
+    record_id: str = Field(min_length=1, max_length=128)
+
+
+class CampusNoticeImportArgs(CampusNoticeArgs):
+    course_id: str = Field(min_length=1, max_length=128)
+
+
+class CampusImportedArgs(Input):
+    batch_id: str | None = Field(default=None, max_length=128)
+    document_id: str | None = Field(default=None, max_length=128)
+
+
+class CampusWebvpnArgs(Input):
+    service: Literal["cas", "zdbk"] = "zdbk"
+
+
 @dataclass(frozen=True)
 class ToolContext:
     principal: str
@@ -128,6 +156,14 @@ class ToolContext:
 
 
 SPECS: dict[str, tuple[type[Input], str]] = {
+    "campus.status": (Empty, "读取浙大教务、ETA、校级/学院通知连接状态及缓存来源。登录在本机浏览器完成，模型不接收密码。"),
+    "campus.query": (CampusQueryArgs, "读取浙大校园缓存：courses课表、grades成绩、profile基本信息、notices校级摘要、college_notices已登记学院通知；不联网，不将缓存说成刚同步。"),
+    "campus.sync": (CampusQueryArgs, "通过迁入的浙大连接器只读同步校园信息并保存缓存；需学校登录时明确返回AUTH_REQUIRED，失败保留旧缓存。只做只读教务查询。"),
+    "campus.academics": (CampusAcademicArgs, "从校园缓存生成指定日期课程安排和学分/绩点统计，保留学期、校历来源和精度；不自行换算官方绩点。"),
+    "campus.notice.read": (CampusNoticeArgs, "读取本机校园缓存中的已展示学院通知正文、来源、附件链接和未读内容声明；record_id须来自campus.query/sync，不接受任意URL。"),
+    "campus.imported.read": (CampusImportedArgs, "列出旧数据导入批次，或指定batch_id及document_id读原始资料片段、派生任务与证据；历史导入不表示学校新同步。"),
+    "campus.webvpn.entry": (CampusWebvpnArgs, "返回浙大WebVPN已登记的通行证/教务浏览器入口。先用浏览器完成VPN登录，再进行学校站点登录。映射源于门户观察，失效时须实际读取门户；不宣称HTTP教务已走VPN。"),
+    "campus.notice.import": (CampusNoticeImportArgs, "将已缓存学院通知正文导入明确课程资料，保留来源与附件未读声明；重复请求复用，正文变化生成新版本。然后可materials.read/search、tasks.build或复习生成；不把附件当已解析。普通本地操作自动。"),
     "connections.status": (ConnectionArgs, "读取已连接平台与缓存状态，不发起登录或同步。"),
     "courses.list": (CourseArgs, "按名称或学期查本地课程；多个匹配需要澄清。"),
     "materials.list": (MaterialArgs, "列出课程资料与解析状态；元数据不表示已读正文。"),
@@ -150,7 +186,7 @@ SPECS: dict[str, tuple[type[Input], str]] = {
 def schemas() -> list[dict[str, Any]]:
     return [{"name": name, "model_name": "campus_" + name.replace(".", "_"),
              "description": description, "input_schema": schema.model_json_schema(),
-             "effects": "write" if name in {"plans.preview", "plans.apply", "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback"} else "read", "version": 1}
+             "effects": "write" if name in {"campus.sync", "campus.notice.import", "plans.preview", "plans.apply", "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback"} else "read", "version": 1}
             for name, (schema, description) in SPECS.items()]
 
 
@@ -262,6 +298,50 @@ def execute(name: str, arguments: dict, db: Session, ctx: ToolContext) -> dict:
         raise ApiError(400, "INVALID_INPUT", "工具参数不符合严格契约") from None
     if args.get("course_id"):
         _course(db, ctx, args["course_id"])
+    if name.startswith("campus."):
+        from ..campus_workspace import get_campus_workspace, OWNER
+        from connectors.campus.connector_contracts import UserContext
+        from connectors.campus.campus_common import CampusError
+        workspace = get_campus_workspace()
+        try:
+            if name == "campus.status":
+                data = workspace.status()
+            elif name in {"campus.query", "campus.sync"}:
+                data = workspace.query(args["capability"], args["query"], args["platform"], refresh=name == "campus.sync")
+                error = data.get("error")
+                records = data.get("records") or []
+                return {"status": "error" if error else "ok" if data["completeness"] == "complete" else "partial",
+                    "data": data, "evidence": [{"source_id": str(r.get("id") or r.get("code") or i),
+                        "source_system": data["platform"], "observed_at": r.get("fetched_at") or data.get("fetched_at"),
+                        "url": r.get("source") or r.get("origin")} for i,r in enumerate(records)],
+                    "coverage": {"scope": "campus:"+args["capability"], "complete": data["completeness"] == "complete",
+                        "missing": [] if data["completeness"] == "complete" else ["学校数据完整性未确认"]},
+                    "freshness": {"fetched_at": data.get("fetched_at"), "stale": data["freshness"] != "fresh"},
+                    "warnings": data.get("warnings", []), "next_cursor": data.get("next_cursor"), "job_id": None, "error": error}
+            elif name == "campus.academics":
+                data = workspace.manager.academic_view(OWNER, date.fromisoformat(args["day"]) if args["day"] else None, args["term"])
+            elif name == "campus.notice.read":
+                found = workspace.manager.service.cached_college_notice(UserContext(OWNER), args["record_id"])
+                if not found:
+                    raise ApiError(404, "NOT_FOUND", "校园缓存中没有该通知")
+                data = {"platform": found[0], "notice": found[1].model_dump(mode="json")}
+            elif name == "campus.webvpn.entry":
+                data = workspace.webvpn_entry(args["service"])
+            elif name == "campus.notice.import":
+                from ..campus_domain import import_notice
+                data = import_notice(db, args["course_id"], args["record_id"])
+            else:
+                from ..campus_migration import list_imports, read_imported_document
+                if bool(args["batch_id"]) != bool(args["document_id"]):
+                    raise ApiError(400, "INVALID_INPUT", "读取导入资料需要同时给出batch_id和document_id")
+                data = read_imported_document(workspace.store, args["batch_id"], args["document_id"]) if args["batch_id"] else list_imports(workspace.store)
+        except (ValidationError, ValueError, TypeError):
+            raise ApiError(400, "INVALID_INPUT", "校园查询参数无效") from None
+        except CampusError as exc:
+            from connectors.campus.connector_contracts import standard_error
+            error = standard_error(exc)
+            raise ApiError(409, error.code.value, error.message) from None
+        return _envelope(data, scope=name, missing=["校园数据以其原始获取时间及完整性声明为准"])
     data: dict
     evidence: list[dict] = []
     warnings: list[str] = []

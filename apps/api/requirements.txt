@@ -23,3 +23,6 @@ PyYAML>=6.0
 # 跨模块（connectors 套件与真实联调；声明源头 ../../connectors/requirements.txt）：
 # connectors/tests/test_transport.py 模块级导入 requests，缺则套件收集期整体中断
 requests>=2.31
+
+# Migrated ZJU CAS/ETA/WebVPN wire protocols.
+cryptography==50.0.2

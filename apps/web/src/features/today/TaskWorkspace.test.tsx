@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getDb, resetMockDb } from '../../lib/api/mock/db'
 import { DEFAULT_TIMEZONE, toApiIso } from '../../lib/time'
-import { TodayPage } from './TodayPage'
+import { TaskWorkspace } from './TaskWorkspace'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -19,7 +19,7 @@ function renderPage() {
       <ConfigProvider locale={zhCN}>
         <AntApp>
           <MemoryRouter>
-            <TodayPage />
+            <TaskWorkspace />
           </MemoryRouter>
         </AntApp>
       </ConfigProvider>
@@ -31,7 +31,7 @@ beforeEach(() => {
   resetMockDb()
 })
 
-describe('TodayPage', () => {
+describe('TaskWorkspace', () => {
   it('展示今日任务与作业截止信息', async () => {
     renderPage()
     expect(await screen.findByText('阅读《第3章 哈希表 讲义》第 1–25 页')).toBeInTheDocument()

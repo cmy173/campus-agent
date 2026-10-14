@@ -12,3 +12,17 @@
   --agent-text-size: 15px;
   --agent-line-height: 1.8;
 }
+
+/* Optional theme overrides are scoped to the presentation root. */
+.agent-page[data-theme="contrast"] {
+  --agent-surface: #ffffff;
+  --agent-surface-subtle: #eff3f8;
+  --agent-user-surface: #dfeaff;
+  --agent-border: #64758b;
+  --agent-accent-border: #225ca6;
+  --agent-muted: #283a50;
+  --agent-note: #413017;
+  --agent-radius: 5px;
+  --agent-text-size: 16px;
+  --agent-line-height: 1.65;
+}

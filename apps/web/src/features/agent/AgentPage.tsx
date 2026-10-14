@@ -1,9 +1,8 @@
 import { useRef, useState } from 'react'
-import { Alert, Button, Checkbox, Drawer, Input, Select, Space, Tag, Typography } from 'antd'
-import { CalendarOutlined, FolderOpenOutlined, GlobalOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
+import { Alert, Button, Checkbox, Dropdown, Input, Select, Space, Tag, Typography } from 'antd'
+import { BookOutlined, CalendarOutlined, CheckSquareOutlined, FileTextOutlined, FolderOpenOutlined, GlobalOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { API_MODE, apiErrorText } from '../../lib/api/http'
-import { AssistantSettings } from '../settings/AssistantSettings'
 import type { ConversationFile, ToolEnvelope } from './api'
 import { PlanActions } from './PlanActions'
 import { CalendarWorkspace, SourceWorkspace } from './Workspace'
@@ -12,6 +11,9 @@ import { useConversationController } from './useConversationController'
 import { useConversationFiles } from './useConversationFiles'
 import { FileWorkspace } from './FileWorkspace'
 import { BrowserWorkspace } from './BrowserWorkspace'
+import { ChatLayout } from './ChatLayout'
+import { TaskWorkspace } from './TaskWorkspace'
+import { useTaskWorkspace } from './useTaskWorkspace'
 import './agent.css'
 
 const examples = ['这周有哪些作业需要留意？', '这份资料里要求提交哪些材料？', '读一下我当前的学习安排']
@@ -21,8 +23,7 @@ function ConversationPage({ id }: { id?: string }) {
     conversations, conversation, turns, active, actions, providerItems, selectedProvider,
     provider, courseId, transcript, messages, changeText, create, send, cancel, options,
     selectCourse, selectProvider, selectAttachments, reconnect, onScroll } = useConversationController(id)
-  const [calendar, setCalendar] = useState(false)
-  const [settings, setSettings] = useState(false)
+  const workspace = useTaskWorkspace()
   const [source, setSource] = useState<ToolEnvelope | null>(null)
   const [fileWorkspace, setFileWorkspace] = useState(false)
   const [browserWorkspace, setBrowserWorkspace] = useState(false)
@@ -30,18 +31,22 @@ function ConversationPage({ id }: { id?: string }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const fileState = useConversationFiles(id, active || sending, draft.attachment_ids ?? [], selectAttachments)
   const files = fileState.files.data?.items ?? []
-  return <div className="agent-page">
-    <div className="agent-toolbar">
+  return <>
+    <ChatLayout toolbar={<div className="agent-toolbar">
       <div><Typography.Title level={3} style={{ margin: 0 }}>校园助手</Typography.Title><Typography.Text type="secondary">说出目标，信息和安排一起核对。</Typography.Text></div>
       <Space wrap size={8}>
         <Button aria-label="新对话" icon={<PlusOutlined />} onClick={() => navigate('/chat')}>新对话</Button>
-        <Button aria-label="日历" icon={<CalendarOutlined />} onClick={() => setCalendar(true)}>日历</Button>
+        <Button aria-label="日历" icon={<CalendarOutlined />} onClick={() => workspace.open('calendar')}>日历</Button>
         {id && <Button icon={<FolderOpenOutlined />} onClick={() => setFileWorkspace(true)}>文件与成果{files.length ? ` (${files.length})` : ''}</Button>}
         {id && <Button icon={<GlobalOutlined />} onClick={() => setBrowserWorkspace(true)}>浏览器</Button>}
-        <Button aria-label="模型设置" icon={<SettingOutlined />} onClick={() => setSettings(true)}>模型设置</Button>
+        <Dropdown trigger={['click']} menu={{ items: [
+          { key: 'courses', icon: <BookOutlined />, label: '课程与资料', onClick: () => workspace.open('courses') },
+          { key: 'tasks', icon: <CheckSquareOutlined />, label: '学习任务与反馈', onClick: () => workspace.open('tasks') },
+          { key: 'reviews', icon: <FileTextOutlined />, label: '复习产物', onClick: () => workspace.open('reviews') },
+        ] }}><Button icon={<BookOutlined />}>资料与任务</Button></Dropdown>
+        <Button aria-label="助手设置" icon={<SettingOutlined />} onClick={() => workspace.open('settings')}>设置</Button>
       </Space>
-    </div>
-    <div className="agent-context-row">
+    </div>} context={<div className="agent-context-row">
       <Select aria-label="选择历史对话" placeholder="历史对话" value={id} allowClear style={{ minWidth: 170, maxWidth: '100%' }}
         onChange={value => navigate(value ? '/chat/' + value : '/chat')}
         options={conversations.data?.items.map(c => ({ value: c.id, label: `${new Date(c.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${c.id.slice(-6)}` }))} />
@@ -49,13 +54,13 @@ function ConversationPage({ id }: { id?: string }) {
         disabled={active || sending} style={{ minWidth: 170, maxWidth: '100%' }} options={options}
         onChange={selectCourse} />
       {provider && id && <Typography.Text type="secondary">{provider.name} · {provider.model}</Typography.Text>}
-    </div>
+    </div>} notices={<>
     {API_MODE === 'mock' && <Alert type="warning" title="当前为模拟数据模式，对话功能未启用" description="启动本地 API 后使用真实模式，不会用示例回答冒充智能问答。" />}
     {import.meta.env.VITE_AGENT_TEST_DATA === '1' && <Alert type="info" title="合成数据验收环境" description="当前使用受控测试模型，未连接真实校园账户。" />}
     {(error || conversation.isError) && <Alert type="error" title={error || apiErrorText(conversation.error)}
       action={<Button size="small" onClick={reconnect}>重新连接</Button>} />}
     {(providers.isError || courses.isError || conversations.isError) && <Alert type="warning" title="部分上下文读取失败" description={apiErrorText(providers.error ?? courses.error ?? conversations.error)} />}
-    <div className="agent-transcript" ref={transcript} aria-label="对话记录" onScroll={onScroll}>
+    </>} transcript={<div className="agent-transcript" ref={transcript} aria-label="对话记录" onScroll={onScroll}>
       <div ref={messages}>
       {!turns.length && <div className="agent-welcome">
         <Typography.Title level={2}>今天有什么要紧事？</Typography.Title>
@@ -71,11 +76,11 @@ function ConversationPage({ id }: { id?: string }) {
         void send({ text: operation === 'apply' ? '按这个来' : '撤销刚才安排', action, operation })
       }} />
       </div>
-    </div>
+    </div>} setup={<>
     {!id && API_MODE === 'real' && <section className="agent-start" aria-label="模型发送授权">
       {!providerItems.length && !providers.isLoading ? <Space orientation="vertical">
         <Typography.Text>先选择一个模型服务，即可开始问答。已有资料和日历仍可查看。</Typography.Text>
-        <Button onClick={() => setSettings(true)}>配置模型服务</Button>
+        <Button onClick={() => workspace.open('settings')}>配置模型服务</Button>
       </Space> : <>
         <Select aria-label="选择对话模型" value={selectedProvider} onChange={selectProvider}
           options={providerItems.map(p => ({ value: p.id, label: `${p.name} · ${p.model}` }))} style={{ width: '100%' }} />
@@ -85,7 +90,7 @@ function ConversationPage({ id }: { id?: string }) {
         <Button type="primary" loading={sending} disabled={!consent || !selectedProvider} onClick={create}>开始对话</Button>
       </>}
     </section>}
-    <div className="agent-composer">
+    </>} composer={<div className="agent-composer">
       {fileState.error && <Alert type="error" title={fileState.error} />}
       {fileState.selected.length > 0 && <div className="agent-attachments" aria-label="待发送附件">
         {fileState.selected.map(fid => <Tag key={fid} closable={!fileState.disabled} onClose={() => fileState.toggle(fid)}>
@@ -105,17 +110,17 @@ function ConversationPage({ id }: { id?: string }) {
           disabled={!id || fileState.disabled || API_MODE === 'mock'}>附件</Button>
         <Button aria-label="发送" type="primary" icon={<SendOutlined />} onClick={() => void send()} loading={sending} disabled={!id || active || fileState.uploading || !draft.text.trim() || API_MODE === 'mock'}>发送</Button></Space>
       </div>
-    </div>
+    </div>} />
     <SourceWorkspace result={source} onClose={() => setSource(null)} />
     {id && <BrowserWorkspace id={id} open={browserWorkspace} active={active || sending}
       onOpen={() => setBrowserWorkspace(true)} onClose={() => setBrowserWorkspace(false)} />}
-    <CalendarWorkspace open={calendar} onClose={() => setCalendar(false)} />
+    <CalendarWorkspace open={workspace.workspace === 'calendar' && !workspace.calendarEditor} onClose={workspace.close} onEdit={workspace.editCalendar} />
     <FileWorkspace open={fileWorkspace} onClose={() => setFileWorkspace(false)} items={files} selected={fileState.selected}
       focusedFile={focusedFile}
       onSelect={fileState.toggle} disabled={fileState.disabled} loading={fileState.files.isFetching} error={fileState.files.error}
       onRefresh={() => { void fileState.refresh() }} />
-    <Drawer title="助手设置" open={settings} onClose={() => setSettings(false)} size="min(660px, 100vw)">{settings && <AssistantSettings />}</Drawer>
-  </div>
+    <TaskWorkspace state={workspace} />
+  </>
 }
 
 export function AgentPage() {

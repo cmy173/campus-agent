@@ -26,13 +26,29 @@ export async function mountControls(ctx, bridge) {
   });
   const server = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    if (req.method !== 'POST' || req.url !== '/interrupt' || req.headers.authorization !== 'Bearer ' + process.env.CAMPUS_BRIDGE_TOKEN) {
+    if (req.method !== 'POST' || !['/interrupt', '/goal'].includes(req.url) || req.headers.authorization !== 'Bearer ' + process.env.CAMPUS_BRIDGE_TOKEN) {
       res.statusCode = 403; return res.end('{"error":"CONTROL_DENIED"}');
     }
     try {
       let text = '';
       for await (const chunk of req) { text += chunk; if (text.length > 4096) throw new Error('Invalid request'); }
       const data = JSON.parse(text);
+      if (req.url === '/goal') {
+        const agent = ctx.agents.get(process.env.CAMPUS_CONVERSATION_ID);
+        if (!agent) throw new Error('Goal session has not loaded');
+        let goal = ctx.goals.get(agent);
+        if (data.operation !== 'read') {
+          if (!goal || data.id !== goal.id || data.revision !== goal.revision) throw new Error('Goal view changed');
+          const ref = { id: goal.id, revision: goal.revision };
+          if (data.operation === 'pause') goal = ctx.goals.pause(agent, ref);
+          else if (data.operation === 'resume') goal = ctx.goals.resume(agent, ref);
+          else if (data.operation === 'edit') goal = ctx.goals.edit(agent, ref, data.patch);
+          else if (data.operation === 'clear') { ctx.goals.clear(agent, ref); goal = undefined; }
+          else throw new Error('Unsupported goal action');
+        }
+        res.end(JSON.stringify({ goal: goal ?? null, agent_status: agent.status }));
+        return;
+      }
       if (typeof data.child_id !== 'string' || typeof data.parent_id !== 'string') throw new Error('Invalid request');
       const catalog = catalogs.get(data.child_id);
       if (catalog && catalog.parentId !== data.parent_id) throw new Error('Invalid parent');

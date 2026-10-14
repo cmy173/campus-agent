@@ -24,6 +24,17 @@ export interface AgentTurn {
   attachment_ids?: string[]
 }
 
+export interface PersistentGoal {
+  id: string
+  revision: number
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  activation: 'armed' | 'disarmed'
+  roundsStarted: number
+  maxGoalRounds: number
+  blockedReason?: { code: string; message: string }
+}
+
 export interface ToolEnvelope {
   job_id?: string | null
   status: 'ok' | 'partial' | 'queued' | 'needs_user' | 'error'
@@ -115,6 +126,10 @@ export interface PlanAction {
 }
 
 export const agentApi = {
+  resumeGoal: (cid: string, goal: Pick<PersistentGoal, 'id' | 'revision'> & { maxGoalRounds?: number }, key: string) => apiRequest<AgentTurn>(
+    `/agent/conversations/${encodeURIComponent(cid)}/goal/resume`, { method: 'POST', body: goal, idempotencyKey: key }),
+  pauseGoal: (tid: string, goal: Pick<PersistentGoal, 'id' | 'revision'>) => apiRequest<{ goal: PersistentGoal; agent_status: string }>(
+    `/agent/turns/${encodeURIComponent(tid)}/goal/pause`, { method: 'POST', body: goal }),
   browser: (cid: string) => apiRequest<BrowserStatus>(browserPath(cid)),
   openBrowser: (cid: string, url?: string) => apiRequest<{ running: boolean; headed: boolean }>(browserPath(cid) + '/open', { method: 'POST', body: { url } }),
   stopBrowser: (cid: string) => apiRequest<{ running: boolean }>(browserPath(cid) + '/stop', { method: 'POST', body: {} }),

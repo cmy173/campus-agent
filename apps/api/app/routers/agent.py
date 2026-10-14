@@ -98,6 +98,15 @@ class ControlAddressRequest(ModelLeaseRequest):
     url: str = Field(pattern=r'^http://127\.0\.0\.1:\d{1,5}$')
 
 
+class GoalPauseRequest(tools.Input):
+    id: str = Field(min_length=1, max_length=128)
+    revision: int = Field(ge=1)
+
+
+class GoalResumeRequest(GoalPauseRequest):
+    maxGoalRounds: int | None = Field(default=None, ge=1, le=10000)
+
+
 class BrowserToolRequest(ModelLeaseRequest):
     method: Literal['tools', 'call']
     name: str = Field(default='', max_length=128)
@@ -380,6 +389,36 @@ def internal_control_address(req: ControlAddressRequest, authority=Depends(runti
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
     runtime.register_controls(turn['id'], req.url, authorization[7:])
     return {'ok': True}
+
+
+@router.post('/turns/{turn_id}/goal/pause')
+def pause_goal(turn_id: str, req: GoalPauseRequest, owner: str = Depends(browser_owner)):
+    runtime, _ = owned_turn(turn_id, owner)
+    state = runtime.goal_control(turn_id, {'operation': 'pause', **req.model_dump()})
+    runtime.store.event(turn_id, 'goal.state', state)
+    return state
+
+
+@router.post('/conversations/{conversation_id}/goal/resume', response_model=TurnResponse, status_code=202)
+def resume_goal(conversation_id: str, req: GoalResumeRequest, owner: str = Depends(browser_owner),
+                idempotency_key: str = Header(min_length=1, max_length=128), db: Session = Depends(get_db)):
+    runtime = get_runtime()
+    conversation = runtime.store.conversation(conversation_id, owner)
+    model.validated_config(db, conversation['settings'])
+    runtime.check_available()
+    turn, token = runtime.store.enqueue(conversation_id, 'goal-resume:' + idempotency_key,
+        '继续已保存的持续任务，按原目标完成并核对结果。', None, goal_resume=req.model_dump(exclude_none=True))
+    if token:
+        runtime.start(turn, token)
+    return turn
+
+
+@router.post('/internal/goal-state')
+def internal_goal_state(req: ModelLeaseRequest, authority=Depends(runtime_authority)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    return runtime.goal_control(turn['id'], {'operation': 'read'})
 
 
 @router.post("/internal/schemas")

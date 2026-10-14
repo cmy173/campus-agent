@@ -1,5 +1,5 @@
 import { Button, Space, Tag, Typography } from 'antd'
-import { Link } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import {
   REVIEW_DIFFICULTY_LABELS,
   REVIEW_ORIGIN_COLORS,

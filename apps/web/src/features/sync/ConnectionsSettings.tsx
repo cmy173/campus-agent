@@ -16,7 +16,6 @@ import {
 import type { TableProps } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { ConnectionCapabilities } from '../../components/ConnectionCapabilities'
 import { ConnectionWaitingNotice } from '../../components/ConnectionWaitingNotice'
 import { JobProgressInline } from '../../components/JobProgressInline'
@@ -269,7 +268,7 @@ const JOB_TYPE_OPTIONS = [
   { value: 'export', label: '导出' },
 ]
 
-export function SyncCenterPage() {
+export function ConnectionsSettings() {
   const { message } = AntApp.useApp()
   const queryClient = useQueryClient()
   const connectionsQuery = useConnections()
@@ -397,7 +396,7 @@ export function SyncCenterPage() {
         type="info"
         showIcon
         title="同步只读取平台数据"
-        description="首版不会执行任何平台写操作：不会自动提交作业、不会修改平台上的任何内容。"
+        description="这里的同步连接器读取课程与资料。需要填写或提交网页材料时，请在对话中提出目标，并通过浏览器工作区检查提交内容。"
       />
 
       <Card title="平台连接">
@@ -415,9 +414,7 @@ export function SyncCenterPage() {
           onRetry={() => connectionsQuery.refetch()}
           emptyText="还没有平台连接。连接由本机连接器建立（手动启动的本地组件）；如需接入新平台，请按部署文档配置采集连接器。"
           extra={
-            <Link to="/onboarding">
-              <Button type="primary">去首次使用引导</Button>
-            </Link>
+            <Typography.Text type="secondary">启动本机连接器后，在这里完成登录与课程导入；无需在对话中填写密码。</Typography.Text>
           }
         >
           <Space orientation="vertical" size={12} style={{ width: '100%' }}>

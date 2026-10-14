@@ -21,6 +21,7 @@ from .errors import ApiError, error_response
 from .log_redact import install_logging_redaction
 from .routers import (
     agent,
+    agent_schedules,
     ai_providers,
     assignments,
     connections,
@@ -58,9 +59,15 @@ async def lifespan(app: FastAPI):
     from .agent_bridge.runtime import get_runtime
     agent_runtime = get_runtime()
     agent_runtime.store.recover()
+    from .agent_bridge.schedules import get_scheduler
+    agent_scheduler = get_scheduler(agent_runtime)
+    agent_scheduler.start()
     try:
         yield
     finally:
+        from .campus_workspace import close_campus_workspace
+        close_campus_workspace()
+        agent_scheduler.close()
         agent_runtime.close()
         if worker_stop is not None:
             worker_stop.set()
@@ -106,6 +113,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 for r in (
     agent,
+    agent_schedules,
     health,
     courses,
     resources,
@@ -124,3 +132,9 @@ for r in (
     review_papers,
 ):
     app.include_router(r.router, prefix=API)
+
+# 校园工作区路由在装配期挂载（不是 lifespan 内）：运行时、OpenAPI 与契约导出看到同一份
+# 路由表，否则契约回归会把正常路由误判为实现漂移。复用网关 owner/Origin 依赖。
+from .routers.campus import install_campus_router  # noqa: E402
+
+install_campus_router(app, agent.browser_owner)

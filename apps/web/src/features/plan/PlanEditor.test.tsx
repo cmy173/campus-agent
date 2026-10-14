@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api/client'
 import { getDb, resetMockDb } from '../../lib/api/mock/db'
-import { PlanPage } from './PlanPage'
+import { PlanEditor } from './PlanEditor'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -18,7 +18,7 @@ function renderPage() {
       <ConfigProvider locale={zhCN}>
         <AntApp>
           <MemoryRouter>
-            <PlanPage />
+            <PlanEditor />
           </MemoryRouter>
         </AntApp>
       </ConfigProvider>
@@ -31,7 +31,7 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-describe('PlanPage', () => {
+describe('PlanEditor', () => {
   it.each(['已安排', '未安排'])('计划中的后页%s任务显示中文名称，包含归档任务而不显示内部编号', async (kind) => {
     const db = getDb()
     const taskId = kind === '已安排' ? db.activePlan!.blocks[0].task_id : db.activePlan!.unassigned[0].task_id

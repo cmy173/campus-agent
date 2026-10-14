@@ -3,9 +3,10 @@ import { Service } from '@deepseek-ai/cordis';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mountControls } from './campus-control.mjs';
+import { mountSchedules } from './campus-schedules.mjs';
 
 export const name = 'campus';
-export const inject = ['tools', 'llm', 'shellEnv', 'agents', 'subagents'];
+export const inject = ['tools', 'llm', 'shellEnv', 'agents', 'subagents', 'goals'];
 
 async function bridge(path, payload, signal) {
   const base = process.env.CAMPUS_BRIDGE_URL;
@@ -158,6 +159,7 @@ export async function apply(ctx) {
   });
   // This service appears only after schemas and adapters are registered. SDK
   // initialization must wait for it; async plugin apply alone is not a fence.
+  mountSchedules(ctx, bridge);
   await mountControls(ctx, bridge);
   class CampusReady extends Service {
     constructor(context) { super(context, 'campusReady'); }

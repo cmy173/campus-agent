@@ -105,6 +105,9 @@ class Runtime:
             runtime_settings = self.settings.resolved(shared_key)
             env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token,
                        CAMPUS_CONVERSATION_ID=turn['conversation_id'], CAMPUS_PYTHON_EXECUTABLE=sys.executable)
+            resume = next((e['data'] for e in self.store.events(tid)['items'] if e['kind'] == 'accepted_goal_resume'), None)
+            if resume:
+                env['CAMPUS_GOAL_RESUME'] = json.dumps(resume)
             if configuration['key']:
                 env['DEEPSEEK_API_KEY'] = configuration['key']
             if runtime_settings['search']['key']:
@@ -140,6 +143,7 @@ class Runtime:
             timer.start()
             answered = False
             answer = ""
+            goal_phase = None
             for line in proc.stdout:
                 if len(line) > 2000000:
                     raise ValueError("runner frame exceeded limit")
@@ -152,9 +156,18 @@ class Runtime:
                     answered = True
                 elif kind == "error":
                     self.store.finish(tid, "failed", error=data)
+                elif kind == 'goal.state':
+                    goal_phase = (data.get('goal') or {}).get('phase')
                 self.store.event(tid, kind, data)
             proc.wait(timeout=10)
             proc.campus_owner.close()
+            if goal_phase == 'paused':
+                # Native pause aborts the agent, but the persistent browser is
+                # owned by the API. Drain it before presenting a settled pause.
+                while not self._interrupt_browser(tid):
+                    time.sleep(0.1)
+                with self.call_lock(tid):
+                    pass
             if answered and proc.returncode == 0:
                 self.store.finish(tid, "succeeded", response=answer)
             else:
@@ -202,6 +215,26 @@ class Runtime:
             raise ApiError(502, 'CHILD_CONTROL_FAILED', '子任务停止请求未完成，请重试或停止本轮', retryable=True) from None
         self.store.event(tid, 'subagent.stop_requested', {'childSessionId': child_id})
         return {'accepted': True, 'child_id': child_id}
+
+    def goal_control(self, tid: str, request: dict):
+        if self.store.turn(tid)['status'] != 'running':
+            raise ApiError(409, 'TURN_STOPPED', '本轮已结束；持续任务的状态已保留')
+        with self.lock:
+            controls = self.control_addresses.get(tid)
+        if not controls:
+            raise ApiError(503, 'CONTROL_UNAVAILABLE', '持续任务控制连接尚未就绪，可重试', retryable=True)
+        try:
+            response = requests.post(controls[0] + '/goal', headers={'Authorization': 'Bearer ' + controls[1]},
+                json=request, timeout=5, allow_redirects=False)
+            if response.status_code == 409:
+                raise ApiError(409, 'GOAL_CHANGED', '持续任务状态已变化，请刷新后重试')
+            response.raise_for_status()
+            state = response.json()
+            if not isinstance(state, dict) or 'goal' not in state or state.get('agent_status') not in ('idle', 'running'):
+                raise ValueError('invalid goal state')
+            return state
+        except (requests.RequestException, ValueError):
+            raise ApiError(502, 'GOAL_CONTROL_FAILED', '持续任务控制未完成，请重试', retryable=True) from None
 
     @staticmethod
     def _stop(proc):

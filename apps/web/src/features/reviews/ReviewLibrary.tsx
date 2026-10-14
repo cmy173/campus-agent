@@ -1,11 +1,12 @@
 import { Button, Card, Empty, Select, Space, Tag, Typography } from 'antd'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import { useCourses, useReviewPapers } from '../../lib/api/hooks'
 import { REVIEW_REVISION_REASON_LABELS, reviewModeLabel } from '../../lib/review'
 import { fmtDateTime } from '../../lib/time'
 
-export function ReviewListPage() {
+export function ReviewLibrary() {
   const [searchParams, setSearchParams] = useSearchParams()
   const courseId = searchParams.get('course_id') ?? undefined
   const mode = searchParams.get('mode') ?? undefined
@@ -35,7 +36,7 @@ export function ReviewListPage() {
         extra={
           <Link to="/courses">
             <Button size="small" type="primary">
-              去课程页生成新复习卷
+              打开课程资料生成复习卷
             </Button>
           </Link>
         }

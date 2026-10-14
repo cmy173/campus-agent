@@ -3,9 +3,21 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def ensure_repo_root_on_path() -> None:
+    """把仓库根加入 `sys.path`，使 `connectors.campus.*` 等领域包按仓库根解析。
+
+    与 `connectors_registry` / `review_deps` 同法；追加而非前插，避免仓库根下的
+    同名目录遮蔽标准库或已安装包。可重复调用。
+    """
+    root = str(REPO_ROOT)
+    if root not in sys.path:
+        sys.path.append(root)
 
 APP_VERSION = "0.2.0-local"
 

@@ -27,3 +27,5 @@ var/
 .worktrees/
 pip-*/
 pytest-of-*/
+.tmp-install/
+tmp*/

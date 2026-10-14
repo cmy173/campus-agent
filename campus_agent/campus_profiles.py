@@ -1,3 +1,4 @@
-"""Compatibility imports for migrated profile protocols."""
-from .connectors.profile_protocol import *
-from .connectors.zdbk_protocol import ProfilePage, zdbk_profile
+"""Compatibility import; implementation migrated to connectors.campus.campus_profiles."""
+import importlib as _importlib
+import sys as _sys
+_sys.modules[__name__] = _importlib.import_module('connectors.campus.campus_profiles')

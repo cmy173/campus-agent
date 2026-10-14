@@ -1,7 +1,8 @@
 import { ArrowLeftOutlined, DownloadOutlined, PrinterOutlined, RedoOutlined } from '@ant-design/icons'
 import { Alert, App as AntApp, Button, Card, Descriptions, Dropdown, Space, Table, Tag, Typography } from 'antd'
 import { useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import { useCourses, useExportReviewPaper, useReviewPaper, useReviewRevisions } from '../../lib/api/hooks'
 import { toApiError } from '../../lib/api/http'
@@ -46,8 +47,9 @@ function fallbackExportName(paperId: string, format: ReviewExportFormat): string
   return `${paperId}-${format}.${ext}`
 }
 
-export function ReviewPaperPage() {
-  const { paperId } = useParams<{ paperId: string }>()
+export function ReviewEditor({ id }: { id?: string }) {
+  const params = useParams<{ paperId: string }>()
+  const paperId = id ?? params.paperId
   const [searchParams] = useSearchParams()
   const revisionRaw = searchParams.get('revision')
   const viewedRevision =

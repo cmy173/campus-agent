@@ -17,7 +17,7 @@ import {
   Typography,
 } from 'antd'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import {
   DuePrecisionHint,
@@ -62,7 +62,7 @@ interface FeedbackFormValues {
   note?: string | null
 }
 
-export function TodayPage() {
+export function TaskWorkspace() {
   const { message } = AntApp.useApp()
   const tasksQuery = useTasks()
   const planQuery = useCurrentPlan()

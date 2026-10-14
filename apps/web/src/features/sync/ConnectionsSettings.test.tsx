@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { resetMockDb } from '../../lib/api/mock/db'
-import { SyncCenterPage } from './SyncCenterPage'
+import { ConnectionsSettings } from './ConnectionsSettings'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -17,7 +17,7 @@ function renderPage() {
       <ConfigProvider locale={zhCN}>
         <AntApp>
           <MemoryRouter>
-            <SyncCenterPage />
+            <ConnectionsSettings />
           </MemoryRouter>
         </AntApp>
       </ConfigProvider>
@@ -35,7 +35,7 @@ async function findZyktCard(): Promise<HTMLElement> {
   return card as HTMLElement
 }
 
-describe('SyncCenterPage 登录等待态（C17）', () => {
+describe('ConnectionsSettings 登录等待态（C17）', () => {
   it('auth_required 连接显示「等待登录」等待态而非失败，并说明衔接方式与不循环重试', async () => {
     renderPage()
     const card = await findZyktCard()

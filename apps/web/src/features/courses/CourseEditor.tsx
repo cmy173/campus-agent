@@ -1,6 +1,7 @@
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { Button, Card, Space, Tabs, Tag, Typography } from 'antd'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { StateView } from '../../components/StateView'
 import { useCourse } from '../../lib/api/hooks'
 import { platformLabel } from '../../lib/platforms'
@@ -10,8 +11,9 @@ import { AttachSourceRefButton } from './AttachSourceRef'
 import { RecordingsTab } from './RecordingsTab'
 import { ResourcesTab } from './ResourcesTab'
 
-export function CourseDetailPage() {
-  const { courseId } = useParams<{ courseId: string }>()
+export function CourseEditor({ id }: { id?: string }) {
+  const params = useParams<{ courseId: string }>()
+  const courseId = id ?? params.courseId
   const courseQuery = useCourse(courseId)
   const course = courseQuery.data
   const [searchParams, setSearchParams] = useSearchParams()

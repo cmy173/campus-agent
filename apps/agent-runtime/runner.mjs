@@ -2,6 +2,7 @@
 import { createInterface } from 'node:readline';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
 import { prepareProfile, mcpCredentialEnvironment } from './prepare-profile.mjs';
+import { runWithGoalLifecycle } from './goal-lifecycle.mjs';
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const input = await new Promise((resolve, reject) => {
@@ -27,6 +28,7 @@ const harness = new DeepSeekHarness({
     TEMP: process.env.TEMP, TMP: process.env.TMP,
     CAMPUS_BRIDGE_URL: process.env.CAMPUS_BRIDGE_URL, CAMPUS_BRIDGE_TOKEN: process.env.CAMPUS_BRIDGE_TOKEN,
     CAMPUS_CONVERSATION_ID: process.env.CAMPUS_CONVERSATION_ID,
+    CAMPUS_GOAL_RESUME: process.env.CAMPUS_GOAL_RESUME,
     CAMPUS_PYTHON_EXECUTABLE: process.env.CAMPUS_PYTHON_EXECUTABLE,
     CAMPUS_MCP_CREDENTIALS: mcpCredentialEnvironment(input.mcp_servers),
     DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, DEEPSEEK_SEARCH_API_KEY: process.env.DEEPSEEK_SEARCH_API_KEY },
@@ -38,14 +40,24 @@ lines.on('close', cancel);
 process.on('SIGTERM', cancel);
 try {
   emit({ kind: 'runtime', data: { version: '0.2.0-rc.2', bundles: profile.bundles, plugins: profile.entries, provider: input.provider ?? 'campus-model' } });
-  const result = await harness.run(input.text, {
+  const result = await runWithGoalLifecycle(harness, input.text, {
     sessionId: input.conversation_id,
+    isCancelled: () => cancelled,
+    readGoal: async () => {
+      const response = await fetch(process.env.CAMPUS_BRIDGE_URL + '/api/v1/agent/internal/goal-state', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.CAMPUS_BRIDGE_TOKEN },
+        body: JSON.stringify({ conversation_id: input.conversation_id }), signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error('Goal state unavailable');
+      return response.json();
+    },
+    onGoalState: data => emit({ kind: 'goal.state', data }),
     onNotification: notification => {
       if (notification.method === 'session.event') {
         const event = notification.params.event;
         // The official session log is authoritative. Project task progress and
         // tool/assistant output, without copying request bodies or credentials.
-        if (event?.type?.startsWith('tool/') || ['assistant/message', 'subagent/catalog', 'subagent/descriptor'].includes(event?.type)) {
+        if (event?.type?.startsWith('tool/') || ['assistant/message', 'subagent/catalog', 'subagent/descriptor', 'goal/change'].includes(event?.type)) {
           emit({ kind: 'harness_event', data: { session_id: notification.params.sessionId, event } });
         }
       } else if (notification.method.startsWith('subagent.')) {
@@ -54,7 +66,7 @@ try {
     },
   });
   if (!cancelled) emit({ kind: 'result', data: {
-    conversation_id: result.sessionId, response: result.finalResponse, event_count: result.events.length,
+    conversation_id: result.sessionId, response: result.finalResponse, event_count: result.eventCount,
   } });
 } catch {
   if (!cancelled) emit({ kind: 'error', data: { code: 'HARNESS_FAILED', message: 'Harness 本轮未完成，请检查模型或工具错误记录', retryable: true } });

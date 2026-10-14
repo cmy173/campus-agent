@@ -31,7 +31,11 @@ def test_registered_tools_use_real_engine_and_do_not_accept_model_approval(works
     assert error.value.code == "APPROVAL_REQUIRED"
     actions.approve(db, "conversation", action["id"])
     assert execute("plans.apply", {"action_id": action["id"]}, db, ctx)["data"]["receipt"]["plan"]["status"] == "active"
-    assert {s["name"] for s in schemas() if s["effects"] == "write"} == {"plans.preview", "plans.apply", "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback"}
+    # 校园只读同步与本地通知导入同样是写入效果；授权边界仍由各自执行路径保证：
+    # plans.apply/revoke 需要可信界面动作，campus.notice.import 是本地可撤销操作。
+    assert {s["name"] for s in schemas() if s["effects"] == "write"} == {
+        "campus.sync", "campus.notice.import", "plans.preview", "plans.apply",
+        "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback"}
 
 
 def test_schedule_tools_reject_partial_scope_and_invalid_relative_dates(workspace):

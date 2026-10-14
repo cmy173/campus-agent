@@ -126,7 +126,7 @@ class Store:
             raise ApiError(404, "NOT_FOUND", "对话轮次不存在")
         return self._turn(row)
 
-    def enqueue(self, cid: str, key: str, text: str, course_id: str | None, clear_course_context: bool = False, action_context: dict | None = None, attachment_ids: list[str] | None = None) -> tuple[dict, str | None]:
+    def enqueue(self, cid: str, key: str, text: str, course_id: str | None, clear_course_context: bool = False, action_context: dict | None = None, attachment_ids: list[str] | None = None, goal_resume: dict | None = None) -> tuple[dict, str | None]:
         request = {"text": text, "course_id": course_id}
         attachment_ids = list(dict.fromkeys(attachment_ids or []))
         if attachment_ids:
@@ -135,6 +135,8 @@ class Store:
             request["clear_course_context"] = True
         if action_context is not None:
             request["action_context"] = action_context
+        if goal_resume is not None:
+            request['goal_resume'] = goal_resume
         fingerprint = digest(encoded(request))
         tid, token, stamp = "turn_" + secrets.token_hex(16), secrets.token_urlsafe(32), now()
         with self.connection() as db:
@@ -162,6 +164,9 @@ class Store:
             if action_context is not None:
                 db.execute("INSERT INTO events (turn_id,kind,data,created_at) VALUES (?,?,?,?)",
                            (tid, "accepted_action", encoded(action_context), stamp))
+            if goal_resume is not None:
+                db.execute('INSERT INTO events (turn_id,kind,data,created_at) VALUES (?,?,?,?)',
+                           (tid, 'accepted_goal_resume', encoded(goal_resume), stamp))
         return self.turn(tid), token
 
     def runtime(self, token: str, cid: str | None = None) -> tuple[dict, dict]:

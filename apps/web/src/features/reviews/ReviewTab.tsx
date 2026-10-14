@@ -16,7 +16,8 @@ import {
   Typography,
 } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import { WorkspaceLink as Link } from '../agent/WorkspaceLink'
 import { JobStatusTag, ParseStatusTag } from '../../components/tags'
 import {
   useCancelJob,

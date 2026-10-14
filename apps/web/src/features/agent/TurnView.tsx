@@ -7,6 +7,7 @@ import { useTurnEvents } from './useTurnEvents'
 import { projectTurnEvents } from './turnProjection'
 import { ToolActivities } from './ToolActivities'
 import { FileActivities } from './FileActivities'
+import { GoalActivity } from './GoalActivity'
 
 function ResultView({ name, result, onSource }: { name: string; result: ToolEnvelope; onSource: (value: ToolEnvelope) => void }) {
   const items = result.data.items ?? []
@@ -33,7 +34,7 @@ function ResultView({ name, result, onSource }: { name: string; result: ToolEnve
 
 export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }: { turn: AgentTurn; onSource: (value: ToolEnvelope) => void; onCancel: (id: string) => void;
   attachments?: ConversationFile[]; onFile?: (file: ConversationFile) => void }) {
-  const { events, error, controlError, interruptChild, stoppingChildren } = useTurnEvents(turn)
+  const { events, error, controlError, interruptChild, stoppingChildren, goalError, pauseGoal, pausingGoal, resumeGoal, resumingGoal } = useTurnEvents(turn)
   const activity = projectTurnEvents(events, turn)
   const runningTool = activity.tools.findLast(tool => tool.status === 'running')
   const lastStopEvent = events.findLast(event => ['stop_requested', 'stop_incomplete'].includes(event.kind))
@@ -57,6 +58,8 @@ export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }:
       {incompleteStop && <Alert type="warning" title="停止收尾尚未完成" description="本轮仍处于停止中，可以重试停止。" />}
       {activity.progressText && <Typography.Paragraph className="agent-answer">{activity.progressText}</Typography.Paragraph>}
       {turn.response && <Typography.Paragraph className="agent-answer">{turn.response}</Typography.Paragraph>}
+      <GoalActivity events={events} turn={turn} onPause={pauseGoal} pausing={pausingGoal} onResume={resumeGoal} resuming={resumingGoal} />
+      {goalError && <Alert type="warning" title="持续任务控制未完成" description={goalError} />}
       <FileActivities events={events} conversationId={turn.conversation_id} onOpen={onFile} />
       {turn.status === 'cancelled' && <Typography.Paragraph type="secondary">本轮已停止，已获得的资料保留。</Typography.Paragraph>}
       {modelErrors.map(event => <Alert key={event.seq} type="warning" title={String(event.data.message)} description={String(event.data.code ?? '')} />)}

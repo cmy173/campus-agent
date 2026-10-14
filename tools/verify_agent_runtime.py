@@ -81,6 +81,33 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 return
             receipts.append(body)
             messages = body["messages"]
+            human = next((m for m in reversed(messages) if m['role'] == 'user' and '用户消息：\n' in m['content']), None)
+            if human and '[V2持续目标演练]' in human['content']:
+                boundary = next((m for m in reversed(messages) if m['role'] == 'user' and
+                                 ('<goal_round>' in m['content'] or '用户消息：\n' in m['content'])), None)
+                results = [m['content'] for m in messages[messages.index(boundary) + 1:] if m['role'] == 'tool']
+                calls, content = [], None
+                def goal_call(name, arguments):
+                    return {'id': 'goal_' + str(len(receipts)), 'type': 'function',
+                            'function': {'name': name, 'arguments': json.dumps(arguments, ensure_ascii=False)}}
+                if '<goal_round>' not in boundary['content']:
+                    if not results:
+                        calls = [goal_call('create_goal', {'objective': 'GOAL_673 整理真实文件并交付结果', 'max_goal_rounds': 4})]
+                    else:
+                        content = '持续目标已创建，继续推进。'
+                elif not results:
+                    calls = [goal_call('get_goal', {})]
+                elif len(results) == 1:
+                    calls = [goal_call('write', {'file_path': 'goal-673.md', 'content': '真实原生 Goal 续行结果-673\n'})]
+                elif len(results) == 2:
+                    goal = json.loads(results[0])['goal']
+                    calls = [goal_call('update_goal', {'goal_id': goal['id'], 'revision': goal['revision'], 'action': 'complete'})]
+                else:
+                    content = '已完成持续目标，真实文件 goal-673.md 已写入。'
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': content, 'tool_calls': calls},
+                    'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             control_user = next((m for m in reversed(messages) if m['role'] == 'user' and '[V2子任务' in m['content']), None)
             if control_user is not None and control_user is next((m for m in reversed(messages) if m['role'] == 'user' and
                     ('用户消息：\n' in m['content'] or '[V2子任务' in m['content'])), None):
@@ -429,6 +456,8 @@ with SessionLocal() as db:
         assert len(history["turns"]) == 2 and history["current_course_id"] == "course_synthetic"
         assert sum(m["role"] == "user" for m in receipts[-1]["messages"]) >= 2, "official persisted session did not resume"
         expected_tools = {"campus_connections_status", "campus_courses_list", "campus_materials_list", "campus_materials_search", "campus_materials_read", "campus_assignments_list", "campus_tasks_list", "campus_plans_read", "campus_jobs_read", "campus_availability_read", "campus_plans_preview", "campus_plans_apply", "campus_plans_revoke", "campus_tasks_build", "campus_jobs_cancel", "campus_tasks_feedback"}
+        expected_tools |= {'campus_campus_' + name for name in ('status', 'query', 'sync', 'academics', 'notice_read',
+            'imported_read', 'webvpn_entry', 'notice_import')}
         native_tools = {'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
                         'job_kill', 'job_list', 'job_output', 'list_agents', 'pwsh' if os.name == 'nt' else 'bash',
                         'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
@@ -441,7 +470,8 @@ with SessionLocal() as db:
             'browser_hover', 'browser_select_option', 'browser_tabs', 'browser_wait_for', 'browser_prepare_action'}
         browser_tools = {'mcp__campus_browser__' + name for name in browser_names}
         mcp_resources = {'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
-        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources, actual_tools
+        scheduling_tools = {'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_history'}
+        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | scheduling_tools, actual_tools
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
         assert slow_started.wait(timeout=15), "controlled provider was not reached before cancellation"
         cancelled = post("/turns/" + cancel_turn["id"] + "/cancel", {})
@@ -675,6 +705,20 @@ with SessionLocal() as db:
         evidence['parallel_children_turn'] = done
         evidence['parallel_checks'] = {'actual_api_selective_child_cancel': True, 'sibling_and_parent_continue': True,
             'stop_replay_is_idempotent': True, 'actual_sibling_file_result': True}
+        persistent = post(f'/conversations/{cid}/turns', {'text': '[V2持续目标演练] 持续整理资料，完成后汇报'}, {'Idempotency-Key': 'v2-native-goal'})
+        persistent_done = wait_turn(persistent['id'])
+        assert persistent_done['status'] == 'succeeded' and '已完成持续目标' in persistent_done['response'], persistent_done
+        assert '真实原生 Goal 续行结果-673' in (run_dir / 'workspace/goal-673.md').read_text(encoding='utf-8')
+        goal_states = [e['data'] for e in persistent_done['events'] if e['kind'] == 'goal.state']
+        assert any(s['goal']['phase'] == 'active' for s in goal_states)
+        assert goal_states[-1]['goal']['phase'] == 'complete' and goal_states[-1]['goal']['roundsStarted'] == 1
+        assert goal_states[-1]['agent_status'] == 'idle'
+        goal_messages = [e['data']['event'] for e in persistent_done['events'] if e['kind'] == 'harness_event' and
+                         e['data']['event']['type'] == 'assistant/message']
+        assert len(goal_messages) >= 2
+        evidence['persistent_goal_turn'] = persistent_done
+        evidence['persistent_goal_checks'] = {'actual_native_round_driver': True, 'global_subscription_after_initial_idle': True,
+            'actual_file_written_in_goal_round': True, 'latest_final_response_not_initial_progress': True}
         browser_turn = post(f'/conversations/{cid}/turns', {'text': '[V2浏览器演练] 读取页面、下载资料、填写测试材料，提交前给我确认'}, {'Idempotency-Key': 'v2-browser-flow'})
         browser_done = wait_turn(browser_turn['id'])
         assert browser_done['status'] == 'succeeded', browser_done
@@ -705,7 +749,7 @@ with SessionLocal() as db:
             'actual_attachment_published_and_downloaded': True, 'form_filled_before_one_confirmation': True,
             'duplicate_confirmation_did_not_resubmit': True, 'next_turn_knows_actual_external_action_receipt': True}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
-        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | {'mcp__calculator__multiply'}
+        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | scheduling_tools | {'mcp__calculator__multiply'}
         evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(actual_tools), second_turn_preserved_history=True)
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:

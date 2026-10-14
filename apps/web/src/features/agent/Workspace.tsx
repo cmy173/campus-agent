@@ -35,13 +35,14 @@ export function SourceWorkspace({ result, onClose }: { result: ToolEnvelope | nu
   </Drawer>
 }
 
-export function CalendarWorkspace({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CalendarWorkspace({ open, onClose, onEdit }: { open: boolean; onClose: () => void; onEdit?: () => void }) {
   const current = useQuery({ queryKey: ['plans', 'current'], queryFn: () => apiRequest<CurrentPlanResponse>('/plans/current'), enabled: open, staleTime: 0 })
   const plan = current.data?.plan
   const tasks = useQuery({ queryKey: ['agent-calendar-tasks'], queryFn: () => api.getAllTasks({ include_archived: true }),
     enabled: open && Boolean(plan), staleTime: 0 })
   const titles = new Map(tasks.data?.items.map(task => [task.id, task.title]) ?? [])
   return <Drawer title="我的日历" open={open} onClose={onClose} destroyOnHidden size="min(560px, 100vw)" className="agent-workspace">
+    {onEdit && <Button onClick={onEdit} style={{ marginBottom: 16 }}>编辑安排与锁定任务</Button>}
     {current.isLoading && <Typography.Text>正在读取安排…</Typography.Text>}
     {current.isError && <Alert type="error" title="日历读取失败" description={apiErrorText(current.error)} />}
     {tasks.isError && <Alert type="warning" title="任务名称暂时无法读取" description={apiErrorText(tasks.error)} />}
