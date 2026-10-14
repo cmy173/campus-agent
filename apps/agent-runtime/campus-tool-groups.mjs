@@ -85,58 +85,99 @@ export function loaderDescription(counts) {
 }
 
 /**
- * Install the loader tool plus the scope mask.
- * @param ctx agent-scoped plugin context carrying the tool registry
+ * Per-agent state. The loader is registered once for the whole composition (that
+ * path is proven safe); the mask is applied per agent, because `restrict` only
+ * governs the calling agent scope.
+ *
+ * `Agent` is a live object, so a WeakMap keys state without leaking agents.
  */
-export function installOnDemandTools(ctx) {
-  if ((process.env.CAMPUS_TOOL_DISCOVERY || 'on') === 'off') return;
-  const maskEnabled = (process.env.CAMPUS_TOOL_MASK || 'on') !== 'off';
-  const lifted = new Set();
-  let current = null;
-  let logged = false;
-  let applying = false;
+const stateOf = new WeakMap();
 
-  const catalog = () => ctx.tools.schemas().map(schema => schema.name);
+export function discoveryEnabled() {
+  return (process.env.CAMPUS_TOOL_DISCOVERY || 'on') !== 'off';
+}
 
-  /**
-   * Replace the scope mask with one matching the live catalog.
-   *
-   * Never re-entered: `restrict` changes availability, which emits `tools/change`,
-   * and mutating the registry from inside that notification would recurse.
-   */
-  function reapply() {
-    if (applying) return null;
-    applying = true;
-    try {
-      const { deferred, counts } = deferredNames(catalog(), lifted);
-      const previous = current;
-      current = null;
-      if (previous) previous();
-      if (deferred.length && maskEnabled) {
-        try {
-          current = ctx.tools.restrict({ deny: deferred });
-        } catch (error) {
-          // A concurrent registration or scope change must not break the turn.
-          if (!logged) {
-            logged = true;
-            console.error('[campus] tool mask skipped:', error?.message || error);
-          }
+export function maskEnabled() {
+  return (process.env.CAMPUS_TOOL_MASK || 'on') !== 'off';
+}
+
+function agentState(agent) {
+  let state = stateOf.get(agent);
+  if (!state) {
+    state = { lifted: new Set(), current: null, logged: false, applying: false };
+    stateOf.set(agent, state);
+  }
+  return state;
+}
+
+/**
+ * Replace one agent's mask with one matching its live catalog.
+ *
+ * Never re-entered: `restrict` changes availability, which emits `tools/change`,
+ * and mutating the registry from inside that notification would recurse.
+ */
+export function applyMask(agent) {
+  const state = agentState(agent);
+  const tools = agent?.ctx?.tools;
+  if (!tools || state.applying) return null;
+  state.applying = true;
+  try {
+    const { deferred, counts } = deferredNames(tools.schemas().map(schema => schema.name), state.lifted);
+    const previous = state.current;
+    state.current = null;
+    if (previous) previous();
+    if (deferred.length && maskEnabled()) {
+      try {
+        state.current = tools.restrict({ deny: deferred });
+      } catch (error) {
+        // A concurrent registration or scope change must not break the turn.
+        if (!state.logged) {
+          state.logged = true;
+          console.error('[campus] tool mask skipped:', error?.message || error);
         }
       }
-      return counts;
-    } finally {
-      applying = false;
     }
+    return counts;
+  } finally {
+    state.applying = false;
   }
+}
 
-  /** Registry mutations stay off the dispatch that asked for them. */
-  function reapplyLater() {
-    setTimeout(() => { reapply(); }, 0);
-  }
+/** Registry mutations stay off the dispatch that asked for them. */
+function applyMaskLater(agent) {
+  setTimeout(() => { applyMask(agent); }, 0);
+}
 
-  const loader = ctx.tools.register({
+const SUBSCRIPTIONS = new WeakMap();
+
+/**
+ * Install the per-agent mask. Called after agent creation resolves: a registry
+ * mutation made from inside `agent/created` (or the SDK create/resume setup)
+ * deadlocks, because those listeners are awaited before creation resolves.
+ * Safe to call repeatedly for the same agent.
+ */
+export function installToolMask(agent) {
+  if (!discoveryEnabled() || !agent?.ctx?.tools) return;
+  if (SUBSCRIPTIONS.has(agent)) return;
+  const unsubscribe = agent.ctx.on('tools/change', () => { applyMaskLater(agent); });
+  SUBSCRIPTIONS.set(agent, unsubscribe);
+  applyMask(agent);
+}
+
+/**
+ * Register the on-demand loader once for the whole composition.
+ *
+ * The loader must live in a scope the agent's call can resolve — registering it
+ * inside the agent scope deadlocked. It is never masked (`protectedName`).
+ */
+export function registerToolLoader(ctx) {
+  if (!discoveryEnabled()) return;
+  return ctx.tools.register({
     name: 'load_tools',
-    description: loaderDescription(deferredNames(catalog(), lifted).counts),
+    description: '按需加载更多工具。默认只提供普通校园任务常用的工具；需要浏览器操作、MCP 服务、'
+      + '子 Agent 协作、后台任务或计划模式时，先调用本工具再使用它们。'
+      + `可选分组：\n${GROUPS.map(group => `- ${group.id}（${group.label}）：${group.hint}`).join('\n')}`
+      + '\n也可以传 tools 指定具体工具名。返回本次实际可见的工具名，新加载的分组在下一轮请求生效。',
     parameters: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -157,37 +198,29 @@ export function installOnDemandTools(ctx) {
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     isConcurrencySafe: true,
-    async execute(args) {
-      const before = catalog();
-      console.error('[campus] load_tools start', JSON.stringify(args), before.length);
+    async execute(args, exec) {
+      const agent = exec?.agent;
+      const tools = agent?.ctx?.tools;
+      if (!tools) return { available: [], loaded_groups: [], note: '当前调用没有可用的工具作用域。' };
+      const state = agentState(agent);
+      const before = tools.schemas().map(schema => schema.name);
       const requested = new Set(Array.isArray(args.tools) ? args.tools : []);
       for (const group of GROUPS) {
         if (args.group === group.id || before.some(name => requested.has(name) && group.match(name))) {
-          lifted.add(group.id);
+          state.lifted.add(group.id);
         }
       }
       const counts = deferredNames(before, new Set()).counts;
       // The requesting step already has its schema list; lifted tools become
       // visible from the next request, so the mask updates off this dispatch.
-      reapplyLater();
-      const hidden = new Set(deferredNames(before, lifted).deferred);
-      console.error('[campus] load_tools end', before.length, hidden.size);
+      applyMaskLater(agent);
+      const hidden = new Set(deferredNames(before, state.lifted).deferred);
       return {
         available: before.filter(name => !hidden.has(name)),
-        loaded_groups: [...lifted],
+        loaded_groups: [...state.lifted],
         note: Object.entries(counts).map(([id, count]) => `${id}:${count}`).join(' ')
           + '；本组工具在下一轮请求生效。',
       };
     },
-  });
-
-  const unsubscribe = ctx.on('tools/change', () => { reapplyLater(); });
-  ctx.effect(() => {
-    reapply();
-    return () => {
-      unsubscribe();
-      loader();
-      if (current) { current(); current = null; }
-    };
   });
 }

@@ -39,6 +39,7 @@ class Runtime:
         self.conversation_locks: dict[str, threading.Lock] = {}
         self.control_addresses: dict[str, tuple[str, str]] = {}
         self.workspaces: dict[str, Path] = {}
+        self.stderr_captures: dict[str, object] = {}
         self.files = ConversationFiles(store)
         self.browser = BrowserHost(store.path.parent / 'browser')
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
@@ -57,6 +58,15 @@ class Runtime:
             thread = threading.Thread(target=self._run, args=(turn, token), name="campus-" + turn["id"], daemon=True)
             self.threads[turn["id"]] = thread
             thread.start()
+
+    def _runner_stderr(self, tid: str):
+        """Where the owned runner's stderr goes.
+
+        Discarded by default. `CAMPUS_RUNNER_STDERR` opts into capturing it for the
+        operator; the handle is owned per turn and closed with the process.
+        """
+        target = os.environ.get('CAMPUS_RUNNER_STDERR')
+        return open(target, 'a', encoding='utf-8') if target else subprocess.DEVNULL
 
     def _run(self, turn: dict, token: str):
         with self.lock:
@@ -116,14 +126,24 @@ class Runtime:
             workspace.mkdir(parents=True, exist_ok=True)
             with self.lock:
                 self.workspaces[tid] = workspace
+            # The runtime's stderr is discarded by default so transport details and
+            # model inputs never leak into logs. Diagnosing a plugin-level failure
+            # needs it, so an explicit opt-in path captures it for the operator.
+            stderr_capture = self._runner_stderr(tid)
             proc = spawn_owned([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
                                     cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
+                                    stderr=stderr_capture, text=True, encoding="utf-8", bufsize=1,
                                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             with self.lock:
                 self.processes[tid] = proc
+                if stderr_capture is not subprocess.DEVNULL:
+                    self.stderr_captures[tid] = stderr_capture
             if self.store.turn(tid)["status"] != "running":
                 self._stop(proc)
+                with self.lock:
+                    capture = self.stderr_captures.pop(tid, None)
+                if capture is not None:
+                    capture.close()
                 return
             proc.stdin.write(json.dumps({"text": text, "conversation_id": turn["conversation_id"], "home": str(home),
                                         'provider': configuration['provider'], 'model': configuration['model'],
@@ -184,10 +204,13 @@ class Runtime:
             with self.lock:
                 self.processes.pop(tid, None)
                 self.threads.pop(tid, None)
+                capture = self.stderr_captures.pop(tid, None)
                 if self.store.turn(tid)['status'] != 'stopping':
                     self.call_locks.pop(tid, None)
                 self.control_addresses.pop(tid, None)
                 self.workspaces.pop(tid, None)
+            if capture is not None:
+                capture.close()
 
     def register_controls(self, tid: str, url: str, token: str):
         if not re.fullmatch(r'http://127\.0\.0\.1:\d{1,5}', url):

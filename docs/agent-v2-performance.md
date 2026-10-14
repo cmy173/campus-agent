@@ -77,6 +77,31 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 由 `campusReady` 服务发起的注册），把 `installOnDemandTools(agentCtx)` 装上去，然后用
 `tools/verify_tool_discovery.py` 验收；在那之前本文件与台账都按“条件 3 未完成”记录。
 
+### 第 6 轮补充：更多安装点已排除，并补上诊断能力
+
+继续按上面的候选排查（每项都以真实运行判定）：
+
+- **`agent/created` 内同步安装**：死锁。该事件监听器“在创建 resolve 之前被 await”，在窗口内改
+  注册表会让 agent 创建永不完成（journal 只有 2 条事件、无 session 文件、turn 停在 running）。
+- **`agent/created` + `setTimeout(0)` 延后安装**：仍死锁。
+- **仅注册加载工具到 `agent.ctx`（掩码关闭）**：仍死锁 → 说明卡住的是**在 agent 作用域注册工具**，
+  而不只是 `restrict`。
+- **插件 `apply(ctx)` 注册加载工具 + 每 agent 只做 `restrict`（第 6 轮实现的分体设计）**：仍死锁。
+
+四类安装点全部以真实运行证伪后，本轮**再次回退接线**，运行时保持已验收原状（实测 83 项 /
+63406 B、3 个工具调用成功、额外确认 0、API 全套 320 passed）。分体设计保留在
+`campus-tool-groups.mjs` 中（`registerToolLoader` / `installToolMask`），未接线即无副作用。
+
+诊断能力（本轮新增并保留）：runner 的 stderr 原先固定为 `DEVNULL`，导致插件级死锁**无任何日志**，
+只能靠推断。现新增 `CAMPUS_RUNNER_STDERR=<path>` 显式开启捕获（默认仍丢弃，避免运输细节与模型输入
+进入日志），句柄按轮次持有并在回合结束/提前返回时关闭，避免描述符泄漏；文件以追加方式打开。
+已实测：真实产品路径下开启后文件被创建（健康运行内容为空），且基准与 API 网关 24 项测试通过。
+
+**结论（下一增量的起点）**：问题不在“装在哪个钩子”，而在**该组合下 agent 作用域的工具注册/限制本身**
+会阻塞创建流程。后续应先做一个最小复现（在 agent 作用域只 `register` 一个空工具、不做任何
+`restrict`），据此判断是上游限制还是本仓库的组合方式问题；若不成立，则退回上游 PTC 呈现模式
+（`tool-presentation` 的 `ptc`，需要 host 侧 `dsh-ptc-runtime-node`，基座已挂载该行）。
+
 结论：同环境重复运行差异在 ±12% 内，且方向为持平或略好；**没有出现可重复的明显回退**。
 `pwsh` 是本机进程启动开销（约 0.6 秒）主导，`write`/`read` 约 50 ms 级别；普通本地任务不产生额外确认。
 

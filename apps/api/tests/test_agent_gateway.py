@@ -495,3 +495,28 @@ def test_provider_change_blocks_sending_and_model_budget(gateway, monkeypatch):
         runtime.store.reserve_model(tid)
     with pytest.raises(ApiError, match="上限"):
         runtime.store.reserve_model(tid)
+
+
+def test_runner_stderr_is_discarded_by_default_and_opt_in_capture_is_closed(tmp_path, monkeypatch):
+    """A plugin-level failure is otherwise invisible; the opt-in path must not leak."""
+    from app.agent_bridge import runtime as runtime_module
+
+    instance = runtime_module.Runtime(Store(tmp_path / "journal.sqlite", RunLimits(model_calls=12)),
+                                      tmp_path / "harness", "http://127.0.0.1:19190")
+    monkeypatch.delenv("CAMPUS_RUNNER_STDERR", raising=False)
+    assert instance._runner_stderr("turn_1") is runtime_module.subprocess.DEVNULL
+
+    target = tmp_path / "runner.err"
+    monkeypatch.setenv("CAMPUS_RUNNER_STDERR", str(target))
+    capture = instance._runner_stderr("turn_2")
+    try:
+        assert capture is not runtime_module.subprocess.DEVNULL
+        assert capture.name == str(target)
+        assert capture.mode.startswith("a"), "diagnostics append instead of truncating"
+        instance.stderr_captures["turn_2"] = capture
+        assert instance.stderr_captures["turn_2"] is capture
+    finally:
+        handle = instance.stderr_captures.pop("turn_2", None)
+        if handle is not None:
+            handle.close()
+    assert capture.closed

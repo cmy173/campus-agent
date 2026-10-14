@@ -177,3 +177,10 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 实测：preset 作用域的 `restrict` 对会话 agent 请求无效（84项/64644B）；改到 agent 作用域 `setup` 后同一受控任务降到 **45 项 / 33887 B（−47%）**，3 个工具调用全部成功、额外确认 0（`var/v2-bench-obj8a_o_`、`var/v2-bench-dlaoug8l`）。
 - 实测发现并回退：包装 SDK `agents.create/resume` 注入 `setup` 会破坏工具派发（每次调用只写 `tool/call` 后在 `tools/pre-execute` 前停滞，API 无 `tool-lease` 请求；连普通 `pwsh` 同样复现，关闭特性后仍复现=包装本身问题）。已回退 `campus-sdk.mjs` 与 `campus-plugin.mjs`，**运行时保持已验收原状**（探针任务实测 83 项、`pwsh` 正常）。
 - 因此条件 3 的按需发现记为“掩码验证有效、接线未完成”，下一增量的问题与候选安装点写入 `docs/agent-v2-performance.md`。
+
+## 2026-10-14 增量：安装点全面排除与 runner 诊断能力
+
+- 按候选逐项以真实运行排查按需发现的安装点，四类全部证伪：`agent/created` 内同步安装（创建永不完成）、`agent/created` + `setTimeout(0)` 延后安装、仅向 `agent.ctx` 注册加载工具（掩码关闭）、以及“插件作用域注册加载工具 + 每 agent 仅 `restrict`”的分体设计。据此再次回退接线，**运行时保持已验收原状**：实测 83 项 / 63406 B、3 个工具调用成功、额外确认 0、API 全套 **320 passed**（一次全量运行出现 1 项真实线程计时用例失败，单文件复验 15 passed、全量复验 320 passed，判定为负载下的计时抖动而非回归——已实证而非假定）。
+- 保留分体设计模块（`registerToolLoader` / `installToolMask`），未接线即无副作用；`tools/verify_tool_discovery.py` 仍以 exit 2 + 明确原因报告未接线状态。
+- 新增诊断能力（本轮保留且已验证）：runner stderr 原先固定 `DEVNULL`，插件级死锁完全无日志。现支持 `CAMPUS_RUNNER_STDERR=<path>` 显式捕获（默认仍丢弃，避免运输细节/模型输入进入日志），句柄按轮次持有并在回合结束或提前返回时关闭，追加写入不截断。新增单元测试覆盖默认丢弃、开启捕获、追加模式与关闭；网关 24 项通过；真实产品路径实测文件被创建（健康运行为空）。
+- 结论写入文档：问题不在“装在哪个钩子”，而在该组合下 agent 作用域的工具注册/限制本身阻塞创建；下一步先做最小复现（agent 作用域只注册一个空工具、不做 restrict），否则退回上游 PTC 呈现模式。
