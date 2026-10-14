@@ -29,8 +29,17 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 | `pwsh`（Python 计算）耗时 p50 | 690.4 ms | 628.0 ms |
 | 待确认动作数（普通本地任务应为 0） | 0 | 0 |
 | 落盘文件字节与预期一致 | 是 | 是 |
+| 每次请求携带的工具 schema 数 / 字节 | 未测 | **83 / 63406 B**（第 3 次运行，标签 toolschemas） |
 
-证据：`var/v2-bench-_g6mxube/benchmark-baseline.json`、`var/v2-bench-bymalltp/benchmark-current.json`（本地未提交）。
+证据：`var/v2-bench-_g6mxube/benchmark-baseline.json`、`var/v2-bench-bymalltp/benchmark-current.json`、
+`var/v2-bench-ajqrxmpv/benchmark-toolschemas.json`（本地未提交）。
+
+### 工具 schema 的每轮成本（条件 3 的“按需发现”依据）
+
+第三次运行记录到受控模型**每次请求**都收到 **83 个工具 schema、约 63 KB**（仅 schema 文本，
+不含对话）。这直接量化了当前“全部 schema 每轮入上下文”的代价，约合 1.6–2 万 token 量级。
+上游 `0.2.0-rc.2` 已有的按需形态是 agent preset 的 `tool-presentation`（`native`/`ptc`/`both`，`ptc` 下原生 schema 不下发，改为生成的 SDK + `run_code`），本机 profile 目前未挂该行，
+因此仍按 `native` 全量下发。这是条件 3 尚未完成项的具体证据，而不是主观判断。
 
 结论：同环境重复运行差异在 ±12% 内，且方向为持平或略好；**没有出现可重复的明显回退**。
 `pwsh` 是本机进程启动开销（约 0.6 秒）主导，`write`/`read` 约 50 ms 级别；普通本地任务不产生额外确认。

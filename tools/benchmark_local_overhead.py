@@ -72,6 +72,7 @@ class Provider(BaseHTTPRequestHandler):
     """Controlled local model: one write -> read -> local command -> answer."""
 
     requests_seen: list = []
+    tool_payload: list = []
     lock = threading.Lock()
 
     def log_message(self, *_):
@@ -81,6 +82,9 @@ class Provider(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         with self.lock:
             self.requests_seen.append(time.monotonic())
+            tools = body.get('tools') or []
+            encoded = json.dumps(tools, ensure_ascii=False)
+            self.tool_payload.append({'count': len(tools), 'bytes': len(encoded.encode('utf-8'))})
         messages = body['messages']
         boundary = next(m for m in reversed(messages) if m['role'] == 'user' and '用户消息：\n' in m.get('content', ''))
         results = [m['content'] for m in messages[messages.index(boundary) + 1:] if m['role'] == 'tool']
@@ -115,6 +119,7 @@ def parse_time(value):
 
 def run_once(home: Path, iteration: int) -> dict:
     Provider.requests_seen = []
+    Provider.tool_payload = []
     provider = ThreadingHTTPServer(('127.0.0.1', 0), Provider)
     threading.Thread(target=provider.serve_forever, daemon=True).start()
     port = free_port()
@@ -213,6 +218,10 @@ with SessionLocal() as db:
         result['turns'] = turns
         result['model_requests_total'] = len(Provider.requests_seen)
         result['tool_calls_total'] = sum(turn['tool_calls'] for turn in turns)
+        # Tool schemas shipped on every request: the measured cost of the current
+        # all-schemas presentation (see docs/agent-v2-performance.md).
+        result['tool_schema_count'] = Provider.tool_payload[0]['count'] if Provider.tool_payload else 0
+        result['tool_schema_bytes'] = Provider.tool_payload[0]['bytes'] if Provider.tool_payload else 0
         # Plain local operations must not raise an approval/confirmation prompt.
         confirmations = client.get(base + f'/api/v1/agent/conversations/{cid}/actions', timeout=10).json()
         result['pending_confirmations'] = len(confirmations.get('items', []))
@@ -254,6 +263,8 @@ def main():
                         for name in ('write', 'read', 'pwsh')},
         'pending_confirmations': [r['pending_confirmations'] for r in runs],
         'model_requests_total': [r['model_requests_total'] for r in runs],
+        'tool_schema_count': [r['tool_schema_count'] for r in runs],
+        'tool_schema_bytes': [r['tool_schema_bytes'] for r in runs],
     }
     evidence = {'kind': 'local_overhead_controlled_local_model', 'label': args.label,
                 'started_at': datetime.now(timezone.utc).isoformat(), 'runs': runs, 'summary': summary,
