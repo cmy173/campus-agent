@@ -62,6 +62,9 @@ class Store:
               sha256 TEXT NOT NULL, mime_type TEXT NOT NULL, storage_name TEXT NOT NULL,
               request_key TEXT NOT NULL, created_at TEXT NOT NULL, source_path TEXT NOT NULL DEFAULT '',
               UNIQUE(conversation_id, request_key));
+            CREATE TABLE IF NOT EXISTS runtime_grants (
+              token_hash TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
+              created_at TEXT NOT NULL);
             """)
             if 'attachment_ids' not in {r[1] for r in db.execute('PRAGMA table_info(turns)')}:
                 db.execute("ALTER TABLE turns ADD COLUMN attachment_ids TEXT NOT NULL DEFAULT '[]'")
@@ -175,6 +178,30 @@ class Store:
         if row is None or (cid is not None and row["conversation_id"] != cid):
             raise ApiError(403, "RUNTIME_DENIED", "运行时授权已失效或不属于当前会话")
         return self._turn(row), self.conversation(row["conversation_id"])
+
+    def grant(self, cid: str) -> str:
+        """Mint (or replace) the bridge token a prewarmed runtime boots with.
+
+        A prewarmed runner has to authenticate before the conversation's first turn
+        exists, so the grant is scoped to the conversation rather than to a turn. Only
+        the local loopback runtime ever sees it.
+        """
+        token = secrets.token_urlsafe(32)
+        with self.connection() as db:
+            db.execute('DELETE FROM runtime_grants WHERE conversation_id=?', (cid,))
+            db.execute('INSERT INTO runtime_grants (token_hash, conversation_id, created_at) VALUES (?,?,?)',
+                       (digest(token), cid, now()))
+        return token
+
+    def granted(self, token: str):
+        """The conversation a live grant belongs to, or None."""
+        with self.connection() as db:
+            row = db.execute('SELECT conversation_id FROM runtime_grants WHERE token_hash=?', (digest(token),)).fetchone()
+        return self.conversation(row['conversation_id']) if row is not None else None
+
+    def revoke_grant(self, cid: str):
+        with self.connection() as db:
+            db.execute('DELETE FROM runtime_grants WHERE conversation_id=?', (cid,))
 
     def bind_token(self, tid: str, token: str) -> bool:
         """Point this turn at an already-owned runtime's bridge token.

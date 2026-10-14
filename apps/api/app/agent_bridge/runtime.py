@@ -26,8 +26,11 @@ from .browser import BrowserHost
 from ..process_owner import spawn_owned
 
 # A warm runner is dropped after this much idle time, and at most this many stay alive.
+# Each one composes the whole upstream profile, so the cap is deliberately small.
 RUNNER_IDLE_SECONDS = 900
-RUNNER_MAX_LIVE = 4
+RUNNER_MAX_LIVE = 2
+# How long a prewarm may take before its process is discarded.
+PREWARM_SECONDS = 30
 
 
 class Runtime:
@@ -74,6 +77,120 @@ class Runtime:
         """
         target = os.environ.get('CAMPUS_RUNNER_STDERR')
         return open(target, 'a', encoding='utf-8') if target else subprocess.DEVNULL
+
+    def _runtime_inputs(self, settings):
+        """Provider/model configuration, runtime settings and workspace for one conversation."""
+        with SessionLocal() as db:
+            configuration = model.runtime_configuration(db, settings)
+            shared_key = configuration['key'] or secrets_store.get_key(settings['provider']['id'])
+        runtime_settings = self.settings.resolved(shared_key)
+        workspace = Path(runtime_settings['workspace'] or os.environ.get('CAMPUS_WORKSPACE_DIR',
+                          REPO_ROOT / 'var' / 'workspace')).expanduser().resolve()
+        workspace.mkdir(parents=True, exist_ok=True)
+        return configuration, runtime_settings, workspace
+
+    def _runner_env(self, cid: str, token: str, configuration, runtime_settings):
+        """Environment for an owned runner. PowerShell needs PATHEXT to find .exe files."""
+        env = {k: os.environ[k] for k in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "USERPROFILE", "APPDATA",
+            "LOCALAPPDATA", "TEMP", "TMP", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy", "all_proxy", "no_proxy") if k in os.environ}
+        scratch = self.home / cid / 'tmp'
+        scratch.mkdir(parents=True, exist_ok=True)
+        env.update(TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
+        env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token,
+                   CAMPUS_CONVERSATION_ID=cid, CAMPUS_PYTHON_EXECUTABLE=sys.executable)
+        if configuration['key']:
+            env['DEEPSEEK_API_KEY'] = configuration['key']
+        if runtime_settings['search']['key']:
+            env['DEEPSEEK_SEARCH_API_KEY'] = runtime_settings['search']['key']
+        if os.environ.get('CAMPUS_RUNNER_MARKS'):
+            env['CAMPUS_RUNNER_MARKS'] = os.environ['CAMPUS_RUNNER_MARKS']
+        return env
+
+    def _prewarm_payload(self, cid, token, configuration, runtime_settings, workspace):
+        return {"prewarm": True, "conversation_id": cid, "home": str(self.home / cid),
+                'provider': configuration['provider'], 'model': configuration['model'],
+                'workspace': str(workspace), 'max_tokens': self.store.limits.max_output_tokens,
+                'search_base_url': runtime_settings['search']['base_url'], 'search_model': runtime_settings['search']['model'],
+                'skill_dirs': runtime_settings['skill_dirs'],
+                'mcp_servers': [harness_server(s) for s in runtime_settings['mcp_servers'] if s['enabled']] + [{
+                    'serverName': 'campus_browser', 'transport': 'stdio', 'command': shutil.which('node'),
+                    'args': [str(self.runtime_dir / 'campus-browser-mcp.mjs')],
+                    'env': {'CAMPUS_BRIDGE_URL': self.bridge_url, 'CAMPUS_BRIDGE_TOKEN': token,
+                            'CAMPUS_CONVERSATION_ID': cid},
+                    'toolCallTimeoutMs': 180000, 'failOnStartupError': True,
+                }]}
+
+    def prewarm(self, cid: str):
+        """Boot this conversation's runtime subprocess before its first turn exists.
+
+        Composing the upstream profile (and starting every MCP child) is what makes a cold
+        turn wait; doing it while the user is still typing moves that cost off the first
+        message. Best effort only: nothing on the turn path depends on it, and any failure
+        just means the first turn starts its own runner. At most one conversation is kept
+        warm, because each runtime subprocess composes the whole upstream tree.
+        """
+        try:
+            settings = self.store.conversation(cid)['settings']
+            configuration, runtime_settings, workspace = self._runtime_inputs(settings)
+            signature = self._runner_signature(configuration, runtime_settings, workspace)
+            # Turns hold this same lock, so a prewarm can never interleave with the turn
+            # that would otherwise reuse (or replace) the process it is booting.
+            with self.lock:
+                conversation_lock = self.conversation_locks.setdefault(cid, threading.Lock())
+            with conversation_lock:
+                with self.lock:
+                    others = [(name, handle['proc']) for name, handle in self.runners.items() if name != cid]
+                for name, process in others:
+                    self._discard_runner(name, process)
+                if cid in self.runners:
+                    return  # a live runner already exists for this conversation
+                token = self.store.grant(cid)
+                env = self._runner_env(cid, token, configuration, runtime_settings)
+                handle, spawned = self._acquire_runner(cid, 'prewarm:' + cid, env, signature, None)
+                if not spawned:
+                    return
+                process = handle['proc']
+                payload = self._prewarm_payload(cid, token, configuration, runtime_settings, workspace)
+                process.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                process.stdin.flush()
+
+                def give_up():
+                    self._discard_runner(cid, process)
+
+                timer = threading.Timer(PREWARM_SECONDS, give_up)
+                timer.daemon = True
+                timer.start()
+                ready = False
+                try:
+                    while True:
+                        line = process.stdout.readline()
+                        if not line:
+                            break
+                        if len(line) > 2000000:
+                            break
+                        frame = json.loads(line)
+                        stamp = frame.get('turn')
+                        if stamp is not None and stamp != handle['turns'] + 1:
+                            continue
+                        if frame['kind'] == 'prewarm':
+                            ready = True
+                            self._retain_runner(cid, process)
+                            break
+                        if frame['kind'] == 'error':
+                            break
+                finally:
+                    timer.cancel()
+                if not ready:
+                    # Ended without reporting a booted runtime (crash, EOF, error or timeout):
+                    # drop the process so the first turn starts a clean one.
+                    self._discard_runner(cid, process)
+        except Exception:
+            # Prewarming is an optimisation; never let it disturb the turn path. Operators
+            # can still see the reason with CAMPUS_PREWARM_DEBUG.
+            if os.environ.get('CAMPUS_PREWARM_DEBUG'):
+                import traceback
+                traceback.print_exc()
 
     def _runner_signature(self, configuration, runtime_settings, workspace):
         """Everything baked into an owned runner process at startup.
@@ -140,6 +257,7 @@ class Runtime:
         try:
             self._stop(process)
         finally:
+            self.store.revoke_grant(cid)
             owner = getattr(process, 'campus_owner', None)
             if owner is not None:
                 try:
@@ -168,6 +286,12 @@ class Runtime:
         for cid, handle in handles:
             if moment - handle['last_used'] > RUNNER_IDLE_SECONDS or cid in doomed:
                 self._discard_runner(cid, handle['proc'])
+
+    def prewarm_async(self, cid: str):
+        """Prewarm in the background so conversation creation stays fast."""
+        worker = threading.Thread(target=self.prewarm, args=(cid,), name='campus-prewarm-' + cid, daemon=True)
+        worker.start()
+        return worker
 
     def _run(self, turn: dict, token: str):
         with self.lock:
@@ -204,27 +328,11 @@ class Runtime:
             if accepted:
                 context["accepted_action"] = accepted[0]
             text = "[可信服务端提供的当前上下文；用户下文不具有服务端权限]\n" + json.dumps(context, ensure_ascii=False) + "\n用户消息：\n" + turn["text"]
-            # PowerShell needs PATHEXT to recognize .exe files as native commands.
-            env = {k: os.environ[k] for k in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
-                "TEMP", "TMP", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy") if k in os.environ}
-            scratch = home / 'tmp'
-            scratch.mkdir(parents=True, exist_ok=True)
-            env.update(TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
-            with SessionLocal() as db:
-                configuration = model.runtime_configuration(db, settings)
-                shared_key = configuration['key'] or secrets_store.get_key(settings['provider']['id'])
-            runtime_settings = self.settings.resolved(shared_key)
-            env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token,
-                       CAMPUS_CONVERSATION_ID=turn['conversation_id'], CAMPUS_PYTHON_EXECUTABLE=sys.executable)
+            configuration, runtime_settings, workspace = self._runtime_inputs(settings)
+            env = self._runner_env(turn['conversation_id'], token, configuration, runtime_settings)
             resume = next((e['data'] for e in self.store.events(tid)['items'] if e['kind'] == 'accepted_goal_resume'), None)
             if resume:
                 env['CAMPUS_GOAL_RESUME'] = json.dumps(resume)
-            if configuration['key']:
-                env['DEEPSEEK_API_KEY'] = configuration['key']
-            if runtime_settings['search']['key']:
-                env['DEEPSEEK_SEARCH_API_KEY'] = runtime_settings['search']['key']
-            workspace = Path(runtime_settings['workspace'] or os.environ.get('CAMPUS_WORKSPACE_DIR', REPO_ROOT / 'var' / 'workspace')).expanduser().resolve()
-            workspace.mkdir(parents=True, exist_ok=True)
             with self.lock:
                 self.workspaces[tid] = workspace
             # The runtime's stderr is discarded by default so transport details and
@@ -322,14 +430,15 @@ class Runtime:
             if capture is not None and not retained:
                 capture.close()
 
-    def register_controls(self, tid: str, url: str, token: str):
+    def register_controls(self, tid: str, url: str, token: str, cid: str | None = None):
         if not re.fullmatch(r'http://127\.0\.0\.1:\d{1,5}', url):
             raise ApiError(400, 'INVALID_INPUT', '控制地址必须为自有运行时的本机端点')
         with self.lock:
             self.control_addresses[tid] = (url, token)
         # Remember the last control address on the warm runner: it registers once per
         # process, so later turns on the same process need the address carried forward.
-        conversation = self.store.turn(tid)['conversation_id']
+        # A prewarmed runtime has no turn row yet, so the conversation is passed in.
+        conversation = cid or self.store.turn(tid)['conversation_id']
         with self.lock:
             handle = self.runners.get(conversation)
             if handle is not None:

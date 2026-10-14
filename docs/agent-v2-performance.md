@@ -281,6 +281,66 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 
 条件 9 判定：**对照已记录、可重复明显回退已诊断并修复后复测通过**；每会话一次的冷启动作为已知限制记录。
 
+## 冷启动预热（2026-10-14，第二轮优化）
+
+### 诊断：约 5 秒全在 runtime 子进程启动里
+
+给 `runner.mjs` 加了**可选**启动埋点（`CAMPUS_RUNNER_MARKS`，与 `CAMPUS_RUNNER_STDERR` 同样的显式开关，
+默认不输出）。实测冷启动分段：
+
+| 阶段 | 冷启动耗时 |
+| --- | --- |
+| 进程起 → runner 模块加载完成（含 SDK import） | **74 ms** |
+| → profile 写入完成 | 90 ms |
+| → 构造 `DeepSeekHarness` | 93 ms |
+| → `harness.run()` 返回（含本轮两次模型往返与一次工具） | **5083 ms** |
+
+即：**runner 自身的 Node 模块加载只有 74 ms，约 5 秒全部在 `harness.run()` 里**——上游 runtime 子进程的启动：
+组装完整 `@deepseek-ai/dsh-base`（93 插件）+ 起浏览器 MCP 子进程 + 建会话。
+
+### 修法：在会话创建时预热 runtime 子进程
+
+上游 SDK 的 `DeepSeekHarness.start()` 可以只做“起子进程 + initialize 握手”，不跑任何一轮，
+所以把这段搬到**会话创建时**（用户还在打字）执行：
+
+- `runner.mjs`：新增 `{prewarm:true, ...}` 帧，命中时 `await harness.start()` 后回 `{kind:'prewarm'}`；
+  harness 构建抽成 `ensureHarness()`，正式轮次复用同一个 harness。
+- `runtime.py`：新增 `prewarm(cid)` / `prewarm_async(cid)`——用**会话级 grant token**（`store.grant`）
+  启动 runner，读到 `prewarm` 帧即保留该进程；失败/超时/EOF 一律回收；预热与轮次**共用同一会话锁**，
+  不会互相插入；warm 进程上限降到 2。
+- `store.py`：新增 `runtime_grants` 表与 `grant/granted/revoke_grant`；`routers/agent.py` 的
+  `runtime_authority` 在轮次 token 查不到时回退到 grant，仅用于**会话级**网关调用。
+- 预热期的两个启动调用改为可用：`/internal/control-address` 直接带上会话 id（不再回查轮次行）；
+  `/internal/browser` 允许预热态做 `method:'tools'`（纯工具发现）——**实测不会因此拉起浏览器**
+  （预热后 `agent/browser/` 下没有 `profile/`，也没有新的 Edge 进程）。
+- `POST /conversations` 只启动后台线程，不阻塞创建请求。
+
+### 实测（同机同夹具同任务，2 次运行 × 每轮 2 次；会话创建后 12 秒才发第一条消息）
+
+| 指标 | 预热前 | **预热后** |
+| --- | --- | --- |
+| 第 1 轮：入队 → 首个模型请求 | 4812 / 4672 ms | **406 / 375 ms** |
+| 第 1 轮：入队 → 轮次结束 | 5141 / 5047 ms | **797 / 750 ms** |
+| 第 2 轮：入队 → 首个模型请求 | 156 / 172 ms | 203 / 187 ms |
+| 中位数（首个请求 / 轮次结束） | 2422 / 2734.5 ms | **289 / 632.5 ms** |
+
+结论：**第一条消息的等待从约 5.1 秒降到约 0.78 秒（约 6.5×）**，之后每轮都在 0.5 秒量级。
+诚实限定：预热是后台进行的，若用户在 runtime 起来之前就发消息，剩余部分仍要等；它消除的是
+“每开一个新会话都要等 5 秒”的固定成本，而不是把启动本身变快。
+
+正确性同步复验（全部通过）：API **331 passed**（含新增 9 项复用/预热测试）、根回归+启动器
+**203 passed + 80 subtests**、`verify_agent_runtime.py` **ok=true（83 次受控调用）**、按需发现 exit 0、
+调度 ok、原生目标 ok、子任务控制 ok、工具分组 PASS、进程归属 ok。
+
+修复过程中由复验抓出（而非设计推断）的两个真实问题：
+
+1. 预热启动时 `/internal/control-address` 与 `/internal/browser` 返回 **404**：它们按轮次查会话行，
+   而预热还没有轮次行。上面两条改动解决。
+2. 预热线程与第一轮**竞态**：预热失败回收进程会撤销 grant，而该轮已把 grant 绑到自己身上 → 之后读
+   goal-state 失败，整轮 `HARNESS_FAILED`（完整集成首次复跑即失败，修好后 83 次调用通过）。
+   现在预热与轮次共用会话锁。
+
+
 ## 使用约定
 
 - 不要把远程模型耗时混入本基准；需要远程数字时单独记录并标注提供方与时延。

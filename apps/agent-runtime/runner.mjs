@@ -9,6 +9,14 @@ import { runWithGoalLifecycle } from './goal-lifecycle.mjs';
 // usage; restarting it per turn would re-compose the whole profile (and every MCP child)
 // before the model is ever asked anything. The API replaces this process whenever a
 // profile-affecting setting changes, so the profile below stays valid for its lifetime.
+// Opt-in boot marks (CAMPUS_RUNNER_MARKS, captured through CAMPUS_RUNNER_STDERR). A cold
+// runner spends seconds composing the upstream tree and its MCP children before the model
+// is ever asked anything, so operators need a way to see where that time goes.
+const mark = process.env.CAMPUS_RUNNER_MARKS
+  ? label => process.stderr.write('MARK ' + label + ' ' + Math.round(performance.now()) + '\n')
+  : () => {};
+mark('modules-loaded');
+
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const pending = [];
 let wake = null, closed = false, cancelled = false, turn = 0;
@@ -39,39 +47,63 @@ lines.on('close', () => {
 });
 process.on('SIGTERM', () => { cancelled = true; if (harness) void harness.close(); });
 
+async function ensureHarness(input) {
+  if (harness !== null) return;
+  profile = await prepareProfile(input.home, { workspace: input.workspace, maxTokens: input.max_tokens,
+    searchBaseURL: input.search_base_url, searchModel: input.search_model, skillDirs: input.skill_dirs,
+    mcpServers: input.mcp_servers });
+  mark('profile-written');
+  harness = new DeepSeekHarness({
+    ...profile, provider: input.provider ?? 'campus-model', model: input.model ?? 'configured-campus-provider',
+    cwd: input.workspace ?? process.cwd(),
+    processCwd: process.cwd(), initializeTimeoutMs: 60000, maxTokens: input.max_tokens ?? 16384,
+    shutdownTimeoutMs: 1000, disposeEofGraceMs: 2000, disposeGraceMs: 1000,
+    env: { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT, ComSpec: process.env.ComSpec,
+      SystemRoot: process.env.SystemRoot, USERPROFILE: process.env.USERPROFILE,
+      APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA,
+      HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY,
+      ALL_PROXY: process.env.ALL_PROXY, NO_PROXY: process.env.NO_PROXY,
+      http_proxy: process.env.http_proxy, https_proxy: process.env.https_proxy,
+      all_proxy: process.env.all_proxy, no_proxy: process.env.no_proxy,
+      TEMP: process.env.TEMP, TMP: process.env.TMP,
+      CAMPUS_BRIDGE_URL: process.env.CAMPUS_BRIDGE_URL, CAMPUS_BRIDGE_TOKEN: process.env.CAMPUS_BRIDGE_TOKEN,
+      CAMPUS_CONVERSATION_ID: process.env.CAMPUS_CONVERSATION_ID,
+      CAMPUS_GOAL_RESUME: process.env.CAMPUS_GOAL_RESUME,
+      CAMPUS_PYTHON_EXECUTABLE: process.env.CAMPUS_PYTHON_EXECUTABLE,
+      CAMPUS_MCP_CREDENTIALS: mcpCredentialEnvironment(input.mcp_servers),
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, DEEPSEEK_SEARCH_API_KEY: process.env.DEEPSEEK_SEARCH_API_KEY },
+  });
+}
+
 try {
   for (;;) {
     const input = await nextFrame();
     if (!input) break;
     turn += 1;
     cancelled = false;
-    if (harness === null) {
-      profile = await prepareProfile(input.home, { workspace: input.workspace, maxTokens: input.max_tokens,
-        searchBaseURL: input.search_base_url, searchModel: input.search_model, skillDirs: input.skill_dirs,
-        mcpServers: input.mcp_servers });
-      harness = new DeepSeekHarness({
-        ...profile, provider: input.provider ?? 'campus-model', model: input.model ?? 'configured-campus-provider',
-        cwd: input.workspace ?? process.cwd(),
-        processCwd: process.cwd(), initializeTimeoutMs: 60000, maxTokens: input.max_tokens ?? 16384,
-        shutdownTimeoutMs: 1000, disposeEofGraceMs: 2000, disposeGraceMs: 1000,
-        env: { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT, ComSpec: process.env.ComSpec,
-          SystemRoot: process.env.SystemRoot, USERPROFILE: process.env.USERPROFILE,
-          APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA,
-          HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY,
-          ALL_PROXY: process.env.ALL_PROXY, NO_PROXY: process.env.NO_PROXY,
-          http_proxy: process.env.http_proxy, https_proxy: process.env.https_proxy,
-          all_proxy: process.env.all_proxy, no_proxy: process.env.no_proxy,
-          TEMP: process.env.TEMP, TMP: process.env.TMP,
-          CAMPUS_BRIDGE_URL: process.env.CAMPUS_BRIDGE_URL, CAMPUS_BRIDGE_TOKEN: process.env.CAMPUS_BRIDGE_TOKEN,
-          CAMPUS_CONVERSATION_ID: process.env.CAMPUS_CONVERSATION_ID,
-          CAMPUS_GOAL_RESUME: process.env.CAMPUS_GOAL_RESUME,
-          CAMPUS_PYTHON_EXECUTABLE: process.env.CAMPUS_PYTHON_EXECUTABLE,
-          CAMPUS_MCP_CREDENTIALS: mcpCredentialEnvironment(input.mcp_servers),
-          DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, DEEPSEEK_SEARCH_API_KEY: process.env.DEEPSEEK_SEARCH_API_KEY },
-      });
+    if (input.prewarm) {
+      // Boot the runtime subprocess (profile tree plus every MCP child) before the user's
+      // first message exists, so that turn does not pay it. Requires a bridge grant, since
+      // no turn token exists yet; the API only prewarms when it can mint one.
+      try {
+        await ensureHarness(input);
+        mark('prewarm-start');
+        const started = performance.now();
+        await harness.start();
+        mark('prewarm-ready');
+        if (!cancelled) emit({ kind: 'prewarm', data: { conversation_id: input.conversation_id,
+          ms: Math.round(performance.now() - started) } });
+      } catch {
+        if (!cancelled) emit({ kind: 'error', data: { code: 'PREWARM_FAILED', message: '运行时预热未完成', retryable: true } });
+        break;
+      }
+      continue;
     }
+    await ensureHarness(input);
+    if (harness === null) break;
     try {
       emit({ kind: 'runtime', data: { version: '0.2.0-rc.2', bundles: profile.bundles, plugins: profile.entries, provider: input.provider ?? 'campus-model' } });
+      mark('turn-start');
       const result = await runWithGoalLifecycle(harness, input.text, {
         sessionId: input.conversation_id,
         isCancelled: () => cancelled,
@@ -97,10 +129,15 @@ try {
           } else emit({ kind: 'runtime_progress', data: { method: notification.method } });
         },
       });
+      mark('turn-done');
       if (!cancelled) emit({ kind: 'result', data: {
         conversation_id: result.sessionId, response: result.finalResponse, event_count: result.eventCount,
       } });
-    } catch {
+    } catch (error) {
+      // stderr is discarded unless the operator opts in, so this leaks nothing by default.
+      if (process.env.CAMPUS_RUNNER_MARKS) {
+        process.stderr.write('TURN FAILED ' + String((error && error.stack) || error) + '\n');
+      }
       if (!cancelled) emit({ kind: 'error', data: { code: 'HARNESS_FAILED', message: 'Harness 本轮未完成，请检查模型或工具错误记录', retryable: true } });
       // A failed turn may have left the harness in an unknown state; end the process so
       // the API starts a clean one instead of reusing this one.

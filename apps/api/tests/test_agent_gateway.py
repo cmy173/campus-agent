@@ -43,6 +43,9 @@ def gateway(tmp_path, monkeypatch):
         tokens[turn["id"]] = token
 
     monkeypatch.setattr(runtime, "start", fake_start)
+    # Prewarming boots a real runtime subprocess; gateway tests exercise the HTTP and
+    # journal contract with a fake runner, so keep the optimisation out of them.
+    monkeypatch.setattr(runtime, "prewarm_async", lambda cid: None)
     monkeypatch.setattr(runtime, "check_available", lambda: None)
     monkeypatch.setattr("app.agent_bridge.runtime.get_runtime", lambda: runtime)
     monkeypatch.setattr("app.routers.agent.get_runtime", lambda: runtime)

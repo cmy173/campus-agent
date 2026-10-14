@@ -8,6 +8,7 @@ and every case that must replace the process really does.
 from __future__ import annotations
 
 import io
+import json
 import time
 
 import pytest
@@ -19,6 +20,7 @@ from app.agent_bridge.store import Store
 class FakeStore:
     def __init__(self):
         self.bound = []
+        self.grants = {}
         self.limits = type('Limits', (), {'max_output_tokens': 16384})()
 
     def bind_token(self, tid, token):
@@ -28,14 +30,34 @@ class FakeStore:
     def turn(self, tid):
         return {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running'}
 
+    def conversation(self, cid, owner=None):
+        return {'id': cid, 'settings': {'provider': {'id': 'provider_a'}, 'course_ids': []}}
+
+    def grant(self, cid):
+        token = 'grant-' + cid
+        self.grants[cid] = token
+        return token
+
+    def granted(self, token):
+        for cid, value in self.grants.items():
+            if value == token:
+                return self.conversation(cid)
+        return None
+
+    def revoke_grant(self, cid):
+        self.grants.pop(cid, None)
+
+    def events(self, tid, after=0):
+        return {'items': []}
+
 
 class FakeProcess:
-    def __init__(self, pid=4242):
+    def __init__(self, pid=4242, stdout=''):
         self.pid = pid
         self.stdin = io.StringIO()
+        self.stdout = io.StringIO(stdout)
         self.campus_owner = None
         self.alive = True
-        self.stopped = 0
 
     def poll(self):
         return None if self.alive else 1
@@ -130,3 +152,51 @@ def test_close_stops_warm_runners(runtime):
     runtime.close()
     assert runtime.runners == {}
     assert first['proc'].alive is False
+
+
+def prewarm(runtime, cid='conv_reuse'):
+    return runtime.prewarm(cid)
+
+
+def test_prewarm_boots_the_runtime_and_the_first_turn_reuses_it(runtime, monkeypatch):
+    runtime.home = runtime.store and runtime.home  # keep the fixture path
+    monkeypatch.setattr(runtime, '_runtime_inputs',
+                        lambda settings: ({'provider': 'p', 'model': 'm', 'key': None},
+                                          {'search': {'key': None, 'base_url': '', 'model': ''}, 'skill_dirs': [],
+                                           'mcp_servers': [], 'workspace': ''}, runtime.home))
+    monkeypatch.setattr(runtime, '_runner_env', lambda cid, token, *rest: {'CAMPUS_BRIDGE_TOKEN': token})
+    monkeypatch.setattr(runtime, '_runner_signature', lambda *rest: 'sig')
+    spawned = []
+
+    def spawn(*args, **kwargs):
+        process = FakeProcess(pid=6000 + len(spawned),
+                              stdout=json.dumps({'kind': 'prewarm', 'data': {'ms': 1}, 'turn': 1}) + '\n')
+        spawned.append(process)
+        return process
+
+    monkeypatch.setattr(runtime_module, 'spawn_owned', spawn)
+    prewarm(runtime)
+    handle = runtime.runners['conv_reuse']
+    assert handle['proc'] is spawned[0]
+    assert handle['turns'] == 1, 'the prewarm consumed the first frame slot'
+    assert '"prewarm": true' in spawned[0].stdin.getvalue()
+    assert runtime.store.grants['conv_reuse'] == handle['token']
+
+    # The next turn must reuse the booted process and be addressable by its grant token.
+    reused, newly = acquire(runtime, 'turn_1', signature='sig', token='turn-token')
+    assert newly is False and reused is handle
+    assert runtime.store.bound == [('turn_1', handle['token'])]
+
+
+def test_prewarm_failure_discards_the_process(runtime, monkeypatch):
+    monkeypatch.setattr(runtime, '_runtime_inputs',
+                        lambda settings: ({'provider': 'p', 'model': 'm', 'key': None},
+                                          {'search': {'key': None, 'base_url': '', 'model': ''}, 'skill_dirs': [],
+                                           'mcp_servers': [], 'workspace': ''}, runtime.home))
+    monkeypatch.setattr(runtime, '_runner_env', lambda cid, token, *rest: {'CAMPUS_BRIDGE_TOKEN': token})
+    monkeypatch.setattr(runtime, '_runner_signature', lambda *rest: 'sig')
+    monkeypatch.setattr(runtime_module, 'spawn_owned',
+                        lambda *a, **k: FakeProcess(pid=7001, stdout=''))  # EOF: boot never reported
+    prewarm(runtime, 'conv_broken')
+    assert runtime.runners == {}
+    assert 'conv_broken' not in runtime.store.grants

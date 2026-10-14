@@ -159,7 +159,7 @@ def parse_time(value):
     return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
 
 
-def run_once(home: Path, iteration: int) -> dict:
+def run_once(home: Path, iteration: int, first_turn_delay: float = 0.0) -> dict:
     Provider.requests_seen = []
     Provider.tool_payload = []
     Provider.tool_names = []
@@ -222,6 +222,10 @@ with SessionLocal() as db:
 
         turns = []
         for run in range(2):
+            if run == 0 and first_turn_delay:
+                # Simulate a user typing after the conversation was created, which is when
+                # the API prewarms the runtime; without this the first turn is unavoidable.
+                time.sleep(first_turn_delay)
             requests_before = len(Provider.requests_seen)
             answers_before = len(Provider.final_answers)
             results_before = len(Provider.tool_results)
@@ -312,14 +316,17 @@ def main():
     parser.add_argument('--label', default='baseline')
     parser.add_argument('--runs', type=int, default=2)
     parser.add_argument('--task', default='local-files', choices=TASKS)
+    parser.add_argument('--first-turn-delay', type=float, default=0.0,
+                        help='seconds to wait after creating the conversation before turn 1 (simulated typing)')
     args = parser.parse_args()
     global TASK
     TASK = args.task
     (ROOT / 'var').mkdir(exist_ok=True)
     home = Path(tempfile.mkdtemp(prefix='v2-bench-', dir=ROOT / 'var'))
-    runs = [run_once(home, index + 1) for index in range(args.runs)]
+    runs = [run_once(home, index + 1, args.first_turn_delay) for index in range(args.runs)]
     summary = {
         'task': TASK,
+        'first_turn_delay_s': args.first_turn_delay,
         'startup_ms_median': round(statistics.median([r['startup_ms'] for r in runs]), 1),
         'first_event_ms_median': round(statistics.median(
             [t['enqueued_to_first_event_ms'] for r in runs for t in r['turns']]), 1),

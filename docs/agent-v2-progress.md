@@ -424,6 +424,44 @@ owner cookie **取消本轮**，避免在用户实例上留下悬挂回合。
 最小解锁条件（现在有实测依据）：在**应用自有浏览器**里登录 `https://webvpn.zju.edu.cn/login`（上网账号，含验证码），
 完成后我重跑 `tools/verify_real_school_browser.py --base-url <实例>`，即可完成条件 5 的只读真实试用。
 
+## 2026-10-14 增量：用户登录后重跑校园只读试用（读取半边真实成立）＋ 冷启动预热
+
+### 条件 5：登录态浏览器**确实读到了校方页面**（真实证据）
+
+用户登录 WebVPN 后重跑 `tools/verify_real_school_browser.py`（真实官方模型 + 真实 Edge，
+证据 `var/real-school-browser-20261014-205127|205855|211018/`）：
+
+- 访问 `.../jwglxt/xtgl/login_ssologin.html` 不再跳登录页，落到
+  `.../jwglxt/xtgl/index_initMenu.html`，**页面标题「本科教学管理信息服务平台」**；
+- `browser_evaluate` 读到真实内容：通知公告列表里出现
+  「关于9月24日下午控制学号访问教务系统的通知」「【置顶】航空航天学院关于开设全英文…」等条目与 `xwbh` 编号；
+- `browser_click` 的定位器解析到真实元素 `<a title="通知公告" … href="/https/7772…">`（登录态下的真实导航）。
+
+即：**“登录态浏览器读取真实校方页面”这一半已在真实环境成立**，且走的是产品路径
+（`campus_webvpn_entry` → 浏览器工具 → 页面内容）。
+
+**未完成的一半**：由模型汇总并下载一个校方文件。四次试用中浏览器工具全部正常返回（一次 10 秒点击超时），
+但每轮在最后一次工具结果之后**再无事件**，直到脚本超时取消：这不是浏览器失败，而是真实模型请求在 WebVPN
+延迟下停住（应用实例的 `turn_seconds` 内未产出终态）。已按纪律清理：脚本用自己持有的 owner cookie 取消本轮；
+更早那次悬挂回合由我停掉自己那个 runner 进程（PID 41484）后落为 `failed`，journal 里没有遗留 running 轮次。
+
+### 冷启动预热：第一条消息 5.1 秒 → 0.78 秒
+
+- 先用可选埋点量出：runner 自身模块加载仅 **74 ms**，约 5 秒全在 `harness.run()`（上游 runtime 子进程组装
+  93 插件 + 浏览器 MCP 子进程 + 建会话）。
+- 于是把 `DeepSeekHarness.start()` 搬到**会话创建时**后台执行：新增会话级 grant token（`runtime_grants` 表）、
+  `Runtime.prewarm/prewarm_async`、runner 的 `{prewarm:true}` 帧，以及预热态可用的两个启动调用
+  （`/internal/control-address` 带会话 id、`/internal/browser` 允许 `method:'tools'`）。预热不会拉起浏览器。
+- 实测（2 次运行 × 每轮 2 次，创建会话后 12 秒才发第一条消息）：**第 1 轮首个模型请求 4812/4672 → 406/375 ms**，
+  第 1 轮总时长 5141/5047 → **797/750 ms**；中位数首请求 2422 → **289 ms**。
+- 复验全绿：API **331 passed**（含 9 项复用/预热测试）、根回归+启动器 **203 + 80 subtests**、
+  集成 **ok=true（83 次调用）**、按需发现/调度/目标/子任务/工具分组/进程归属全部通过。
+- 复验抓出并修掉两个真实问题：预热启动的两个网关调用 404（按轮次查行，而预热没有轮次行）；
+  预热线程与第一轮的竞态（预热失败回收时撤销 grant，而该轮已绑定它 → `HARNESS_FAILED`），现共用会话锁。
+  另把 runner 的轮次异常在 `CAMPUS_RUNNER_MARKS` 下写 stderr，避免再出现“只看到 HARNESS_FAILED 看不到原因”。
+- 详细数字与限定见 `docs/agent-v2-performance.md`「冷启动预热」。
+
+
 
 
 

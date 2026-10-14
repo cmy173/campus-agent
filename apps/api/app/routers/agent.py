@@ -159,7 +159,18 @@ def runtime_authority(authorization: str | None = Header(default=None)) -> tuple
     if not authorization or not authorization.startswith("Bearer "):
         raise ApiError(403, "RUNTIME_DENIED", "内部网关需要本轮运行时授权")
     runtime = get_runtime()
-    turn, conversation = runtime.store.runtime(authorization[7:])
+    token = authorization[7:]
+    try:
+        turn, conversation = runtime.store.runtime(token)
+    except ApiError:
+        # A prewarmed runtime boots before its conversation's first turn exists, so its
+        # conversation-scoped grant may only be used for conversation-level bridge calls;
+        # no turn-scoped effect can come from it.
+        conversation = runtime.store.granted(token)
+        if conversation is None:
+            raise
+        turn = {"id": "prewarm:" + conversation["id"], "conversation_id": conversation["id"],
+                "status": "queued", "text": "", "attachment_ids": []}
     return runtime, turn, conversation
 
 
@@ -211,7 +222,16 @@ def internal_browser(req: BrowserToolRequest, auth=Depends(runtime_authority)):
     runtime, turn, conversation = auth
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'SCOPE_DENIED', '浏览器调用不属于本轮会话')
-    with runtime.call_lock(turn['id']):
+    prewarming = str(turn['id']).startswith('prewarm:')
+    if prewarming and req.method != 'tools':
+        # A prewarmed runtime may discover the browser tools, but nothing may act on a
+        # turn that does not exist yet.
+        raise ApiError(409, 'TURN_NOT_RUNNING', '预热中的运行时只能发现浏览器工具')
+    lock_key = turn['id'] if not prewarming else 'browser:' + conversation['id']
+    with runtime.call_lock(lock_key):
+        if prewarming:
+            return runtime.browser.rpc(conversation['id'], req.method, name=req.name,
+                                       arguments=req.arguments, turn_id=turn['id'])
         if runtime.store.turn(turn['id'])['status'] != 'running':
             raise ApiError(409, 'TURN_STOPPED', '本轮正在停止，不再启动浏览器操作')
         result = runtime.browser.rpc(conversation['id'], req.method, name=req.name, arguments=req.arguments, turn_id=turn['id'])
@@ -262,6 +282,9 @@ def create_conversation(req: ConversationRequest, owner: str = Depends(browser_o
     connection_ids = list(db.scalars(select(m.Connection.id)))
     item = get_runtime().store.create(owner, {"provider": model.snapshot(cfg), "send_to_provider": True,
         "course_ids": course_ids, "connection_ids": connection_ids, "job_ids": [], "current_course_id": req.course_id})
+    # Start the runtime while the user is still typing: composing the upstream profile is
+    # what makes a cold first turn wait. Best effort and never on the request path.
+    get_runtime().prewarm_async(item["id"])
     return public_conversation(item)
 
 
@@ -389,7 +412,7 @@ def internal_control_address(req: ControlAddressRequest, authority=Depends(runti
     runtime, turn, conversation = authority
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
-    runtime.register_controls(turn['id'], req.url, authorization[7:])
+    runtime.register_controls(turn['id'], req.url, authorization[7:], conversation['id'])
     return {'ok': True}
 
 
