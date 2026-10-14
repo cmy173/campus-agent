@@ -21,6 +21,91 @@ WEB = ROOT / "apps" / "web"
 PYTHON = API / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def base_python():
+    """Interpreter used to create the project venv.
+
+    `sys.executable` is often *another* project's venv interpreter (for example when
+    a helper script calls this launcher), and building a venv from a venv is not
+    portable — on Windows it failed with WinError 5. Prefer the base interpreter the
+    running one was created from, and fall back to `sys.executable`.
+    """
+    if sys.prefix == sys.base_prefix:
+        return sys.executable
+    candidates = ([Path(sys.base_prefix) / "python.exe"] if os.name == "nt"
+                  else [Path(sys.base_prefix) / "bin" / name for name in ("python3", "python")])
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+def venv_usable(python_path=None, creationflags=0):
+    """True when the project interpreter exists and can actually start."""
+    interpreter = Path(python_path or PYTHON)
+    if not interpreter.exists():
+        return False, f"缺少解释器 {interpreter}"
+    try:
+        probe = subprocess.run([str(interpreter), "-c", "import sys"],
+                               creationflags=creationflags, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+    except OSError as error:
+        return False, f"{type(error).__name__}: {error}"
+    if probe.returncode == 0:
+        return True, ''
+    return False, probe.stderr.decode("utf-8", "replace").strip()[-300:]
+
+
+def ensure_project_venv(api_dir=None, creationflags=0, attempts=3):
+    """Create the project venv and verify the interpreter actually works.
+
+    Windows antivirus real-time scanning can briefly lock a file in a freshly
+    extracted tree, so `python -m venv` sometimes produces a complete environment
+    and still exits non-zero (observed: `Permission denied: pyvenv.cfg` while the
+    interpreter and pip were already in place). The requirement is a usable
+    interpreter, not an exit code, so validate that and retry a bounded number of
+    times before reporting the real failure.
+    """
+    target = Path(api_dir or API) / ".venv"
+    interpreter = target / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    last = ''
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run([base_python(), "-m", "venv", str(target)],
+                                creationflags=creationflags, stdin=subprocess.DEVNULL,
+                                stdout=sys.stdout, stderr=sys.stderr, check=False)
+        usable, detail = venv_usable(interpreter, creationflags)
+        if usable:
+            if result.returncode != 0:
+                print(f"虚拟环境已可用（创建命令返回 {result.returncode}，属临时文件占用；已按可用性判定）。", flush=True)
+            return
+        last = detail
+        print(f"虚拟环境创建/校验第 {attempt} 次未通过，稍后重试…", flush=True)
+        time.sleep(1.5)
+    raise SystemExit(f"无法创建可用的 Python 虚拟环境（{target}）。最后错误：{last}")
+
+
+def npm_environment(environ=None):
+    """Environment for our own `npm ci` runs.
+
+    npm reads every `npm_config_*` variable as configuration, so the launcher must
+    not forward the markers an *outer* npm run injected into its children: a wrapper
+    that ran us through `npm exec --allow-scripts ...` otherwise made `npm ci` fail
+    with `EALLOWSCRIPTS --allow-scripts is not allowed in project-scoped installs`.
+    Real configuration (registry, cache, proxy, certs) is still inherited.
+    """
+    env = dict(os.environ if environ is None else environ)
+    # Windows environment names are case-insensitive and `os.environ` upper-cases
+    # them, so removal has to be case-insensitive to actually match.
+    blocked = {"npm_command", "npm_lifecycle_event", "npm_lifecycle_script", "npm_config_allow_scripts"}
+    for name in [key for key in env if key.lower() in blocked]:
+        env.pop(name, None)
+    return env
+
+
+def npm_install(npm, directory, run):
+    """Run `npm ci` for a project directory with a sanitized npm environment."""
+    run([npm, "ci"], cwd=directory, env=npm_environment())
+
+
 def free_port(port):
     with socket.socket() as sock:
         try:
@@ -101,7 +186,7 @@ def main():
         if blockers:
             raise SystemExit(f"本项目网页服务仍在运行（进程 {', '.join(map(str, blockers))}），会锁住依赖文件。请先停止该网页服务再初始化；尚未执行安装。")
         if not PYTHON.exists():
-            run([sys.executable, "-m", "venv", str(API / ".venv")])
+            ensure_project_venv(API, child_flags)
         print("正在安装 Python 依赖…", flush=True)
         build_locked = API / "build-requirements-lock.txt"
         if build_locked.exists():
@@ -124,9 +209,9 @@ def main():
         if not npm:
             raise SystemExit("请先安装 Node.js（含 npm）")
         print("正在安装网页依赖；请等待完成…", flush=True)
-        run([npm, "ci"], cwd=WEB)
+        npm_install(npm, WEB, run)
         print("正在安装锁定的 Agent Harness 运行时…", flush=True)
-        run([npm, "ci"], cwd=ROOT / "apps" / "agent-runtime")
+        npm_install(npm, ROOT / "apps" / "agent-runtime", run)
         print("依赖初始化完成；默认使用已安装的 Edge，无需下载额外浏览器。")
         return
     if not PYTHON.exists():

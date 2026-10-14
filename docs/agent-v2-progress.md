@@ -41,7 +41,7 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 
 | 条件 | 状态 | 当前证据 / 尚缺 |
 | --- | --- | --- |
-| 1 唯一源码与安装启动 | 进行中 | 主目录独立安装/构建/启动已验证；旧服务器删除后唯一入口 `tools/dev.py` 仍通过 `--check`/`--smoke-test`；最终干净重建仍待验收 |
+| 1 唯一源码与安装启动 | 已验证（合成范围） | 全新目录（仅跟踪文件 679 个）`--setup` exit 0（53 锁定 wheel + 180 网页包 + 540 运行时包）→ `--check` exit 0 → 生产构建 exit 0 → 真实 Harness 集成 77 次受控调用 exit 0；旧服务器已删除；真实账号/模型试用仍缺 |
 | 2 迁移与旧代码删除 | 已验证（合成范围） | 旧 `campus_agent` 应用整体删除（服务器/静态UI/旧模型转发/旧抽取管线/旧Store/旧调度/旧本地账号）；校园协议单份位于 `connectors/campus`；保留断言改挂到迁移实现（191项+80subtests）；旧库只读导入仍可用；真实校园账号试用与真实旧库导入仍缺 |
 | 3 全部 C 档能力 | 进行中 | 文件/代码/Skills/MCP/文档/双子任务/持久目标/本机调度均已实际执行；按需发现的分组掩码已验证有效（83项/63KB → 45项/34KB），但**尚未安全接线**；真实搜索/模型仍缺 |
 | 4 真实官方模型三场景 | 未开始 | 待 provider 与本地账号配置/预算 |
@@ -50,7 +50,7 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 | 7 自动执行及正确性 | 进行中 | 通用本地操作自动执行、可配置预算；计划意图授权与外部提交确认待改造 |
 | 8 UI 分层与浏览器验收 | 进行中 | 请求/状态/展示/主题拆分，主导航收敛为 /chat 且旧URL跳转、任务工作区与换布局预览通过；桌面全宽视觉回归尚缺 |
 | 9 性能前后对照 | 进行中 | 真实本机受控夹具基准已建立并两次重复（启动2476–2758ms、首个事件266–273ms、write/read≈50ms、pwsh≈630–690ms、额外确认0）；“改造前”对照待解锁，见 agent-v2-performance.md |
-| 10 整体验证与交付 | 进行中 | CI 已迁移到新测试入口与契约新鲜度检查；文档归档进行中；干净重建与真实服务试用待完成 |
+| 10 整体验证与交付 | 进行中 | 干净重建与契约新鲜度检查已通过；CI 已迁移；文档归档进行中；真实服务试用待完成 |
 
 ## 下一步（以本文件最后一节为准）
 
@@ -184,3 +184,14 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 保留分体设计模块（`registerToolLoader` / `installToolMask`），未接线即无副作用；`tools/verify_tool_discovery.py` 仍以 exit 2 + 明确原因报告未接线状态。
 - 新增诊断能力（本轮保留且已验证）：runner stderr 原先固定 `DEVNULL`，插件级死锁完全无日志。现支持 `CAMPUS_RUNNER_STDERR=<path>` 显式捕获（默认仍丢弃，避免运输细节/模型输入进入日志），句柄按轮次持有并在回合结束或提前返回时关闭，追加写入不截断。新增单元测试覆盖默认丢弃、开启捕获、追加模式与关闭；网关 24 项通过；真实产品路径实测文件被创建（健康运行为空）。
 - 结论写入文档：问题不在“装在哪个钩子”，而在该组合下 agent 作用域的工具注册/限制本身阻塞创建；下一步先做最小复现（agent 作用域只注册一个空工具、不做 restrict），否则退回上游 PTC 呈现模式。
+
+## 2026-10-14 增量：干净重建通过，修出三个真实安装缺陷
+
+- 用 `git archive HEAD` 生成**仅含跟踪文件**的全新目录（679 个，无 .git/.venv/node_modules/var/data），并用**另一个项目的 venv 解释器**驱动安装（真实用户从 wrapper/别的环境调用时的场景）。结果：`tools/dev.py --setup` **exit 0**（venv + 53 个锁定 wheel 含 --require-hashes + `packages/learning` editable + pip check 无缺失；网页 180 包、运行时 540 包，均 0 漏洞）→ `tools/dev.py --check` **exit 0** → `npx vite build` **exit 0** → `tools/verify_agent_runtime.py` **exit 0，77 次受控模型调用，ok=true**。证据 `docs/agent-v2-clean-rebuild.json` 与 rebuild 目录内 `var/agent-integration-pkg2hgoz/evidence.json`。
+- 该重建**修出并验证了三个真实缺陷**（都不是文档层面，而是实际阻断全新安装）：
+  1. `dev.py` 用 `sys.executable` 建 venv：当启动者是别的项目 venv 时不可移植（WinError 5）。改为 `base_python()` 定位基础解释器。
+  2. `python -m venv` 在刚解压的目录里可能**已建好可用环境却返回非零**（实测 `Permission denied: pyvenv.cfg`，三个组件都在），且该现象在 dev.py 之外同样复现（杀软实时扫描导致的临时占用）。新增 `ensure_project_venv()`：按“解释器可用性”判定而非退出码，有限重试，失败时给出明确原因。
+  3. 启动器把调用者的 npm 环境原样透传，外层 `npm exec --allow-scripts` 注入的 `NPM_CONFIG_ALLOW_SCRIPTS` 让 `npm ci` 直接失败（`EALLOWSCRIPTS ... not allowed in project-scoped installs`）。新增 `npm_environment()` 按**大小写不敏感**移除 npm 自身的生命周期/调用标记（Windows 的 `os.environ` 键是大写，第一版按小写移除无效，实测发现后修正），保留 registry/cache 等真实配置。
+- 新增 6 项启动器测试（base_python、可用性判定、重试上限、缺解释器时不崩溃、npm 环境大小写、真实进程环境），`tools/test_launcher.py` **12 passed**；其中大小写陷阱由新增的“对照真实进程环境”用例守住。
+- 诚实记录未验证项：npm 对 5 个包（koffi/node-pty/dsh-subprocess-local 等）报 install scripts 未被 allowScripts 覆盖，但 `npm ci` 仍 exit 0 且该目录下真实 Harness 集成 77 次调用全部通过，故按“已观察但未影响本次验证”记录，不宣称已解决；真实官方模型/搜索与浙大登录态试用仍需用户解锁。
+- 另新增 `docs/agent-design/codex-handoff-v2.md`：可直接交给 Codex 的收尾提示词（含硬约束、未完成项与已证伪路径、环境与测试规范、分工建议），用于与更强 agent 协同完成剩余验收。
