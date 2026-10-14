@@ -365,6 +365,29 @@ CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
 - 复跑：API **329 passed**、根回归+启动器 **203 passed + 80 subtests**、前端 149 passed、tsc/Vite exit 0、
   契约 `--check` exit 0、`dev.py --check` exit 0（见验收总表的复现命令）。
 
+## 2026-10-14 增量：当前 HEAD 的"最终目录"回归（真实全新目录 + 真实安装）
+
+按条件 1/10 的"全新目录按锁文件可安装/构建/启动 + 最终目录回归"，在本轮 HEAD 上重做了一次全新目录验证，
+不用工作树里的任何未安装状态：
+
+1. `git archive --format=tar -o head.tar HEAD` → 解到 `.test-tmp/v2-round/final-dir`（684 个文件）。
+   诚实记录一个**工具限制**（不是产品缺陷）：Windows 自带 `tar.exe` 解 `git archive` 的 tar 时，
+   5 个**非 ASCII 文件名**（`contracts/reviews/2026-10-13-CR011-V2通用运行时设置.md` 等 CR 文档）报
+   `Invalid empty pathname` 未被解出；这些是评审文档，不参与安装/构建/测试。
+   用 PowerShell 管道 `git archive | tar -x` 会直接损坏归档（文本转换），必须落盘再解。
+2. `python tools/dev.py --setup`：**exit 0**（新建 venv + 53 个锁定 wheel、web 180 包、runtime 540 包，
+   两处均 **0 漏洞**）；npm 对同样的 5 个包报 install scripts 未被 allowScripts 覆盖——与干净重建证据一致，
+   仍 exit 0。
+3. `dev.py --check`：**exit 0**（`missing: none`）。
+4. 全新 venv 下 API 套件：**329 passed**（含 `test_env_integrity` —— 该用例断言 `packages/learning` 来自工作区源码，
+   在未执行 setup 的目录里必然失败，正好证明它测的是真实安装状态而不是空跑）。
+5. 全新 venv + **全新安装的 node_modules**（`npm ci` 覆盖了我为省时建的同名 junction）：
+   `tools/verify_agent_runtime.py` **ok=true，83 次受控调用**；`tools/verify_tool_discovery.py` **exit 0**。
+   根回归+启动器 **203 passed + 80 subtests**；契约 `--check` exit 0。
+
+结论：当前 HEAD 的**跟踪文件集合自足**——全新目录按锁文件安装、检查、跑测试、跑真实 Harness 集成全部通过。
+
+
 
 
 

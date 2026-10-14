@@ -19,7 +19,7 @@
 
 | # | 条件摘要 | 状态 | 关键证据 |
 | --- | --- | --- | --- |
-| 1 | 一套源码、一个启动命令、一个学生入口；全新目录按锁文件可安装/构建/启动 | **已验证** | `python tools/dev.py --setup/--check/--smoke-test`；`docs/agent-v2-clean-rebuild.json`（`git archive` 679 跟踪文件、53 锁定 wheel、pip check 干净、web 180 包、runtime 540 包、0 漏洞）；本轮复跑 `dev.py --check` exit 0 |
+| 1 | 一套源码、一个启动命令、一个学生入口；全新目录按锁文件可安装/构建/启动 | **已验证（本轮在 HEAD 上重做）** | `docs/agent-v2-clean-rebuild.json`（`git archive` 679 文件）；本轮 HEAD 全新目录：`--setup` exit 0（53 锁定 wheel、web 180 包、runtime 540 包、0 漏洞）→ `--check` exit 0 → 全新 venv API 套件 **329 passed** → 全新 node_modules 下 `verify_agent_runtime.py` ok=true（83 次调用） |
 | 2 | 旧能力台账逐项有迁移证据或明确放弃理由；旧 UI/重复代码移除；旧 URL 不再渲染旧 UI；历史源码与用户数据可恢复 | **已验证** | `docs/agent-v2-migration.md` 台账（47 个 `campus_agent` 路径、旧静态 UI、旧启动脚本已删）；快照恢复入口 `D:/AI/campus-agent-goal-backups/20261013-v2-start/RESTORE.md`；**真实**旧库导入+重入+回滚演练 `var/migration-rehearsal-20261014/` |
 | 3 | 第 5 节能力有实际实现与最小闭环；文档列明插件、模型可见工具、provider、服务依赖 | **已验证** | `docs/agent-v2-tool-discovery.md`（默认 45 项 / 33861 B，加载浏览器后 71 项；分组与装载工具）、`docs/agent-tool-schemas.json`、`docs/agent-design/tools-v2.md`；**受控** `tools/verify_agent_runtime.py` ok=true（83 次调用覆盖工具/文件/文档/浏览器/MCP/子任务/取消/目标） |
 | 4 | 真实 Harness 工具链 + 真实官方模型完成三条自然语言场景 | **已验证（真实）** | `tools/verify_real_scenarios.py`；**27 次真实计费请求**：s1 网页检索引用（`web_search`+6×`web_fetch`，5 个可核实 URL）、s2 校园信息→计划预览→接受生效→撤销（`plans.apply`/`plans.revoke`，`active`→`revoked`，`plans.read` 返回 null）、s3 附件→`todo-report.md` 可读产物并发布。证据 `var/real-scenarios-s1|s2|s3/` |
@@ -28,7 +28,7 @@
 | 7 | 本地明确执行无需重复确认；预览不写入；外部提交前一次确认；错误/取消不显示成功；首轮回归通过 | **已验证** | **受控** API 套件 `apps/api/tests`（同意/浏览器归属/取消/应用与撤销/幂等/防重）；基准 `pending_confirmations = 0`；s2 预览在未被接受前 `plans.read` 仍为 `candidate` |
 | 8 | UI 分层与换布局示例；同一聊天可搜索/查校园/操作浏览器/看文件与日历；桌面与窄屏无阻断；刷新保持状态 | **已验证** | `docs/agent-design/ui-redesign-v2.md`；`python tools/verify_ui_desktop.py`（**真实** Edge，1280×900 与 1920×1080 无横向溢出、输入区在视口内、工具栏可见、日历工作区可打开、刷新后草稿保留）；更早的 390×844 证据见同文档 |
 | 9 | 记录改造前后同类本地受控任务的启动/首个可见事件/工具耗时/请求次数/额外确认；出现可重复明显回退则诊断修复 | **已验证** | `docs/agent-v2-performance.md`「改造前后对照」；**受控** 同一夹具同一任务：首轮 workbench → 改造后；发现并修复每轮 runner 启动回退（稳态轮 5.1 s → **0.41 s**）；`var/v2-bench-t4iou9ra/`、`apps/api/tests/test_agent_runner_reuse.py`（7 项） |
-| 10 | 自动化/构建/干净启动/最终目录回归通过；交付真实与合成证据区分、已知限制、工具使用、迁移、UI 指南、进度记录 | **基本完成（文档归档收尾中）** | `.github/workflows/tests.yml`（API 套件 + 根回归 + 契约新鲜度 + 前端构建/测试）；本轮实测 API **329 passed**、根回归+启动器 **203 passed + 80 subtests**、前端 **27 文件 149 passed**、tsc/Vite exit 0；本文即"真实/合成区分 + 已知限制"交付物；专题文档见顶部清单 |
+| 10 | 自动化/构建/干净启动/最终目录回归通过；交付真实与合成证据区分、已知限制、工具使用、迁移、UI 指南、进度记录 | **已验证** | `.github/workflows/tests.yml`（API 套件 + 根回归 + 启动器 + 契约新鲜度 + 前端构建/测试 + 运行时工具分组/子任务检查）；**本轮 HEAD 全新目录回归**：`--setup`/`--check` exit 0、全新 venv 329 passed、全新 node_modules 集成 ok=true；交付物：本文（真实/合成区分 + 已知限制）、`docs/agent-v2-migration.md`、`docs/agent-design/tools-v2.md`、`docs/agent-design/ui-redesign-v2.md`、`docs/agent-v2-progress.md`、`docs/history/README.md` |
 
 ## 已修复的真实缺陷（本轮独立复验中发现，均非文档层面）
 
