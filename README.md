@@ -37,4 +37,4 @@ python tools/dev.py --open-browser
 - contracts：接口与数据契约。
 - tools：启动、验证和迁移工具。
 
-[V2 合同](docs/agent-design/goal-v2-personal-assistant.md) · [工具使用说明](docs/agent-design/tools-v2.md) · [迁移台账](docs/agent-v2-migration.md) · [首轮验收](docs/agent-acceptance.md)
+[V2 合同](docs/agent-design/goal-v2-personal-assistant.md) · [验收总表](docs/agent-v2-acceptance.md) · [工具使用说明](docs/agent-design/tools-v2.md) · [迁移台账](docs/agent-v2-migration.md) · [UI 改版指南](docs/agent-design/ui-redesign-v2.md) · [历史文档](docs/history/README.md)

@@ -350,6 +350,22 @@ CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
 
 条件 9 判定：**对照已记录，可重复明显回退已诊断、修复并复测通过**（每会话一次冷启动作为已知限制）。
 
+## 2026-10-14 增量：条件 10 的交付文档（验收总表 + 历史归档）
+
+- 新增 `docs/agent-v2-acceptance.md`：条件 1–10 逐条对照表，每条给出**状态、证据路径与命令**，并显式区分
+  **真实**（官方模型/搜索、真实 Edge、真实旧库、真实调度时钟）与**受控**（本机夹具模型 + 真实产品路径）
+  两类证据；含**已知限制**清单（真实学校登录态未试用、每会话一次约 4.8 秒冷启动、真实付费只覆盖三条场景、
+  空计划成因、旧库导入范围、外部 MCP 现状、npm allowScripts 提示）与最小解锁条件。
+- 归档首批已被 V2 取代的首轮说明文档到 `docs/history/first-round-docs/`（vision/requirements/mvp/roadmap/
+  open-questions/integration-review/agent-acceptance/agent-progress/agent-progress-history，共 9 个），
+  新增 `docs/history/README.md` 说明三组历史与当前权威文档位置，并更新根 README 的文档入口
+  （首轮验收 → 现改为 [验收总表](agent-v2-acceptance.md)，另加 UI 改版指南与历史文档入口）。
+- 归档前先做引用扫描（代码/测试/工作流/根文档），确认这 9 个文件在仓库内**无外部引用**；仍被代码引用的
+  首轮连接器文档（`campus-login.md`、`webvpn-analysis.md` 等）保留原位，并在历史索引里说明原因。
+- 复跑：API **329 passed**、根回归+启动器 **203 passed + 80 subtests**、前端 149 passed、tsc/Vite exit 0、
+  契约 `--check` exit 0、`dev.py --check` exit 0（见验收总表的复现命令）。
+
+
 
 
 
