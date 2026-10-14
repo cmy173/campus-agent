@@ -389,6 +389,42 @@ CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
 证据已从一次性目录复制到 `var/final-dir-regression/`（集成与按需发现各一份 evidence.json），
 约 1 GB 的临时安装目录已删除，避免在工作区留下无用依赖树。
 
+## 2026-10-14 增量：条件 5 的真实校园只读试用（真实浏览器 + 真实模型，定位到登录这一唯一阻塞）
+
+用户确认应用自有浏览器已登录浙大后，新增 `tools/verify_real_school_browser.py`：它驱动**已经在运行、持有登录态
+浏览器的应用实例**（`--base-url`），用真实官方模型发一轮只读任务，全程不填表、不提交，并在超时时用自己持有的
+owner cookie **取消本轮**，避免在用户实例上留下悬挂回合。
+
+实测（真实 Edge + 真实模型，`var/real-school-browser-20261014-203823/`）：
+
+1. 直连 `https://zdbk.zju.edu.cn/` 在本网络**不可用**：浏览器拿到 `ERR_EMPTY_RESPONSE`，
+   命令行复核该 URL 只返回 **68 字节**空响应；而 `https://www.zju.edu.cn/`（100 KB）与
+   `https://webvpn.zju.edu.cn/`（47 KB）可达。**校外访问教务必须走 WebVPN**。
+2. 模型自己按产品语义先调 `campus_webvpn_entry({"service":"zdbk"})`，拿到
+   `https://webvpn.zju.edu.cn/https/<token>/jwglxt/xtgl/login_ssologin.html`，再用浏览器打开。
+3. 该地址 **302 跳转到 `https://webvpn.zju.edu.cn/login`**，页面标题 `WebVPN`，正文是
+   “欢迎试用浙江大学WebVPN系统访问校内网页资源，请使用上网账号（同VPN和RVPN账号）登录”。
+   网络记录：`login_ssologin.html => [302] Found` → `webvpn.zju.edu.cn/login => [200] OK`。
+4. 结论：**产品路径是通的**（WebVPN 入口工具 → 浏览器 → 真实页面 → 页面内容与网络记录都可读），
+   但**该浏览器当前没有 WebVPN 登录态**，所以“登录态浏览器读取页面并下载文件”仍差最后一步。
+
+诚实说明两点：
+
+- 第一次试用（直连 zdbk）我发起的回合没有及时收敛，我事后**用自己回合的 runner 进程做了清理**
+  （PID 41484，20:26:41 启动、父进程为 18100 实例），journal 里该回合已落为 `failed`；第二次试用由脚本
+  自己取消（`timed_out: true`），未再留下悬挂回合。
+- 期间发生过一次**我的操作事故并已修复**：我为省时在一次性目录里建了一个指向真实
+  `apps/agent-runtime/node_modules` 的 junction，随后递归删除那个一次性目录时，PowerShell 跟随该 junction
+  把**真实的 node_modules 内容清空**了。发现后立即：① 用 `cmd /c rmdir` 删掉残留 junction（只删链接）；
+  ② 用启动器自己的 npm 环境清洗逻辑（`dev.py.npm_environment()`）在 `apps/agent-runtime` 执行 `npm ci`
+  重装（exit 0，`@deepseek-ai/*` 289 个包，`playwright`/`dsh-sdk-client` 就位）；③ 复跑
+  `tools/verify_agent_runtime.py` → **ok=true，83 次受控调用**，确认环境恢复。
+  教训与防护：**任何递归删除前必须先确认目标目录内没有指向他处的 junction**，本次已把该 junction 移除。
+
+最小解锁条件（现在有实测依据）：在**应用自有浏览器**里登录 `https://webvpn.zju.edu.cn/login`（上网账号，含验证码），
+完成后我重跑 `tools/verify_real_school_browser.py --base-url <实例>`，即可完成条件 5 的只读真实试用。
+
+
 
 
 

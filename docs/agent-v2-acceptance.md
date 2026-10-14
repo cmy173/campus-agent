@@ -23,7 +23,7 @@
 | 2 | 旧能力台账逐项有迁移证据或明确放弃理由；旧 UI/重复代码移除；旧 URL 不再渲染旧 UI；历史源码与用户数据可恢复 | **已验证** | `docs/agent-v2-migration.md` 台账（47 个 `campus_agent` 路径、旧静态 UI、旧启动脚本已删）；快照恢复入口 `D:/AI/campus-agent-goal-backups/20261013-v2-start/RESTORE.md`；**真实**旧库导入+重入+回滚演练 `var/migration-rehearsal-20261014/` |
 | 3 | 第 5 节能力有实际实现与最小闭环；文档列明插件、模型可见工具、provider、服务依赖 | **已验证** | `docs/agent-v2-tool-discovery.md`（默认 45 项 / 33861 B，加载浏览器后 71 项；分组与装载工具）、`docs/agent-tool-schemas.json`、`docs/agent-design/tools-v2.md`；**受控** `tools/verify_agent_runtime.py` ok=true（83 次调用覆盖工具/文件/文档/浏览器/MCP/子任务/取消/目标） |
 | 4 | 真实 Harness 工具链 + 真实官方模型完成三条自然语言场景 | **已验证（真实）** | `tools/verify_real_scenarios.py`；**27 次真实计费请求**：s1 网页检索引用（`web_search`+6×`web_fetch`，5 个可核实 URL）、s2 校园信息→计划预览→接受生效→撤销（`plans.apply`/`plans.revoke`，`active`→`revoked`，`plans.read` 返回 null）、s3 附件→`todo-report.md` 可读产物并发布。证据 `var/real-scenarios-s1|s2|s3/` |
-| 5 | 登录态浏览器可读取页面与下载文件；受控表单填写、一次确认、提交、防重；真实校外提交非必需 | **部分完成（真实学校登录态待用户）** | **真实** Edge：`verify_agent_runtime.py` 的浏览器流（真实导航、填表、下载 `browser-campus.txt`、提交前 `needs_user` 一次确认、pending review 唯一）；`tools/verify_browser_cancellation.py`、`apps/agent-runtime/verify-browser.mjs`。**缺**：用户在本机完成浙大登录后的只读真实试用 |
+| 5 | 登录态浏览器可读取页面与下载文件；受控表单填写、一次确认、提交、防重；真实校外提交非必需 | **部分完成（唯一缺口：WebVPN 登录态）** | **真实** Edge：`verify_agent_runtime.py` 的浏览器流（真实导航、填表、下载 `browser-campus.txt`、提交前 `needs_user` 一次确认、pending review 唯一）；`tools/verify_browser_cancellation.py`、`apps/agent-runtime/verify-browser.mjs`。**真实校园只读试用**（`tools/verify_real_school_browser.py`，真实模型）：直连 `zdbk.zju.edu.cn` 本网络返回空响应（实测 68 字节）→ 模型按产品语义调用 `campus_webvpn_entry` 取得 WebVPN 地址 → 浏览器打开后 **302 跳转到 `webvpn.zju.edu.cn/login`**（“请使用上网账号登录”），即产品路径通、但**该浏览器当前无 WebVPN 登录态**。证据 `var/real-school-browser-20261014-203823/` |
 | 6 | 子任务/持续任务/调度：真实执行、取消、失败、进程重启恢复；真实调度器 + 可控时间 | **已验证** | **受控** `apps/agent-runtime/verify-subagent-controls.mjs`（前台/可继续后台两种子 agent 并存、选择性中断：无凭据 403、有凭据 200、只中止 A 而 B 完成）、`verify-goal.mjs`（原生 goal 到 `phase=complete`）、`python tools/verify_schedule_runtime.py`（6 次调用）、`python tools/verify_scheduler.py` ok |
 | 7 | 本地明确执行无需重复确认；预览不写入；外部提交前一次确认；错误/取消不显示成功；首轮回归通过 | **已验证** | **受控** API 套件 `apps/api/tests`（同意/浏览器归属/取消/应用与撤销/幂等/防重）；基准 `pending_confirmations = 0`；s2 预览在未被接受前 `plans.read` 仍为 `candidate` |
 | 8 | UI 分层与换布局示例；同一聊天可搜索/查校园/操作浏览器/看文件与日历；桌面与窄屏无阻断；刷新保持状态 | **已验证** | `docs/agent-design/ui-redesign-v2.md`；`python tools/verify_ui_desktop.py`（**真实** Edge，1280×900 与 1920×1080 无横向溢出、输入区在视口内、工具栏可见、日历工作区可打开、刷新后草稿保留）；更早的 390×844 证据见同文档 |
@@ -61,8 +61,8 @@
 
 | 缺口 | 解锁条件 |
 | --- | --- |
-| 条件 5 真实学校只读试用 | 用户在本机浏览器登录浙大（应用自有持久配置），无需把密码或验证码交给模型 |
-| 更多真实付费场景 | 用户确认预算（此前授权 100 元，已用 27 次真实请求） |
+| 条件 5 真实学校只读试用 | 在**应用自有浏览器**里登录 `https://webvpn.zju.edu.cn/login`（上网账号 + 验证码；校外访问教务走 WebVPN，直连 zdbk 在本网络返回空响应）。无需把密码交给模型 |
+| 更多真实付费场景 | 用户确认预算（此前授权 100 元，已用 27 次真实请求 + 条件 5 试用的少量请求） |
 
 ## 复现命令（本轮实测）
 
