@@ -23,7 +23,7 @@
     "exit_code": 0,
     "ok": true,
     "model_calls": 77,
-    "evidence": "D:/AI/campus-agent/.test-tmp/v2-round/rebuild-v3/var/agent-integration-pkg2hgoz/evidence.json",
+    "evidence": "D:/AI/campus-agent/var/agent-integration-cleanrebuild/evidence.json (copied out of the scratch rebuild tree before reclaiming it)",
     "notes": "Real API + real Harness SDK + real tools; the model provider is a controlled local fixture, so this is controlled-model evidence, not a real DeepSeek-service trial."
   },
   "defects_found_and_fixed_by_this_rebuild": [

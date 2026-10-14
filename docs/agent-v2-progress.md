@@ -187,7 +187,7 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 
 ## 2026-10-14 增量：干净重建通过，修出三个真实安装缺陷
 
-- 用 `git archive HEAD` 生成**仅含跟踪文件**的全新目录（679 个，无 .git/.venv/node_modules/var/data），并用**另一个项目的 venv 解释器**驱动安装（真实用户从 wrapper/别的环境调用时的场景）。结果：`tools/dev.py --setup` **exit 0**（venv + 53 个锁定 wheel 含 --require-hashes + `packages/learning` editable + pip check 无缺失；网页 180 包、运行时 540 包，均 0 漏洞）→ `tools/dev.py --check` **exit 0** → `npx vite build` **exit 0** → `tools/verify_agent_runtime.py` **exit 0，77 次受控模型调用，ok=true**。证据 `docs/agent-v2-clean-rebuild.json` 与 rebuild 目录内 `var/agent-integration-pkg2hgoz/evidence.json`。
+- 用 `git archive HEAD` 生成**仅含跟踪文件**的全新目录（679 个，无 .git/.venv/node_modules/var/data），并用**另一个项目的 venv 解释器**驱动安装（真实用户从 wrapper/别的环境调用时的场景）。结果：`tools/dev.py --setup` **exit 0**（venv + 53 个锁定 wheel 含 --require-hashes + `packages/learning` editable + pip check 无缺失；网页 180 包、运行时 540 包，均 0 漏洞）→ `tools/dev.py --check` **exit 0** → `npx vite build` **exit 0** → `tools/verify_agent_runtime.py` **exit 0，77 次受控模型调用，ok=true**。证据 `docs/agent-v2-clean-rebuild.json` 与 `var/agent-integration-cleanrebuild/evidence.json`（已从临时重建目录复制到常规证据目录）。
 - 该重建**修出并验证了三个真实缺陷**（都不是文档层面，而是实际阻断全新安装）：
   1. `dev.py` 用 `sys.executable` 建 venv：当启动者是别的项目 venv 时不可移植（WinError 5）。改为 `base_python()` 定位基础解释器。
   2. `python -m venv` 在刚解压的目录里可能**已建好可用环境却返回非零**（实测 `Permission denied: pyvenv.cfg`，三个组件都在），且该现象在 dev.py 之外同样复现（杀软实时扫描导致的临时占用）。新增 `ensure_project_venv()`：按“解释器可用性”判定而非退出码，有限重试，失败时给出明确原因。
