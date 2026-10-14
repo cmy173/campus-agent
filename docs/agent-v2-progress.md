@@ -203,3 +203,14 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - **人工查看截图**确认布局正确（标题栏、工具栏四入口、历史/课程选择、空态建议、模型提示与输入框在位不截断；工作区为右侧面板且不遮挡输入框），未仅凭 DOM 数字下结论。如实记录取舍：headless 真实 Edge；1920 截图可能保留前一次点击的焦点环（截图时序，非界面缺陷）。
 - 环境问题与既有约定一致：Playwright 默认使用继承的 Windows 临时目录会 `EPERM: mkdtemp`（该目录在工作区之外），按项目既有做法改为每会话自有临时目录（`TEMP/TMP/TMPDIR` 指向会话内）后正常。
 - 本轮未触碰 Codex 领取的任务 A 文件（`campus-plugin.mjs`/`campus-tool-groups.mjs`/`runtime.py`/`verify_tool_discovery.py`）；写范围为 `apps/web` 相邻的验证工具与文档。
+
+## 2026-10-14 增量：Codex 接通按需工具发现（任务 A）
+
+- 最小真实探针推翻“agent 作用域注册必死锁”的旧推断；修正 schemas(agent) 的作用域与 tools/change 自激更新。只使用上游公开 registry/scope，不修改 SDK 或上游源码。
+- 默认 45 项 / 33861 B（原 83 / 63406 B，字节减少 46.6%）；仅加载浏览器后 71 项，其余组仍隐藏。真实 Edge 页面读取成功，verify_tool_discovery.py exit 0。
+- 修复验收脚本原有不成立的隐藏集合断言与随机首工具选择；广覆盖受控模型先实际调用 load_tools，仍验证完整工具面、MCP、子任务、取消、文件与浏览器一次确认防重。
+- 完整集成首次在第 25 轮暴露 200 条消息硬限；按 CR017 改按已有内容预算限制，240 条短消息与超预算拒绝测试通过。完整集成复跑 exit 0，103 次受控模型调用，证据 var/agent-integration-bvufvxs6/evidence.json。
+- 最终隔离 API 322 passed；根回归+启动器 203 passed + 80 subtests；前端 149 passed、tsc/Vite 通过；真实调度 6 次调用、原生目标 complete、契约 --check、启动器 --check 均通过。完整命令、路径与作用域限制见 agent-v2-tool-discovery.md。
+- 协作：只提交 Codex 文件。实现者继续负责桌面、性能与 CI/归档；建议 CI 增加 node apps/agent-runtime/verify-tool-groups.mjs。用户已选择有数据 owner 进行任务 E，已授权真实模型与搜索总预算 100 元；尚未完成学校登录。真实付费请求截至此记录未发出。
+
+条件 3 的按需发现缺口已验证；整个合同仍未完成，真实数据迁移、官方模型/搜索与学校登录态需继续。

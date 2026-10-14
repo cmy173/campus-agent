@@ -2012,7 +2012,6 @@ components:
             additionalProperties: true
             type: object
           type: array
-          maxItems: 200
           minItems: 1
           title: Messages
         tools:

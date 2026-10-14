@@ -74,7 +74,9 @@ class ToolRequest(tools.Input):
 
 class ModelRequest(tools.Input):
     conversation_id: str = Field(min_length=1, max_length=128)
-    messages: list[dict[str, Any]] = Field(min_length=1, max_length=200)
+    # Tool discovery adds small messages to long-lived sessions. Bound payload
+    # content in internal_model, not the number of historical message records.
+    messages: list[dict[str, Any]] = Field(min_length=1)
     tools: list[dict[str, Any]] | None = Field(default=None, max_length=256)
     max_tokens: int = Field(default=16384, ge=1, le=65536)
     attribution_headers: dict[str, str] = Field(default_factory=dict)

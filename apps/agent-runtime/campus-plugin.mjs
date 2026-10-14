@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mountControls } from './campus-control.mjs';
 import { mountSchedules } from './campus-schedules.mjs';
+import { registerToolLoader, installToolMask } from './campus-tool-groups.mjs';
 
 export const name = 'campus';
 export const inject = ['tools', 'llm', 'shellEnv', 'agents', 'subagents', 'goals'];
@@ -48,6 +49,8 @@ export class CampusModelAdapter extends LlmAdapter {
 }
 
 export async function apply(ctx) {
+  ctx.effect(() => registerToolLoader(ctx));
+  ctx.on('agent/created', ({ agent }) => { installToolMask(agent); });
   const python = process.env.CAMPUS_PYTHON_EXECUTABLE || fileURLToPath(new URL('../api/.venv/Scripts/python.exe', import.meta.url));
   ctx.effect(() => ctx.shellEnv.register({
     name: 'campus-executables',

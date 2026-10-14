@@ -1,3 +1,5 @@
+import { scopeChainOf } from '@deepseek-ai/dsh-scope';
+
 /**
  * On-demand tool discovery for the Campus agent scope.
  *
@@ -6,11 +8,11 @@
  * stay out of the model context until the model (or the user's wording) asks for
  * them. This uses the pinned upstream mechanism rather than a second loop:
  * `ctx.tools.restrict({ deny })` masks global tools for the calling agent scope,
- * `ctx.tools.schemas()` is the live catalog, and `tools/change` re-applies the
+ * `ctx.tools.schemas(agent)` is the live catalog, and `tools/change` re-applies the
  * mask when another plugin (MCP, teams) registers later.
  *
- * The mask is fail-open: a tool nobody classified, or a name that vanished between
- * enumeration and application, stays visible instead of breaking the turn.
+ * Unclassified tools stay available. Registry mutations are synchronous and
+ * guarded against their own notifications, without timers or SDK wrappers.
  */
 
 /** Always visible: one entry per group the model can pull in on demand. */
@@ -84,94 +86,59 @@ export function loaderDescription(counts) {
     + '\n也可以传 tools 指定具体工具名。返回本次实际可见的工具名。';
 }
 
-/**
- * Per-agent state. The loader is registered once for the whole composition (that
- * path is proven safe); the mask is applied per agent, because `restrict` only
- * governs the calling agent scope.
- *
- * `Agent` is a live object, so a WeakMap keys state without leaking agents.
- */
+/** Each restriction is owned by one live agent and has an exact disposer. */
 const stateOf = new WeakMap();
-
-export function discoveryEnabled() {
-  return (process.env.CAMPUS_TOOL_DISCOVERY || 'on') !== 'off';
-}
-
-export function maskEnabled() {
-  return (process.env.CAMPUS_TOOL_MASK || 'on') !== 'off';
-}
-
 function agentState(agent) {
   let state = stateOf.get(agent);
   if (!state) {
-    state = { lifted: new Set(), current: null, logged: false, applying: false };
+    state = { lifted: new Set(), masks: new Map(), catalog: new Set(), applying: false };
     stateOf.set(agent, state);
   }
   return state;
 }
 
-/**
- * Replace one agent's mask with one matching its live catalog.
- *
- * Never re-entered: `restrict` changes availability, which emits `tools/change`,
- * and mutating the registry from inside that notification would recurse.
- */
 export function applyMask(agent) {
   const state = agentState(agent);
-  const tools = agent?.ctx?.tools;
-  if (!tools || state.applying) return null;
+  if (state.applying) return;
   state.applying = true;
   try {
-    const { deferred, counts } = deferredNames(tools.schemas().map(schema => schema.name), state.lifted);
-    const previous = state.current;
-    state.current = null;
-    if (previous) previous();
-    if (deferred.length && maskEnabled()) {
-      try {
-        state.current = tools.restrict({ deny: deferred });
-      } catch (error) {
-        // A concurrent registration or scope change must not break the turn.
-        if (!state.logged) {
-          state.logged = true;
-          console.error('[campus] tool mask skipped:', error?.message || error);
-        }
+    for (const [name, dispose] of state.masks) {
+      if (state.lifted.has(groupOf(name)?.id)) {
+        state.masks.delete(name);
+        dispose();
       }
     }
-    return counts;
+    // schemas() without an explicit scope reads GLOBAL tools, not agent tools.
+    // Only add masks for newly visible definitions. Our own change notification
+    // is ignored; no dispose/restrict timer loop and no next-request race.
+    for (const { name } of agent.ctx.tools.schemas(agent)) {
+      state.catalog.add(name);
+      const group = groupOf(name);
+      if (!protectedName(name) && group && !state.lifted.has(group.id) && !state.masks.has(name)) {
+        state.masks.set(name, agent.ctx.tools.restrict({ deny: [name] }));
+      }
+    }
   } finally {
     state.applying = false;
   }
 }
 
-/** Registry mutations stay off the dispatch that asked for them. */
-function applyMaskLater(agent) {
-  setTimeout(() => { applyMask(agent); }, 0);
-}
-
-const SUBSCRIPTIONS = new WeakMap();
-
-/**
- * Install the per-agent mask. Called after agent creation resolves: a registry
- * mutation made from inside `agent/created` (or the SDK create/resume setup)
- * deadlocks, because those listeners are awaited before creation resolves.
- * Safe to call repeatedly for the same agent.
- */
 export function installToolMask(agent) {
-  if (!discoveryEnabled() || !agent?.ctx?.tools) return;
-  if (SUBSCRIPTIONS.has(agent)) return;
-  const unsubscribe = agent.ctx.on('tools/change', () => { applyMaskLater(agent); });
-  SUBSCRIPTIONS.set(agent, unsubscribe);
+  if (!agent?.ctx?.tools || stateOf.has(agent)) return;
+  const state = agentState(agent);
+  agent.ctx.on('tools/change', () => {
+    if (!state.applying) applyMask(agent);
+  });
   applyMask(agent);
 }
 
 /**
  * Register the on-demand loader once for the whole composition.
  *
- * The loader must live in a scope the agent's call can resolve — registering it
- * inside the agent scope deadlocked. It is never masked (`protectedName`).
+ * The loader lives in the shared composition; only masks belong to agents.
+ * It is never masked (`protectedName`).
  */
 export function registerToolLoader(ctx) {
-  if (!discoveryEnabled()) return;
   return ctx.tools.register({
     name: 'load_tools',
     description: '按需加载更多工具。默认只提供普通校园任务常用的工具；需要浏览器操作、MCP 服务、'
@@ -203,23 +170,20 @@ export function registerToolLoader(ctx) {
       const tools = agent?.ctx?.tools;
       if (!tools) return { available: [], loaded_groups: [], note: '当前调用没有可用的工具作用域。' };
       const state = agentState(agent);
-      const before = tools.schemas().map(schema => schema.name);
+      const chain = scopeChainOf(agent).filter(scope => stateOf.has(scope));
       const requested = new Set(Array.isArray(args.tools) ? args.tools : []);
-      for (const group of GROUPS) {
-        if (args.group === group.id || before.some(name => requested.has(name) && group.match(name))) {
-          state.lifted.add(group.id);
-        }
-      }
-      const counts = deferredNames(before, new Set()).counts;
-      // The requesting step already has its schema list; lifted tools become
-      // visible from the next request, so the mask updates off this dispatch.
-      applyMaskLater(agent);
-      const hidden = new Set(deferredNames(before, state.lifted).deferred);
+      const catalog = new Set(chain.flatMap(scope => [...agentState(scope).catalog]));
+      const groups = GROUPS.filter(group => args.group === group.id
+        || [...catalog].some(name => requested.has(name) && group.match(name)));
+      // A parent's restriction is inherited by a child. Release only OUR masks
+      // along that public scope chain; never lift upstream capability policies.
+      for (const scope of chain) for (const group of groups) agentState(scope).lifted.add(group.id);
+      for (const scope of [...chain].reverse()) applyMask(scope);
+      applyMask(agent);
       return {
-        available: before.filter(name => !hidden.has(name)),
+        available: tools.schemas(agent).map(schema => schema.name),
         loaded_groups: [...state.lifted],
-        note: Object.entries(counts).map(([id, count]) => `${id}:${count}`).join(' ')
-          + '；本组工具在下一轮请求生效。',
+        note: groups.length ? '所请求分组已加载；后续模型请求可使用。' : '没有匹配的分组或工具。',
       };
     },
   });

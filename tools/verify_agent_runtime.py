@@ -80,7 +80,25 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
                 return
             receipts.append(body)
-            messages = body["messages"]
+            # This broad regression explicitly requests every optional family.
+            # The discovery-specific test separately asserts the minimal default
+            # and one-group-only visibility. Never call a tool absent on the wire.
+            names = {t['function']['name'] for t in body.get('tools', [])}
+            optional = {'mcp__campus_browser__browser_navigate', 'list_mcp_resources',
+                        'subagent', 'job_list', 'exit_plan_mode'}
+            if not optional.issubset(names):
+                assert 'load_tools' in names, names
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': None,
+                    'tool_calls': [{'id': 'fixture_load_' + str(len(receipts)), 'type': 'function', 'function': {
+                        'name': 'load_tools', 'arguments': json.dumps({'tools': sorted(optional)})}}]},
+                    'finish_reason': 'tool_calls'}]}).encode())
+                return
+            # Keep fixture step numbering independent of the new loader step;
+            # the real session and evidence still contain its call and result.
+            messages = [m for m in body['messages'] if not (
+                m.get('tool_call_id', '').startswith('fixture_load_') or
+                any(c.get('id', '').startswith('fixture_load_') for c in m.get('tool_calls', [])))]
             human = next((m for m in reversed(messages) if m['role'] == 'user' and '用户消息：\n' in m['content']), None)
             if human and '[V2持续目标演练]' in human['content']:
                 boundary = next((m for m in reversed(messages) if m['role'] == 'user' and
@@ -458,7 +476,7 @@ with SessionLocal() as db:
         expected_tools = {"campus_connections_status", "campus_courses_list", "campus_materials_list", "campus_materials_search", "campus_materials_read", "campus_assignments_list", "campus_tasks_list", "campus_plans_read", "campus_jobs_read", "campus_availability_read", "campus_plans_preview", "campus_plans_apply", "campus_plans_revoke", "campus_tasks_build", "campus_jobs_cancel", "campus_tasks_feedback"}
         expected_tools |= {'campus_campus_' + name for name in ('status', 'query', 'sync', 'academics', 'notice_read',
             'imported_read', 'webvpn_entry', 'notice_import')}
-        native_tools = {'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
+        native_tools = {'load_tools', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
                         'job_kill', 'job_list', 'job_output', 'list_agents', 'pwsh' if os.name == 'nt' else 'bash',
                         'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
                         'update_goal', 'web_fetch', 'web_search', 'workflow', 'write', 'publish_file'}
@@ -618,7 +636,7 @@ with SessionLocal() as db:
         assert done['status'] == 'succeeded', done
         native_results = [e['data']['event']['data']['message'] for e in done['events']
             if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
-        assert len(native_results) == 4 and all(not r['isError'] for r in native_results), native_results
+        assert len(native_results) == 5 and all(not r['isError'] for r in native_results), native_results
         assert '42' in done['response'] and 'MCP computed: 252' in done['response']
         assert (run_dir / 'workspace/v2-browser-notes.md').read_text(encoding='utf-8') == '# 实际工具产物\n来源标记：v2-browser-731\n'
         evidence['generic_tools_turn'] = done
@@ -634,7 +652,7 @@ with SessionLocal() as db:
         assert file_done['status'] == 'succeeded', file_done
         file_results = [e['data']['event']['data']['message'] for e in file_done['events']
             if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
-        assert len(file_results) == 3 and all(not r['isError'] for r in file_results), file_results
+        assert len(file_results) == 4 and all(not r['isError'] for r in file_results), file_results
         published = [e['data']['file'] for e in file_done['events'] if e['kind'] == 'file.published']
         assert len(published) == 1 and published[0]['kind'] == 'output', file_done
         downloaded = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{published[0]['id']}/content", timeout=10)
@@ -652,7 +670,7 @@ with SessionLocal() as db:
         assert document_done['status'] == 'succeeded', document_done
         document_results = [e['data']['event']['data']['message'] for e in document_done['events']
             if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
-        assert len(document_results) == 8 and all(not result['isError'] for result in document_results), document_results
+        assert len(document_results) == 9 and all(not result['isError'] for result in document_results), document_results
         document_files = [e['data']['file'] for e in document_done['events'] if e['kind'] == 'file.published']
         assert len(document_files) == 3 and {Path(f['name']).suffix for f in document_files} == {'.pdf', '.xlsx', '.md'}
         from pypdf import PdfReader
@@ -724,7 +742,7 @@ with SessionLocal() as db:
         assert browser_done['status'] == 'succeeded', browser_done
         browser_results = [e['data']['event'] for e in browser_done['events'] if e['kind'] == 'harness_event' and
                            e['data']['event']['type'] == 'tool/result']
-        assert len(browser_results) == 4 and all(not e['data']['message'].get('isError') for e in browser_results), browser_results
+        assert len(browser_results) == 5 and all(not e['data']['message'].get('isError') for e in browser_results), browser_results
         assert '校园材料-632' in browser_done['response'] and 'needs_user' in browser_done['response']
         status = client.get(base + f'/api/v1/agent/conversations/{cid}/browser', timeout=15).json()
         pending = [a for a in status['reviews'] if a['status'] == 'pending']

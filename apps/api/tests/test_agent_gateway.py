@@ -70,6 +70,26 @@ def internal(client, token, path, data):
     return client.post("/api/v1/agent/internal/" + path, headers={"Authorization": "Bearer " + token}, json=data)
 
 
+def test_long_tool_history_is_limited_by_content_not_record_count(gateway, monkeypatch):
+    client, runtime, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    seen = []
+    def respond(db, settings, messages, max_tokens, tools):
+        seen.append(messages)
+        return {'content': 'history preserved', 'tool_calls': []}
+    monkeypatch.setattr(model, 'call_model', respond)
+    messages = [{'role': 'user', 'content': [{'type': 'text', 'text': str(i)}]} for i in range(240)]
+    response = internal(client, tokens[tid], 'model', {'conversation_id': cid, 'messages': messages})
+    assert response.status_code == 200, response.text
+    assert seen == [messages]
+    oversized = [{'role': 'user', 'content': [{'type': 'text', 'text': 'x' * 250001}]}]
+    rejected = internal(client, tokens[tid], 'model', {'conversation_id': cid, 'messages': oversized})
+    assert rejected.status_code == 400
+    assert rejected.json()['error']['code'] == 'BUDGET_EXCEEDED'
+    assert len(seen) == 1
+
+
 def test_native_and_domain_tools_share_budget_and_replay(gateway):
     client, runtime, tokens, _ = gateway
     runtime.store.limits = RunLimits(tool_calls=2)

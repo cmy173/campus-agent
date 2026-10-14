@@ -27,7 +27,7 @@ from app.process_owner import spawn_owned  # noqa: E402
 
 DEFERRED_PREFIXES = ('mcp__', 'job_', 'team_task_')
 DEFERRED_NAMES = {'subagent', 'subagent_fork', 'send_message', 'list_agents', 'interrupt_agent',
-                  'workflow', 'exit_plan_mode'}
+                  'workflow', 'exit_plan_mode', 'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
 # Tools that must stay directly available for an ordinary campus task.
 REQUIRED_DEFAULT = {'campus_campus_status', 'schedule_list', 'read', 'write', 'pwsh', 'load_tools'}
 
@@ -105,11 +105,13 @@ class Provider(BaseHTTPRequestHandler):
                 loaded = json.loads(results[-1])
                 lifted = [name for name in loaded.get('available', []) if name not in Provider.baseline]
                 assert lifted, (loaded, Provider.baseline)
-                target = next((name for name in lifted if name.startswith(GROUP_PREFIX['browser'])), lifted[0])
+                target = 'mcp__campus_browser__browser_navigate'
+                assert target in lifted and target in tools, (target, lifted, tools)
                 Provider.lifted = lifted
                 if target.endswith('browser_navigate'):
                     calls = call(target, {'url': Provider.page_url})
         else:
+            assert 'tool discovery' in results[-1], results[-1]
             content = '按需加载已完成。'
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -230,17 +232,23 @@ with SessionLocal() as db:
         'first_request_tools': len(baseline),
         'last_request_tools': len(after),
         'load_tools_visible_by_default': 'load_tools' in baseline,
-        'deferred_hidden_by_default': sorted(set(deferred(baseline))),
+        'unexpected_deferred_by_default': sorted(set(deferred(baseline))),
+        'first_request_schema_bytes': len(json.dumps(Provider.receipts[0]['tools'], ensure_ascii=False).encode()),
+        'last_request_schema_bytes': len(json.dumps(Provider.receipts[-1]['tools'], ensure_ascii=False).encode()),
         'deferred_after_load': sorted(set(deferred(after))),
         'lifted_tools': sorted(set(after) - set(baseline)),
-        'still_hidden_after_one_group': sorted(set(deferred(baseline)) & set(deferred(after))),
+        'unexpected_other_groups_after_load': [name for name in deferred(after)
+                                                if not name.startswith(GROUP_PREFIX['browser'])],
         'required_default_present': sorted(REQUIRED_DEFAULT & set(baseline)),
         'model_calls': len(catalogs),
     }
     assert evidence['load_tools_visible_by_default'], evidence
+    assert not evidence['unexpected_deferred_by_default'], evidence
     assert REQUIRED_DEFAULT.issubset(set(baseline)), sorted(REQUIRED_DEFAULT - set(baseline))
     assert evidence['lifted_tools'], evidence
-    assert evidence['still_hidden_after_one_group'], 'loading one group must not reveal every group'
+    assert not evidence['unexpected_other_groups_after_load'], 'loading one group must not reveal every group'
+    assert 'mcp__campus_browser__browser_navigate' in after
+    assert len(catalogs) == 3, 'loader and real navigation must both execute'
     (home / 'evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'ok': True, 'evidence': str(home / 'evidence.json'), **evidence}, ensure_ascii=False, indent=2))
 
