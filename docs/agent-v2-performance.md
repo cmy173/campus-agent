@@ -41,6 +41,13 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 上游 `0.2.0-rc.2` 已有的按需形态是 agent preset 的 `tool-presentation`（`native`/`ptc`/`both`，`ptc` 下原生 schema 不下发，改为生成的 SDK + `run_code`），本机 profile 目前未挂该行，
 因此仍按 `native` 全量下发。这是条件 3 尚未完成项的具体证据，而不是主观判断。
 
+**选定的实现路径（已核对固定版本 `0.2.0-rc.2` 的公开类型）**：`@deepseek-ai/dsh-tools` 的
+`ctx.tools.restrict({ allow, deny })` 提供**调用方 agent 作用域内的全局工具掩码**（多条限制取交集，
+作用域内注册的工具仍可见），`ctx.tools.presentAs(mode)` 提供作用域级呈现方式。因此“按需发现”可在
+`apps/agent-runtime/campus-plugin.mjs` 内实现为：默认用 `restrict` 保留常用校园工具与核心通用工具，
+再注册一个作用域内的加载工具按需放开其余分组；不需要第二套主循环，也不必启用 PTC。
+下一增量按此实现并用真实运行时验收（含现有受控集成回归不被削弱）。
+
 结论：同环境重复运行差异在 ±12% 内，且方向为持平或略好；**没有出现可重复的明显回退**。
 `pwsh` 是本机进程启动开销（约 0.6 秒）主导，`write`/`read` 约 50 ms 级别；普通本地任务不产生额外确认。
 
