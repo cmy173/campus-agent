@@ -509,5 +509,37 @@ owner cookie **取消本轮**，避免在用户实例上留下悬挂回合。
   `apps/api/app/agent_bridge/browser.py`（09:56 最后改动）都早于该实例启动时间，
   所以本轮真实浏览器证据（读页面、下载路径、ledger）对 HEAD 同样成立。
 
+## 2026-10-14 增量（第四轮）：真实校方表单确实触发"一次确认"＋修掉它的空等问题
+
+### 现场证据：教务的「通知标题」查询被拦成一次待确认操作
+
+在已登录的教务通知公告列表页，指令是"在「通知标题」填「附件」并回车"。真实发生的（`var/agent/browser/actions.json` 与 journal）：
+
+```
+call    browser_type {"element":"通知标题 …","text":"附件","submit":true}
+result  {"status":"needs_user","action_id":"c74f1a7d-…"}
+preview POST https://zdbk.zju.edu.cn/jwglxt/xtgl/xwgl_cxXwListGyxtzgg.html?gnmkdm=index
+        字段 gglb=""、autocomplete=""、xwbt=附件   按钮「提交」
+status  pending（会话 owner 在浏览器工作区点「确认并执行」后才执行）
+```
+
+- 这正是合同要求的「受控表单填写、外部提交前一次确认、防重复提交」在**真实校方页面**上的现场证据：
+  工具结果明确显示要提交的 URL/方法/字段，模型**没有绕过、没有重复提交**。
+- 模型的行为也正确：得不到确认就如实回答"筛选未生效、无法给出结果"，没有编造搜索结果。
+- 说明：两次 pending（`979166fe` 属于我的自动化会话、`c74f1a7d` 属于操作者自己的会话），
+  因为 browser review 是**按会话 + owner 校验**的，只有创建该会话的浏览器能确认——
+  这也是产品设计的一部分（我的脚本不能替用户点确认）。
+
+### 真缺陷（已修，HEAD 已验证）：needs_user 后模型空等，烧掉整轮预算
+
+- 操作者那次会话里，模型拿到 `needs_user` 后连续 3 次 `browser_wait_for`（15+25+30 秒）空等，
+  把 8 次模型调用预算耗光才回答——确认本来只能由人在界面完成，等多久都不会自动生效。
+- 修法：`browser-host.mjs` 的 pending 结果里补上明确指引——**立即结束本轮、不要 `browser_wait_for`
+  空等、不要重复调用同一操作**；`verify-browser.mjs` 新增断言（仍验证"一次确认、不重复提交、展示具体表单值"）。
+- 复验：`node apps/agent-runtime/verify-browser.mjs` → **ok=true**，13 项检查全过
+  （真实 Edge：填表→一次确认、改表单需重新确认、密码不进结果、附件下载字节一致、停止只关本页…）；
+  同期 `tools/verify_agent_runtime.py` **ok=true（83 次调用）**。
+
+
 
 
