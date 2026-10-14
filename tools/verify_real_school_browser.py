@@ -94,6 +94,38 @@ PROMPTS = {
         '然后**立刻**用中文回答：搜索词「附件」的结果条数与前 3 条标题原文；'
         '若结果为 0 条，就再用同一个输入框查「申报」并回答同样的内容（不要额外探索）。',
     ],
+    # GET-only hunt for a real downloadable file. A form submit needs the operator's one
+    # confirmation (correct, but unusable from an unattended run), so this task never submits:
+    # it opens the 教务 home page and follows plain navigation links to a file.
+    'download-home': [
+        '在已登录的本科教务（浙大 WebVPN 下的 zdbk）里**下载一个真实存在的文件**。'
+        '只做 GET 导航，**最多 6 次工具调用**，用完必须立刻回答。'
+        '1) 用 browser_navigate 打开「本科教学管理信息服务平台」首页：'
+        '`https://webvpn.zju.edu.cn/https/77726476706e69737468656265737421eaf34397692a6245300d8db9d6562d/jwglxt/xtgl/index_initMenu.html?jsdm=06`；'
+        '2) 在页面上找名称含「下载 / 表格 / 模板 / 校历 / 资料 / 文件」的入口或链接'
+        '（左侧功能列表、顶部快捷入口、首页公告区都要看）；'
+        '3) 用 browser_navigate 打开最像"文件下载"的那一个；'
+        '4) 若打开的是文件直链就让它下载；若是列表/页面，就打开其中第一个文件链接完成下载。'
+        '然后**立刻**回答：你打开的入口名称与 URL 原文、下载到的文件名（工具返回原文）、'
+        '保存路径（工具返回原文）、来源页面 URL。'
+        '**禁止提交任何表单、禁止改动下拉框/勾选框、禁止用 browser_evaluate、禁止反复重试**；'
+        '如果确实找不到可下载文件，明确说「没有找到可下载文件」，并列出你看过的全部候选入口名称与 URL 原文。',
+    ],
+    # The 教务 notice board carries no attachments (verified), so this uses a real 本科生院
+    # notice that does: GET-only, exact URLs, three tool calls at most.
+    'download-direct': [
+        '只做一次真实下载，**最多 3 次工具调用**，用完必须立刻回答。全部是 GET 导航，不提交任何表单。'
+        '1) 用 browser_navigate 打开这个真实校方附件的直链：'
+        '`https://bksy.zju.edu.cn/_upload/article/files/84/af/64f4eee64e839fe1ad5ec0965279/1b6e11bc-3992-4111-b2e5-f42be5ad5889.docx`'
+        '2) 如果浏览器触发了下载，就读取工具返回的文件名与保存路径；'
+        '如果这一步没有触发下载，就再用 browser_navigate 打开来源通知页 '
+        '`https://bksy.zju.edu.cn/2026/1013/c28418a3214295/page.htm`，'
+        '然后用 browser_click 点击正文里的第一个附件链接（只点附件，不要点其他链接、不要提交表单）。'
+        '然后**立刻**用中文回答：'
+        'A) 下载到的文件名（工具返回的原文，照抄）；B) 保存路径（工具返回的原文，照抄）；'
+        'C) 来源通知标题与来源页面 URL 原文。'
+        '如果确实没有触发下载，明确说「未触发下载」，并给出你实际看到的页面标题与 URL。'
+    ],
 }
 
 # Turn 2 of the `download` task is built from turn 1's answer at runtime.
@@ -341,7 +373,8 @@ def main():
     evidence['timeline'] = all_timeline
     evidence['ok'] = bool(evidence['checks']['turn_succeeded'] and evidence['checks']['browser_tool_calls']
                           and evidence['checks']['answer_chars'] > 50)
-    if args.task in ('download', 'download-search', 'download-urls', 'download-flow'):
+    if args.task in ('download', 'download-search', 'download-urls', 'download-flow', 'download-home',
+                     'download-direct'):
         evidence['checks']['downloaded_file'] = bool(ledger_downloads) or bool(all_downloads)
         evidence['ok'] = bool(evidence['ok'] and evidence['checks']['downloaded_file'])
     (directory / 'evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
