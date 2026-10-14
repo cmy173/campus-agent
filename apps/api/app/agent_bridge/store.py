@@ -176,6 +176,19 @@ class Store:
             raise ApiError(403, "RUNTIME_DENIED", "运行时授权已失效或不属于当前会话")
         return self._turn(row), self.conversation(row["conversation_id"])
 
+    def bind_token(self, tid: str, token: str) -> bool:
+        """Point this turn at an already-owned runtime's bridge token.
+
+        A runner process that is reused across turns of one conversation keeps the
+        bridge token it was started with, so the next turn must become addressable by
+        that same token instead of the fresh one minted in `enqueue`. The previous turn
+        released its hash when it settled, so the unique column stays free.
+        """
+        with self.connection() as db:
+            return bool(db.execute("UPDATE turns SET token_hash=?,updated_at=? "
+                                   "WHERE id=? AND status IN ('queued','running')",
+                                   (digest(token), now(), tid)).rowcount)
+
     def running(self, tid: str) -> bool:
         with self.connection() as db:
             return bool(db.execute("UPDATE turns SET status='running',updated_at=? WHERE id=? AND status='queued'", (now(), tid)).rowcount)

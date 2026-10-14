@@ -25,6 +25,10 @@ from .files import ConversationFiles
 from .browser import BrowserHost
 from ..process_owner import spawn_owned
 
+# A warm runner is dropped after this much idle time, and at most this many stay alive.
+RUNNER_IDLE_SECONDS = 900
+RUNNER_MAX_LIVE = 4
+
 
 class Runtime:
     def __init__(self, store: Store, home: Path, bridge_url: str):
@@ -40,6 +44,9 @@ class Runtime:
         self.control_addresses: dict[str, tuple[str, str]] = {}
         self.workspaces: dict[str, Path] = {}
         self.stderr_captures: dict[str, object] = {}
+        # Warm runtime processes kept for a conversation until idle/LRU reaping; one
+        # owned process serves every turn of one conversation.
+        self.runners: dict[str, dict] = {}
         self.files = ConversationFiles(store)
         self.browser = BrowserHost(store.path.parent / 'browser')
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
@@ -68,6 +75,97 @@ class Runtime:
         target = os.environ.get('CAMPUS_RUNNER_STDERR')
         return open(target, 'a', encoding='utf-8') if target else subprocess.DEVNULL
 
+    def _runner_signature(self, configuration, runtime_settings, workspace):
+        """Everything baked into an owned runner process at startup.
+
+        The SDK keeps one runtime subprocess and reuses it for later sessions, so a
+        process may only be reused while these inputs stay identical; anything else
+        (provider, model, budget, search, skills, MCP servers, workspace) must replace it.
+        """
+        return json.dumps({'provider': configuration['provider'], 'model': configuration['model'],
+                           'max_tokens': self.store.limits.max_output_tokens,
+                           'search': runtime_settings['search'], 'skill_dirs': runtime_settings['skill_dirs'],
+                           'mcp_servers': runtime_settings['mcp_servers'], 'workspace': str(workspace)},
+                          sort_keys=True, ensure_ascii=False)
+
+    def _acquire_runner(self, cid: str, tid: str, env: dict, signature: str, resume):
+        """Reuse this conversation's warm runner, or start a new one.
+
+        Reusing it is what keeps a turn from paying the full profile composition and
+        every MCP child startup again; see docs/agent-v2-performance.md.
+        """
+        with self.lock:
+            handle = self.runners.get(cid)
+        if (resume is None and handle is not None and handle['proc'].poll() is None
+                and handle['signature'] == signature):
+            # This process answers to the bridge token it was started with, so the new
+            # turn becomes addressable by that token instead of the fresh one.
+            self.store.bind_token(tid, handle['token'])
+            with self.lock:
+                if handle.get('controls'):
+                    self.control_addresses[tid] = handle['controls']
+                handle['last_used'] = time.monotonic()
+            return handle, False
+        if handle is not None:
+            self._discard_runner(cid, handle['proc'])
+        self._reap_runners()
+        capture = self._runner_stderr(tid)
+        process = spawn_owned([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
+                              cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=capture, text=True, encoding="utf-8", bufsize=1,
+                              creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        freshly = {'proc': process, 'signature': signature, 'token': env['CAMPUS_BRIDGE_TOKEN'],
+                   'capture': capture, 'controls': None, 'turns': 0, 'last_used': time.monotonic()}
+        with self.lock:
+            self.runners[cid] = freshly
+        return freshly, True
+
+    def _retain_runner(self, cid: str, process):
+        with self.lock:
+            handle = self.runners.get(cid)
+            if handle is not None and handle['proc'] is process:
+                handle['turns'] += 1
+                handle['last_used'] = time.monotonic()
+
+    def _discard_runner(self, cid: str, process):
+        with self.lock:
+            handle = self.runners.get(cid)
+            owned = handle if handle is not None and handle['proc'] is process else None
+            if owned is not None:
+                self.runners.pop(cid, None)
+        self._forget_runner_proc(process)
+        try:
+            self._stop(process)
+        finally:
+            owner = getattr(process, 'campus_owner', None)
+            if owner is not None:
+                try:
+                    owner.close()
+                except Exception:
+                    pass
+            if owned is not None and owned.get('capture') is not None:
+                try:
+                    owned['capture'].close()
+                except Exception:
+                    pass
+
+    def _forget_runner_proc(self, process):
+        with self.lock:
+            for cid, handle in list(self.runners.items()):
+                if handle['proc'] is process:
+                    self.runners.pop(cid, None)
+
+    def _reap_runners(self):
+        """Bound how many idle runtime processes stay warm on this machine."""
+        moment = time.monotonic()
+        with self.lock:
+            handles = list(self.runners.items())
+            excess = max(0, len(handles) - RUNNER_MAX_LIVE)
+            oldest = sorted(handles, key=lambda item: item[1]['last_used'])[:excess]
+        for cid, handle in handles:
+            if moment - handle['last_used'] > RUNNER_IDLE_SECONDS or (cid, handle) in oldest:
+                self._discard_runner(cid, handle['proc'])
+
     def _run(self, turn: dict, token: str):
         with self.lock:
             owner_lock = self.conversation_locks.setdefault(turn["conversation_id"], threading.Lock())
@@ -77,7 +175,7 @@ class Runtime:
             self._run_owned(turn, token)
 
     def _run_owned(self, turn: dict, token: str):
-        tid, proc, timer = turn["id"], None, None
+        tid, proc, timer, retained = turn["id"], None, None, False
         try:
             if not self.store.running(tid):
                 return
@@ -129,22 +227,19 @@ class Runtime:
             # The runtime's stderr is discarded by default so transport details and
             # model inputs never leak into logs. Diagnosing a plugin-level failure
             # needs it, so an explicit opt-in path captures it for the operator.
-            stderr_capture = self._runner_stderr(tid)
-            proc = spawn_owned([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
-                                    cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=stderr_capture, text=True, encoding="utf-8", bufsize=1,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            signature = self._runner_signature(configuration, runtime_settings, workspace)
+            handle, spawned = self._acquire_runner(turn['conversation_id'], tid, env, signature, resume)
+            proc = handle['proc']
             with self.lock:
                 self.processes[tid] = proc
-                if stderr_capture is not subprocess.DEVNULL:
-                    self.stderr_captures[tid] = stderr_capture
+                capture = handle.get('capture')
+                if capture is not None and capture is not subprocess.DEVNULL:
+                    self.stderr_captures[tid] = capture
             if self.store.turn(tid)["status"] != "running":
-                self._stop(proc)
-                with self.lock:
-                    capture = self.stderr_captures.pop(tid, None)
-                if capture is not None:
-                    capture.close()
+                if spawned:
+                    self._discard_runner(turn['conversation_id'], proc)
                 return
+            expected = handle['turns'] + 1
             proc.stdin.write(json.dumps({"text": text, "conversation_id": turn["conversation_id"], "home": str(home),
                                         'provider': configuration['provider'], 'model': configuration['model'],
                                         'workspace': str(workspace), 'max_tokens': self.store.limits.max_output_tokens,
@@ -164,10 +259,19 @@ class Runtime:
             answered = False
             answer = ""
             goal_phase = None
-            for line in proc.stdout:
+            failed = False
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
                 if len(line) > 2000000:
                     raise ValueError("runner frame exceeded limit")
                 frame = json.loads(line)
+                stamp = frame.get("turn")
+                if stamp is not None and stamp != expected:
+                    # A frame that arrived after the previous turn settled on this reused
+                    # runner; it belongs to that turn and must not leak into this one.
+                    continue
                 kind, data = frame["kind"], frame["data"]
                 if kind == "result":
                     if data["conversation_id"] != turn["conversation_id"] or not data["response"].strip():
@@ -176,11 +280,15 @@ class Runtime:
                     answered = True
                 elif kind == "error":
                     self.store.finish(tid, "failed", error=data)
+                    failed = True
                 elif kind == 'goal.state':
                     goal_phase = (data.get('goal') or {}).get('phase')
                 self.store.event(tid, kind, data)
-            proc.wait(timeout=10)
-            proc.campus_owner.close()
+                if answered or failed:
+                    break
+            if answered and proc.poll() is None:
+                retained = True
+                self._retain_runner(turn['conversation_id'], proc)
             if goal_phase == 'paused':
                 # Native pause aborts the agent, but the persistent browser is
                 # owned by the API. Drain it before presenting a settled pause.
@@ -188,9 +296,9 @@ class Runtime:
                     time.sleep(0.1)
                 with self.call_lock(tid):
                     pass
-            if answered and proc.returncode == 0:
+            if answered:
                 self.store.finish(tid, "succeeded", response=answer)
-            else:
+            elif not failed:
                 self.store.finish(tid, "failed", error={"code": "RUNTIME_FAILED", "message": "运行时已结束，未得到完整回答", "retryable": True})
         except Exception:
             # Never surface raw SDK/stderr/transport details which may contain model inputs.
@@ -198,9 +306,8 @@ class Runtime:
         finally:
             if timer:
                 timer.cancel()
-            if proc:
-                self._stop(proc)
-                proc.campus_owner.close()
+            if proc is not None and not retained:
+                self._discard_runner(turn['conversation_id'], proc)
             with self.lock:
                 self.processes.pop(tid, None)
                 self.threads.pop(tid, None)
@@ -209,7 +316,7 @@ class Runtime:
                     self.call_locks.pop(tid, None)
                 self.control_addresses.pop(tid, None)
                 self.workspaces.pop(tid, None)
-            if capture is not None:
+            if capture is not None and not retained:
                 capture.close()
 
     def register_controls(self, tid: str, url: str, token: str):
@@ -217,6 +324,13 @@ class Runtime:
             raise ApiError(400, 'INVALID_INPUT', '控制地址必须为自有运行时的本机端点')
         with self.lock:
             self.control_addresses[tid] = (url, token)
+        # Remember the last control address on the warm runner: it registers once per
+        # process, so later turns on the same process need the address carried forward.
+        conversation = self.store.turn(tid)['conversation_id']
+        with self.lock:
+            handle = self.runners.get(conversation)
+            if handle is not None:
+                handle['controls'] = (url, token)
 
     def interrupt_child(self, tid: str, child_id: str):
         turn = self.store.turn(tid)
@@ -322,6 +436,7 @@ class Runtime:
             try:
                 if proc:
                     self._stop(proc)
+                    self._forget_runner_proc(proc)
             except Exception as error:
                 sdk_errors.append(error)
         sdk_stop = threading.Thread(target=stop_sdk, daemon=True)
@@ -354,6 +469,10 @@ class Runtime:
         for thread in threads:
             thread.join(timeout=12)
         self.browser.close()
+        with self.lock:
+            warm = [(cid, handle['proc']) for cid, handle in list(self.runners.items())]
+        for cid, process in warm:
+            self._discard_runner(cid, process)
         with self.lock:
             stopping = list(self.stop_threads.values())
         for thread in stopping:

@@ -313,5 +313,43 @@ CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
   生命周期、选择性中断（无凭据 403 / 有凭据 200、只中止 A、B 仍完成）全部通过。
   同类问题 Codex 已在广覆盖夹具里修过，但漏了这个专用脚本；本轮补齐。
 
+## 2026-10-14 增量：修掉每轮 runner 启动回退（条件 9 复测通过）
+
+按上一轮定位的成因动手改运行时（Codex 退出后其文件范围由实现者接管）：
+
+- `apps/agent-runtime/runner.mjs`：由“读一行 payload → 跑一轮 → 退出”改为**按帧循环复用同一个 harness**；
+  每轮输出帧带 `turn` 序号，进程退出前不再重装 profile。
+- `apps/api/app/agent_bridge/runtime.py`：按会话保留 warm runner；签名（provider/model/budget/search/skills/MCP/workspace）
+  变化、`goal_resume` 轮、取消/超时/失败、空闲 900 秒或超过 4 个进程时换/收进程；复用轮把该轮重新绑定到进程原有
+  bridge token（新增 `store.bind_token`），控制地址随进程携带（`register_controls` 记住最近一份），
+  `Runtime.close()` 收掉全部 warm 进程，迟到帧按 `turn` 丢弃以免串轮。
+
+实测（同机同夹具同任务，2 次运行 × 每轮 2 次）：
+
+| 指标中位数 | 首轮 workbench | 改造后未复用 | **复用后** |
+| --- | --- | --- | --- |
+| 入队 → 首个模型请求 | 1781 ms | 5062.5 ms | **2422 ms** |
+| 入队 → 轮次结束 | 2023.5 ms | 5718.5 ms | **2734.5 ms** |
+| 首个可见事件 / 尾部 | 289 / 101.5 ms | 281.5 / 476.5 ms | **179.5 / 117.5 ms** |
+| 启动 → health 200 | 2961 ms | 2718.5 ms | 2476.5 ms |
+
+逐轮：**轮 1（冷）4812/4672 ms，轮 2（复用）156/172 ms**——稳态轮约 **0.41 秒，比修复前快约 12 倍**，
+比首轮系统约 2.0 秒也快约 5 倍。剩余的是**每会话一次**的冷启动（完整 93 依赖 bundle + 浏览器 MCP 子进程），
+已按已知限制记录，不再是每轮成本。
+
+正确性同步复验（全部 exit 0）：API **322 passed**；根回归+启动器 **203 passed + 80 subtests**；
+`verify_agent_runtime.py` **ok=true，83 次受控调用**（比修复前 103 次更少，因为 `load_tools` 不再每轮重复）；
+`verify_schedule_runtime.py`（6 次调用）、`verify-goal.mjs`、`verify-subagent-controls.mjs`、
+`verify-tool-groups.mjs`、`verify_tool_discovery.py`、`verify_process_ownership.py` 全部通过。
+
+同时把三处**计数型断言**改成断言本流的工具调用序列（附件流 `read→write→publish_file`、文档流
+`skill→read→read→write→pwsh→publish_file×3`、浏览器流 `browser_navigate→browser_fill_form→browser_click×2`）：
+原断言把一次性 `load_tools` 的结果算进本轮流，复用后该 step 不再重复，计数自然下降；新断言更精确而不是更宽松。
+证据 `var/v2-bench-t4iou9ra/benchmark-after-reuse.json`、`var/agent-integration-7l8oaqya/evidence.json`；
+详细分析见 `docs/agent-v2-performance.md`「改造前后对照 → 修复后复测」。
+
+条件 9 判定：**对照已记录，可重复明显回退已诊断、修复并复测通过**（每会话一次冷启动作为已知限制）。
+
+
 
 

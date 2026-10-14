@@ -217,6 +217,9 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 
 ### 建议的修法（按收益排序，属运行时/profile 所有者范围）
 
+> 状态：**已按第 1 条之外的方案落地并复测通过**——直接改为跨轮复用同一个 runtime 子进程，见下一小节
+> “修复后复测”。以下保留原始分析，第 1 条（浏览器 MCP 懒启动）仍是可选后续优化。
+
 1. **让浏览器 MCP 的生命周期跟随 `browser` 工具分组**：默认 profile 不再起浏览器 MCP，模型调用
    `load_tools({group:'browser'})` 时再起（这正是刚落地的按需发现的自然延伸），同时保留“加载失败不影响
    其他工具”的降级路径，避免现在这种“浏览器没起来 → 整个 runner 结束”。
@@ -226,6 +229,57 @@ python tools/benchmark_local_overhead.py --label current --runs 2
    `tool_results` 仍为 `{"status":"ok"}`、额外确认仍为 0。
 
 修复并复测之前，条件 9 记“对照已补齐、但存在可重复明显回退，按合同待诊断修复后验收”，不记为完成。
+
+### 修复后复测（2026-10-14，同一夹具同一任务）
+
+修法：**让 runtime 子进程跨轮复用**，而不是每轮重启。上游 SDK 文档明确
+`DeepSeekHarness` “owns one runtime subprocess across many sessions”，子进程 lazy 启动、`close` 前由该实例持有。
+
+- `apps/agent-runtime/runner.mjs`：从“读一行、跑一轮、退出”改成**按帧循环**——harness 只在第一条 payload 时构建，
+  之后每轮复用；每轮所有输出帧带 `turn` 序号，进程退出前不再重装 profile。
+- `apps/api/app/agent_bridge/runtime.py`：按会话保留 warm runner（签名 = provider/model/budget/search/skills/MCP/workspace，
+  任一变化即换进程；`goal_resume` 轮强制换进程），复用轮把新轮次重新绑定到该进程原有的 bridge token
+  （`store.bind_token`），控制地址随进程携带，取消/超时/失败/空闲 900 秒/超过 4 个进程时回收；
+  `Runtime.close()` 收掉所有 warm 进程。读到与本轮 `turn` 不符的迟到帧会被丢弃，避免上一轮尾部事件串轮。
+
+| 指标（中位数，2 次运行 × 每轮 2 次） | 改造前（首轮 workbench） | 改造后·未复用 | **改造后·复用（本修复）** |
+| --- | --- | --- | --- |
+| 进程启动 → health 200 | 2961 ms | 2718.5 ms | 2476.5 ms |
+| 入队 → 首个可见事件 | 289 ms | 281.5 ms | **179.5 ms** |
+| 入队 → 首个模型请求 | 1781 ms | 5062.5 ms | **2422 ms** |
+| 入队 → 轮次结束 | 2023.5 ms | 5718.5 ms | **2734.5 ms** |
+| 尾部（最后响应 → 终态） | 101.5 ms | 476.5 ms | **117.5 ms** |
+| 工具往返 | 141 ms | 203 ms | 188 ms |
+| 每轮模型请求 / 工具调用 | 2 / 1 | 2 / 1 | 2 / 1 |
+| 额外确认次数 | 0 | 0 | 0 |
+| schema | 16 项 / 10771 B | 45 项 / 33861 B | 45 项 / 33861 B |
+
+逐轮看更清楚（同一会话第 1 轮 vs 第 2 轮，四次独立测量）：
+
+| | 轮 1（冷启动） | 轮 2（复用） |
+| --- | --- | --- |
+| 入队 → 首个模型请求 | 4812 / 4672 ms | **156 / 172 ms** |
+| 入队 → 轮次结束 | 5141 / 5047 ms | **406 / 422 ms** |
+
+结论：
+
+- **可重复的明显回退已消除**：稳态轮从 ~5.1 秒降到 **~0.41 秒（约 12×）**，比改造前首轮系统的
+  ~2.0 秒也快约 5 倍；轮次中位数 5718.5 → 2734.5 ms。
+- 仍存在**每会话一次**的冷启动成本（第一轮 ~4.8 秒）：那是完整 `@deepseek-ai/dsh-base`（93 依赖）+
+  浏览器 MCP 子进程的构建，属“用完整上游能力面换取每轮开销”的一次性代价，不再是每轮成本。
+  若要继续压缩，选项仍是让浏览器 MCP 随 `browser` 分组懒启动（需插件容忍启动时没有它）或裁剪 profile。
+- 正确性同步复验：API **322 passed**、根回归+启动器 **203 passed + 80 subtests**、
+  `verify_agent_runtime.py` **ok=true**（83 次受控调用，比修复前 103 次更少——`load_tools` 不再每轮重复）、
+  `verify_schedule_runtime.py` exit 0、`verify-goal.mjs` exit 0、`verify-subagent-controls.mjs` exit 0、
+  `verify-tool-groups.mjs` PASS、`verify_tool_discovery.py` exit 0、`verify_process_ownership.py` ok。
+- 顺带修掉三处**计数型断言**（附件流 4、文档流 9、浏览器流 5）：它们把一次性的 `load_tools` 结果算进本轮流，
+  复用后该 step 不再重复出现，计数自然下降。现在改为断言**本流自己的工具调用序列**
+  （`read→write→publish_file`、`skill→read→read→write→pwsh→publish_file×3`、
+  `browser_navigate→browser_fill_form→browser_click×2`）且每个结果 `isError` 为假，比原来的计数更精确。
+
+证据：`var/v2-bench-t4iou9ra/benchmark-after-reuse.json`、`var/agent-integration-7l8oaqya/evidence.json`。
+
+条件 9 判定：**对照已记录、可重复明显回退已诊断并修复后复测通过**；每会话一次的冷启动作为已知限制记录。
 
 ## 使用约定
 

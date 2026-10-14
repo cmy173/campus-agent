@@ -650,9 +650,17 @@ with SessionLocal() as db:
             'attachment_ids': [uploaded.json()['id']]}, {'Idempotency-Key': 'actual-attached-flow'})
         file_done = wait_turn(attached['id'])
         assert file_done['status'] == 'succeeded', file_done
+        file_calls = [e['data']['event']['data'] for e in file_done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/call'
+            and e['data']['event']['data'].get('callId', '').startswith('file_flow_')]
         file_results = [e['data']['event']['data']['message'] for e in file_done['events']
-            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
-        assert len(file_results) == 4 and all(not r['isError'] for r in file_results), file_results
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result'
+            and e['data']['event']['data']['message'].get('toolCallId', '').startswith('file_flow_')]
+        # Assert the attachment flow itself (read -> write -> publish), not a count of every
+        # tool result in the turn: a warm runtime keeps earlier loaded tool groups, so the
+        # one-time `load_tools` step legitimately no longer re-appears in this turn.
+        assert [c['name'] for c in file_calls] == ['read', 'write', 'publish_file'], file_calls
+        assert len(file_results) == 3 and all(not r['isError'] for r in file_results), file_results
         published = [e['data']['file'] for e in file_done['events'] if e['kind'] == 'file.published']
         assert len(published) == 1 and published[0]['kind'] == 'output', file_done
         downloaded = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{published[0]['id']}/content", timeout=10)
@@ -668,9 +676,17 @@ with SessionLocal() as db:
             'attachment_ids': [uploaded_doc.json()['id']]}, {'Idempotency-Key': 'actual-documents-flow'})
         document_done = wait_turn(document_turn['id'])
         assert document_done['status'] == 'succeeded', document_done
+        document_calls = [e['data']['event']['data'] for e in document_done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/call'
+            and e['data']['event']['data'].get('callId', '').startswith('document_flow_')]
         document_results = [e['data']['event']['data']['message'] for e in document_done['events']
-            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
-        assert len(document_results) == 9 and all(not result['isError'] for result in document_results), document_results
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result'
+            and e['data']['event']['data']['message'].get('toolCallId', '').startswith('document_flow_')]
+        # Same reason as the attachment flow: assert this flow's own steps, not a count that
+        # silently depended on the one-time `load_tools` step landing in the same turn.
+        assert [c['name'] for c in document_calls] == ['skill', 'read', 'read', 'write', 'pwsh',
+            'publish_file', 'publish_file', 'publish_file'], document_calls
+        assert len(document_results) == 8 and all(not result['isError'] for result in document_results), document_results
         document_files = [e['data']['file'] for e in document_done['events'] if e['kind'] == 'file.published']
         assert len(document_files) == 3 and {Path(f['name']).suffix for f in document_files} == {'.pdf', '.xlsx', '.md'}
         from pypdf import PdfReader
@@ -740,9 +756,18 @@ with SessionLocal() as db:
         browser_turn = post(f'/conversations/{cid}/turns', {'text': '[V2浏览器演练] 读取页面、下载资料、填写测试材料，提交前给我确认'}, {'Idempotency-Key': 'v2-browser-flow'})
         browser_done = wait_turn(browser_turn['id'])
         assert browser_done['status'] == 'succeeded', browser_done
+        browser_calls = [e['data']['event']['data'] for e in browser_done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/call'
+            and e['data']['event']['data'].get('callId', '').startswith('browser_flow_')]
         browser_results = [e['data']['event'] for e in browser_done['events'] if e['kind'] == 'harness_event' and
-                           e['data']['event']['type'] == 'tool/result']
-        assert len(browser_results) == 5 and all(not e['data']['message'].get('isError') for e in browser_results), browser_results
+                           e['data']['event']['type'] == 'tool/result' and
+                           e['data']['event']['data']['message'].get('toolCallId', '').startswith('browser_flow_')]
+        # Same reason as the other flows: assert the browser steps themselves rather than a
+        # count that included the one-time `load_tools` result when it landed in this turn.
+        assert [c['name'] for c in browser_calls] == ['mcp__campus_browser__browser_navigate',
+            'mcp__campus_browser__browser_fill_form', 'mcp__campus_browser__browser_click',
+            'mcp__campus_browser__browser_click'], browser_calls
+        assert len(browser_results) == 4 and all(not e['data']['message'].get('isError') for e in browser_results), browser_results
         assert '校园材料-632' in browser_done['response'] and 'needs_user' in browser_done['response']
         status = client.get(base + f'/api/v1/agent/conversations/{cid}/browser', timeout=15).json()
         pending = [a for a in status['reviews'] if a['status'] == 'pending']
