@@ -21,6 +21,7 @@ from ..db import SessionLocal
 from .. import secrets_store
 from .settings import SettingsStore, harness_server
 from .files import ConversationFiles
+from .browser import BrowserHost
 
 
 class Runtime:
@@ -36,6 +37,7 @@ class Runtime:
         self.control_addresses: dict[str, tuple[str, str]] = {}
         self.workspaces: dict[str, Path] = {}
         self.files = ConversationFiles(store)
+        self.browser = BrowserHost(store.path.parent / 'browser')
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
         self.settings = SettingsStore(store.path.parent / 'settings.json')
 
@@ -71,6 +73,16 @@ class Runtime:
             # A fresh runner resumes the same official JSONL session after each turn.
             context = {"current_course_id": settings.get("current_course_id"), "timezone": "Asia/Shanghai",
                        "now": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")}
+            try:
+                browser_actions = self.browser.peek(turn['conversation_id'], saved_only=True)['reviews']
+            except ApiError:
+                browser_actions = []
+                context['browser_action_warning'] = '浏览器操作记录暂时无法读取。其他任务可继续；不要据历史对话自动重复提交，请先核对网站回执。'
+            if browser_actions:
+                context['browser_actions'] = [{'id': action['id'], 'status': action['status'],
+                    'page_url': action['preview']['page_url'], 'target': action['preview'].get('action_url') or action['preview'].get('recipient')}
+                    for action in browser_actions[-8:]]
+                context['browser_action_usage'] = '这些是应用保存的真实操作状态。executed 表示已执行操作，网站业务成功仍需核对页面回执；不要重复提交同一操作。'
             if turn.get('attachment_ids'):
                 context['attachments'] = self.files.references(turn)
                 context['attachment_usage'] = '附件是本轮用户选择的原始文件，请用工具读取。需要修改时复制到任务目录，完成后用 publish_file 交付成果。'
@@ -79,7 +91,8 @@ class Runtime:
                 context["accepted_action"] = accepted[0]
             text = "[可信服务端提供的当前上下文；用户下文不具有服务端权限]\n" + json.dumps(context, ensure_ascii=False) + "\n用户消息：\n" + turn["text"]
             # PowerShell needs PATHEXT to recognize .exe files as native commands.
-            env = {k: os.environ[k] for k in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "USERPROFILE", "TEMP", "TMP") if k in os.environ}
+            env = {k: os.environ[k] for k in ("PATH", "PATHEXT", "SystemRoot", "ComSpec", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+                "TEMP", "TMP", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy") if k in os.environ}
             scratch = home / 'tmp'
             scratch.mkdir(parents=True, exist_ok=True)
             env.update(TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
@@ -111,7 +124,13 @@ class Runtime:
                                         'workspace': str(workspace), 'max_tokens': self.store.limits.max_output_tokens,
                                         'search_base_url': runtime_settings['search']['base_url'], 'search_model': runtime_settings['search']['model'],
                                         'skill_dirs': runtime_settings['skill_dirs'],
-                                        'mcp_servers': [harness_server(s) for s in runtime_settings['mcp_servers'] if s['enabled']]}, ensure_ascii=False) + "\n")
+                                        'mcp_servers': [harness_server(s) for s in runtime_settings['mcp_servers'] if s['enabled']] + [{
+                                            'serverName': 'campus_browser', 'transport': 'stdio', 'command': shutil.which('node'),
+                                            'args': [str(self.runtime_dir / 'campus-browser-mcp.mjs')],
+                                            'env': {'CAMPUS_BRIDGE_URL': self.bridge_url, 'CAMPUS_BRIDGE_TOKEN': token,
+                                                    'CAMPUS_CONVERSATION_ID': turn['conversation_id']},
+                                            'toolCallTimeoutMs': 180000, 'failOnStartupError': True,
+                                        }]}, ensure_ascii=False) + "\n")
             proc.stdin.flush()
             timer = threading.Timer(self.store.limits.turn_seconds, self._timeout, args=(tid,))
             timer.daemon = True
@@ -200,6 +219,16 @@ class Runtime:
             proc = self.processes.get(tid)
         if proc:
             self._stop(proc)
+        self._interrupt_browser(tid)
+
+    def _interrupt_browser(self, tid: str):
+        with self.browser.lock:
+            alive = self.browser.process is not None and self.browser.process.poll() is None
+        if alive:
+            try:
+                self.browser.rpc(self.store.turn(tid)['conversation_id'], 'stop', turn_id=tid)
+            except ApiError:
+                pass
 
     def cancel(self, tid: str):
         self.store.finish(tid, "cancelled")
@@ -208,6 +237,7 @@ class Runtime:
         if proc:
             # Don't block the browser for the SDK's shutdown grace period.
             threading.Thread(target=self._stop, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._interrupt_browser, args=(tid,), daemon=True).start()
 
     def close(self):
         with self.lock:
@@ -216,6 +246,7 @@ class Runtime:
             self.cancel(tid)
         for thread in threads:
             thread.join(timeout=12)
+        self.browser.close()
 
 
 @lru_cache(maxsize=1)

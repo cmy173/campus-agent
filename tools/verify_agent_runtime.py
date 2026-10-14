@@ -42,12 +42,31 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
     receipts = []
     slow_started = threading.Event()
     child_b_waiting, release_child_b = threading.Event(), threading.Event()
+    browser_submissions = []
 
     class Provider(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
 
+        def do_GET(self):
+            self.send_response(200)
+            if self.path == '/browser/download':
+                self.send_header('Content-Disposition', 'attachment; filename="browser-campus.txt"')
+                self.end_headers(); self.wfile.write(b'actual-browser-attachment-918\n'); return
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            page = '<title>浏览器集成材料</title><h1>校园材料-632</h1><a id="download" href="/browser/download">下载资料</a>' \
+                '<form action="/browser/submit" method="post"><label>姓名<input id="student" name="student"></label>' \
+                '<button id="submit">提交测试材料</button></form>'
+            self.wfile.write(page.encode('utf-8'))
+
         def do_POST(self):
+            if self.path == '/browser/submit':
+                from urllib.parse import parse_qs
+                values = parse_qs(self.rfile.read(int(self.headers['Content-Length'])).decode())
+                browser_submissions.append(values.get('student', [''])[0])
+                self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+                self.wfile.write('<title>测试提交回执</title><p>已收到本地测试材料</p>'.encode('utf-8')); return
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path == '/release-child-b':
                 release_child_b.set()
@@ -110,6 +129,28 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 slow_started.set()
                 time.sleep(2)
             user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
+            if user_text.startswith('[V2浏览器回执]'):
+                context = json.loads(messages[last_user]['content'].splitlines()[1])
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                content = '操作状态：' + ','.join(a['status'] for a in context.get('browser_actions', []))
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': content}, 'finish_reason': 'stop'}]}).encode())
+                return
+            if user_text.startswith('[V2浏览器演练]'):
+                actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                choices = [('browser_navigate', {'url': f'http://127.0.0.1:{provider.server_port}/browser/form'}),
+                    ('browser_fill_form', {'fields': [{'target': '#student', 'name': '姓名', 'type': 'textbox', 'value': '浏览器学生-724'}]}),
+                    ('browser_click', {'target': '#download'}), ('browser_click', {'target': '#submit'})]
+                calls = []
+                if len(actual_results) < len(choices):
+                    name, args = choices[len(actual_results)]
+                    calls = [{'id': 'browser_flow_' + str(len(receipts)), 'type': 'function', 'function': {
+                        'name': 'mcp__campus_browser__' + name, 'arguments': json.dumps(args, ensure_ascii=False)}}]
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': None if calls else
+                    ('已读取校园材料-632，下载资料并填写姓名。提交前请在浏览器工作区确认（needs_user）。'
+                     if '校园材料-632' in '\n'.join(actual_results) and 'needs_user' in actual_results[-1] else '\n'.join(actual_results)),
+                    'tool_calls': calls}, 'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             if user_text.startswith('[V2文档演练]'):
                 context = json.loads(messages[last_user]['content'].splitlines()[1])
                 attachments = context.get('attachments', [])
@@ -367,7 +408,14 @@ with SessionLocal() as db:
                         'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
                         'update_goal', 'web_fetch', 'web_search', 'workflow', 'write', 'publish_file'}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
-        assert actual_tools == expected_tools | native_tools
+        browser_names = {'browser_close', 'browser_resize', 'browser_console_messages', 'browser_handle_dialog', 'browser_emulate_media',
+            'browser_evaluate', 'browser_file_upload', 'browser_drop', 'browser_find', 'browser_fill_form', 'browser_press_key',
+            'browser_type', 'browser_navigate', 'browser_navigate_back', 'browser_network_requests', 'browser_network_request',
+            'browser_run_code_unsafe', 'browser_take_screenshot', 'browser_snapshot', 'browser_click', 'browser_drag',
+            'browser_hover', 'browser_select_option', 'browser_tabs', 'browser_wait_for', 'browser_prepare_action'}
+        browser_tools = {'mcp__campus_browser__' + name for name in browser_names}
+        mcp_resources = {'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
+        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources, actual_tools
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
         assert slow_started.wait(timeout=15), "controlled provider was not reached before cancellation"
         cancelled = post("/turns/" + cancel_turn["id"] + "/cancel", {})
@@ -584,9 +632,37 @@ with SessionLocal() as db:
         evidence['parallel_children_turn'] = done
         evidence['parallel_checks'] = {'actual_api_selective_child_cancel': True, 'sibling_and_parent_continue': True,
             'stop_replay_is_idempotent': True, 'actual_sibling_file_result': True}
+        browser_turn = post(f'/conversations/{cid}/turns', {'text': '[V2浏览器演练] 读取页面、下载资料、填写测试材料，提交前给我确认'}, {'Idempotency-Key': 'v2-browser-flow'})
+        browser_done = wait_turn(browser_turn['id'])
+        assert browser_done['status'] == 'succeeded', browser_done
+        browser_results = [e['data']['event'] for e in browser_done['events'] if e['kind'] == 'harness_event' and
+                           e['data']['event']['type'] == 'tool/result']
+        assert len(browser_results) == 4 and all(not e['data']['message'].get('isError') for e in browser_results), browser_results
+        assert '校园材料-632' in browser_done['response'] and 'needs_user' in browser_done['response']
+        status = client.get(base + f'/api/v1/agent/conversations/{cid}/browser', timeout=15).json()
+        pending = [a for a in status['reviews'] if a['status'] == 'pending']
+        assert len(pending) == 1 and browser_submissions == []
+        assert pending[0]['preview']['action_url'] == f'http://127.0.0.1:{provider.server_port}/browser/submit'
+        action_url = f'/conversations/{cid}/browser/actions/{pending[0]["id"]}/confirm'
+        assert post(action_url, {})['action']['status'] == 'executed'
+        assert post(action_url, {})['action']['status'] == 'executed'
+        assert browser_submissions == ['浏览器学生-724']
+        downloads = [f for f in client.get(base + f'/api/v1/agent/conversations/{cid}/files', timeout=10).json()['items'] if f['name'] == 'browser-campus.txt']
+        assert len(downloads) == 1
+        assert client.get(base + f'/api/v1/agent/conversations/{cid}/files/{downloads[0]["id"]}/content', timeout=10).content == b'actual-browser-attachment-918\n'
+        assert any(e['kind'] == 'file.published' and e['data']['file']['id'] == downloads[0]['id'] for e in browser_done['events'])
+        followup = post(f'/conversations/{cid}/turns', {'text': '[V2浏览器回执] 我已在工作区确认，继续核对执行状态'}, {'Idempotency-Key': 'v2-browser-receipt-context'})
+        followup_done = wait_turn(followup['id'])
+        assert followup_done['status'] == 'succeeded' and 'executed' in followup_done['response'], followup_done
+        latest_context = json.loads(next(m['content'] for m in reversed(receipts[-1]['messages']) if m['role'] == 'user' and '用户消息：\n' in m['content']).splitlines()[1])
+        assert any(a['id'] == pending[0]['id'] and a['status'] == 'executed' for a in latest_context['browser_actions'])
+        evidence['browser_receipt_followup_turn'] = followup_done
+        evidence['browser_turn'] = browser_done
+        evidence['browser_checks'] = {'actual_mcp_discovery_and_four_successful_tools': True,
+            'actual_attachment_published_and_downloaded': True, 'form_filled_before_one_confirmation': True,
+            'duplicate_confirmation_did_not_resubmit': True, 'next_turn_knows_actual_external_action_receipt': True}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
-        assert actual_tools == expected_tools | native_tools | {'mcp__calculator__multiply',
-            'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
+        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | {'mcp__calculator__multiply'}
         evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(actual_tools), second_turn_preserved_history=True)
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:

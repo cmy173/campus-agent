@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Alert, Button, Checkbox, Drawer, Input, Select, Space, Tag, Typography } from 'antd'
-import { CalendarOutlined, FolderOpenOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
+import { CalendarOutlined, FolderOpenOutlined, GlobalOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SettingOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { API_MODE, apiErrorText } from '../../lib/api/http'
 import { AssistantSettings } from '../settings/AssistantSettings'
@@ -11,6 +11,7 @@ import { TurnView } from './TurnView'
 import { useConversationController } from './useConversationController'
 import { useConversationFiles } from './useConversationFiles'
 import { FileWorkspace } from './FileWorkspace'
+import { BrowserWorkspace } from './BrowserWorkspace'
 import './agent.css'
 
 const examples = ['这周有哪些作业需要留意？', '这份资料里要求提交哪些材料？', '读一下我当前的学习安排']
@@ -24,6 +25,7 @@ function ConversationPage({ id }: { id?: string }) {
   const [settings, setSettings] = useState(false)
   const [source, setSource] = useState<ToolEnvelope | null>(null)
   const [fileWorkspace, setFileWorkspace] = useState(false)
+  const [browserWorkspace, setBrowserWorkspace] = useState(false)
   const [focusedFile, setFocusedFile] = useState<ConversationFile | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const fileState = useConversationFiles(id, active || sending, draft.attachment_ids ?? [], selectAttachments)
@@ -35,6 +37,7 @@ function ConversationPage({ id }: { id?: string }) {
         <Button aria-label="新对话" icon={<PlusOutlined />} onClick={() => navigate('/chat')}>新对话</Button>
         <Button aria-label="日历" icon={<CalendarOutlined />} onClick={() => setCalendar(true)}>日历</Button>
         {id && <Button icon={<FolderOpenOutlined />} onClick={() => setFileWorkspace(true)}>文件与成果{files.length ? ` (${files.length})` : ''}</Button>}
+        {id && <Button icon={<GlobalOutlined />} onClick={() => setBrowserWorkspace(true)}>浏览器</Button>}
         <Button aria-label="模型设置" icon={<SettingOutlined />} onClick={() => setSettings(true)}>模型设置</Button>
       </Space>
     </div>
@@ -104,6 +107,8 @@ function ConversationPage({ id }: { id?: string }) {
       </div>
     </div>
     <SourceWorkspace result={source} onClose={() => setSource(null)} />
+    {id && <BrowserWorkspace id={id} open={browserWorkspace} active={active || sending}
+      onOpen={() => setBrowserWorkspace(true)} onClose={() => setBrowserWorkspace(false)} />}
     <CalendarWorkspace open={calendar} onClose={() => setCalendar(false)} />
     <FileWorkspace open={fileWorkspace} onClose={() => setFileWorkspace(false)} items={files} selected={fileState.selected}
       focusedFile={focusedFile}

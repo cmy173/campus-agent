@@ -38,6 +38,176 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/browser:
+    get:
+      tags:
+      - campus-agent
+      summary: Browser Status
+      operationId: browser_status_api_v1_agent_conversations__conversation_id__browser_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserStatus'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/browser/open:
+    post:
+      tags:
+      - campus-agent
+      summary: Browser Open
+      operationId: browser_open_api_v1_agent_conversations__conversation_id__browser_open_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserOpenRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserOpenResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/browser/stop:
+    post:
+      tags:
+      - campus-agent
+      summary: Browser Stop
+      operationId: browser_stop_api_v1_agent_conversations__conversation_id__browser_stop_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserStopResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/browser/actions/{action_id}/{operation}:
+    post:
+      tags:
+      - campus-agent
+      summary: Browser Action
+      operationId: browser_action_api_v1_agent_conversations__conversation_id__browser_actions__action_id___operation__post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      - name: operation
+        in: path
+        required: true
+        schema:
+          enum:
+          - confirm
+          - reject
+          type: string
+          title: Operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserReceipt'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/internal/browser:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Browser
+      operationId: internal_browser_api_v1_agent_internal_browser_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserToolRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/settings/mcp/{server_name}/test:
     post:
       tags:
@@ -792,6 +962,241 @@ components:
       required:
       - file
       title: Body_upload_conversation_file_api_v1_agent_conversations__conversation_id__files_post
+    BrowserField:
+      properties:
+        name:
+          type: string
+          title: Name
+        value:
+          type: string
+          title: Value
+      type: object
+      required:
+      - name
+      - value
+      title: BrowserField
+    BrowserOpenRequest:
+      properties:
+        url:
+          anyOf:
+          - type: string
+            maxLength: 8192
+          - type: 'null'
+          title: Url
+      additionalProperties: false
+      type: object
+      title: BrowserOpenRequest
+    BrowserOpenResult:
+      properties:
+        running:
+          type: boolean
+          title: Running
+        headed:
+          type: boolean
+          title: Headed
+      type: object
+      required:
+      - running
+      - headed
+      title: BrowserOpenResult
+    BrowserPage:
+      properties:
+        index:
+          type: integer
+          title: Index
+        url:
+          type: string
+          title: Url
+        title:
+          type: string
+          title: Title
+      type: object
+      required:
+      - index
+      - url
+      - title
+      title: BrowserPage
+    BrowserPreview:
+      properties:
+        page_url:
+          type: string
+          title: Page Url
+        kind:
+          anyOf:
+          - type: string
+            const: explicit
+          - type: 'null'
+          title: Kind
+        action_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Action Url
+        method:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Method
+        fields:
+          items:
+            $ref: '#/components/schemas/BrowserField'
+          type: array
+          title: Fields
+        is_submit:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Submit
+        button:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Button
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        recipient:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Recipient
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content
+        attachments:
+          items:
+            type: string
+          type: array
+          title: Attachments
+        target_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Text
+      type: object
+      required:
+      - page_url
+      title: BrowserPreview
+    BrowserReceipt:
+      properties:
+        action:
+          $ref: '#/components/schemas/BrowserReview'
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+      type: object
+      required:
+      - action
+      title: BrowserReceipt
+    BrowserReview:
+      properties:
+        id:
+          type: string
+          title: Id
+        conversation_id:
+          type: string
+          title: Conversation Id
+        status:
+          type: string
+          enum:
+          - pending
+          - executing
+          - executed
+          - rejected
+          - stale
+          - uncertain
+          title: Status
+        preview:
+          $ref: '#/components/schemas/BrowserPreview'
+        created_at:
+          type: string
+          title: Created At
+        result:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Result
+      type: object
+      required:
+      - id
+      - conversation_id
+      - status
+      - preview
+      - created_at
+      title: BrowserReview
+    BrowserStatus:
+      properties:
+        running:
+          type: boolean
+          title: Running
+        headed:
+          type: boolean
+          title: Headed
+        pages:
+          items:
+            $ref: '#/components/schemas/BrowserPage'
+          type: array
+          title: Pages
+        reviews:
+          items:
+            $ref: '#/components/schemas/BrowserReview'
+          type: array
+          title: Reviews
+      type: object
+      required:
+      - running
+      - headed
+      - pages
+      - reviews
+      title: BrowserStatus
+    BrowserStopResult:
+      properties:
+        running:
+          type: boolean
+          title: Running
+        interrupted:
+          type: boolean
+          title: Interrupted
+          default: false
+      type: object
+      required:
+      - running
+      title: BrowserStopResult
+    BrowserToolRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        method:
+          type: string
+          enum:
+          - tools
+          - call
+          title: Method
+        name:
+          type: string
+          maxLength: 128
+          title: Name
+          default: ''
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - method
+      title: BrowserToolRequest
     ControlAddressRequest:
       properties:
         conversation_id:

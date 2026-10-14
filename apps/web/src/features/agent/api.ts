@@ -92,6 +92,18 @@ export interface DiagnosticResult {
   error?: ErrorInfo
 }
 
+export interface BrowserAction {
+  id: string
+  status: 'pending' | 'executing' | 'executed' | 'rejected' | 'stale' | 'uncertain'
+  preview: { kind?: 'explicit' | null; page_url: string; action_url?: string | null; method?: string | null; button?: string | null;
+    fields?: { name: string; value: string }[]; description?: string | null; recipient?: string | null; content?: string | null;
+    attachments?: string[]; target_text?: string | null }
+  created_at: string
+}
+export interface BrowserStatus { running: boolean; headed: boolean;
+  pages: { index: number; url: string; title: string }[]; reviews: BrowserAction[] }
+const browserPath = (cid: string) => `/agent/conversations/${encodeURIComponent(cid)}/browser`
+
 export interface PlanAction {
   id: string
   kind: 'apply' | 'revoke'
@@ -103,6 +115,11 @@ export interface PlanAction {
 }
 
 export const agentApi = {
+  browser: (cid: string) => apiRequest<BrowserStatus>(browserPath(cid)),
+  openBrowser: (cid: string, url?: string) => apiRequest<{ running: boolean; headed: boolean }>(browserPath(cid) + '/open', { method: 'POST', body: { url } }),
+  stopBrowser: (cid: string) => apiRequest<{ running: boolean }>(browserPath(cid) + '/stop', { method: 'POST', body: {} }),
+  browserAction: (cid: string, aid: string, operation: 'confirm' | 'reject') => apiRequest<{ action: BrowserAction; message?: string | null }>(
+    browserPath(cid) + `/actions/${encodeURIComponent(aid)}/${operation}`, { method: 'POST', body: {} }),
   files: (cid: string) => apiRequest<{ items: ConversationFile[] }>(filePath(cid)),
   upload: (cid: string, file: File, key: string) => {
     const formData = new FormData()

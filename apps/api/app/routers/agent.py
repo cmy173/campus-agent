@@ -24,6 +24,7 @@ from ..providers import ProviderCallError
 from ..agent_bridge.settings import RuntimeSettings, harness_server
 from ..agent_bridge import diagnostics
 from ..agent_bridge.files import Preview
+from ..agent_bridge.browser import deliver_downloads, BrowserStatus, BrowserReceipt, BrowserOpenResult, BrowserStopResult
 from .. import secrets_store
 
 router = APIRouter(prefix="/agent", tags=["campus-agent"])
@@ -81,6 +82,22 @@ class ControlAddressRequest(ModelLeaseRequest):
     url: str = Field(pattern=r'^http://127\.0\.0\.1:\d{1,5}$')
 
 
+class BrowserToolRequest(ModelLeaseRequest):
+    method: Literal['tools', 'call']
+    name: str = Field(default='', max_length=128)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class BrowserOpenRequest(tools.Input):
+    url: str | None = Field(default=None, max_length=8192)
+
+    @classmethod
+    def checked_url(cls, value):
+        if value and urlsplit(value).scheme not in ('http', 'https'):
+            raise ApiError(400, 'INVALID_INPUT', '浏览器地址需要 HTTP/HTTPS URL')
+        return value
+
+
 class ModelErrorRequest(ModelLeaseRequest):
     code: Literal['PROVIDER_AUTH_FAILED', 'PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT',
                   'PROVIDER_UNREACHABLE', 'PROVIDER_INVALID_RESPONSE', 'PROVIDER_HTTP_ERROR',
@@ -129,6 +146,49 @@ def public_conversation(item: dict) -> dict:
 @router.get('/settings')
 def read_settings(owner: str = Depends(browser_owner)):
     return get_runtime().settings.public()
+
+
+@router.get('/conversations/{conversation_id}/browser', response_model=BrowserStatus)
+def browser_status(conversation_id: str, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return deliver_downloads(runtime, conversation_id, runtime.browser.peek(conversation_id))
+
+
+@router.post('/conversations/{conversation_id}/browser/open', response_model=BrowserOpenResult)
+def browser_open(conversation_id: str, req: BrowserOpenRequest, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return runtime.browser.rpc(conversation_id, 'open', url=req.checked_url(req.url))
+
+
+@router.post('/conversations/{conversation_id}/browser/stop', response_model=BrowserStopResult)
+def browser_stop(conversation_id: str, req: tools.Empty, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return runtime.browser.rpc(conversation_id, 'stop')
+
+
+@router.post('/conversations/{conversation_id}/browser/actions/{action_id}/{operation}', response_model=BrowserReceipt)
+def browser_action(conversation_id: str, action_id: str, operation: Literal['confirm', 'reject'],
+                   req: tools.Empty, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    result = runtime.browser.rpc(conversation_id, operation, action_id=action_id)
+    deliver_downloads(runtime, conversation_id, runtime.browser.rpc(conversation_id, 'status'))
+    return result
+
+
+@router.post('/internal/browser')
+def internal_browser(req: BrowserToolRequest, auth=Depends(runtime_authority)):
+    runtime, turn, conversation = auth
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'SCOPE_DENIED', '浏览器调用不属于本轮会话')
+    result = runtime.browser.rpc(conversation['id'], req.method, name=req.name, arguments=req.arguments, turn_id=turn['id'])
+    if req.method == 'call':
+        status = runtime.browser.rpc(conversation['id'], 'status')
+        deliver_downloads(runtime, conversation['id'], status, turn['id'])
+    return result
 
 
 @router.put('/settings')

@@ -9,7 +9,7 @@ V2 尚未完成验收，当前能力与下一步见 [进度记录](docs/agent-v2
 
 ## 安装与启动
 
-需要 Python 3.11+、Node.js 24 和 npm；校园登录默认使用 Microsoft Edge。
+需要 Python 3.11+、Node.js 24 和 npm；校园登录及通用浏览器默认使用已安装的 Microsoft Edge。
 
 ```powershell
 python tools/dev.py --setup
@@ -24,6 +24,8 @@ python tools/dev.py --open-browser
 个人数据库和必要本地文件已从首轮目录保全带入，不导入演示数据。
 旧数据库 data/campus.sqlite3 保留，新个人数据在 var/personal.db。
 个人数据、凭据、浏览器配置与依赖目录不得提交。真实学校连接需要在受控窗口登录。
+
+聊天中的“浏览器”工作区可打开助手自己的浏览器窗口完成登录，查看待提交内容并确认一次。网页读取、下载与填写由 Harness 工具执行；下载附件自动进入“文件与成果”。浏览器配置独立于日常 Edge 配置，聊天轮次结束不会关闭它。具体用法和当前验证范围见工具说明。
 
 ## 源码结构
 

@@ -80,6 +80,8 @@ class RuntimeSettings(Input):
         names = [s.serverName for s in self.mcp_servers]
         if len(names) != len(set(names)):
             raise ValueError('MCP 服务名称不能重复')
+        if 'campus_browser' in names:
+            raise ValueError('campus_browser 为应用浏览器的保留名称')
         return self
 
 
