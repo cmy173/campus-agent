@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def routes(directory):
     records = []
+    if not directory.exists():
+        # The legacy application was retired; the inventory reports an empty set
+        # instead of failing, so a post-retirement baseline stays reproducible.
+        return records
     for path in sorted(directory.rglob('*.py')):
         tree = ast.parse(path.read_text(encoding='utf-8-sig'))
         for node in ast.walk(tree):

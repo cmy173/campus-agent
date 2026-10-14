@@ -14,16 +14,14 @@ import urllib.error
 import urllib.request
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from campus_agent.campus import CampusClient, CampusError, CampusManager
-from campus_agent.campus_service import CampusService, ConnectorRegistry
-from campus_agent.connector_contracts import (UserContext, CoursesQuery, GradesQuery, NoticesQuery,
+from connectors.campus.campus import CampusClient, CampusError, CampusManager
+from connectors.campus.campus_service import CampusService, ConnectorRegistry
+from connectors.campus.connector_contracts import (UserContext, CoursesQuery, GradesQuery, NoticesQuery,
     ProfileQuery, ConnectorSpec, FetchResult, standard_error)
-from campus_agent.connectors.notices import PublicNoticesAdapter, BOARD, parse_board
-from campus_agent.campus_network import build_opener, PlatformBudget
-from campus_agent.storage import Store
-from campus_agent.web import create_app
+from connectors.campus.connectors.notices import PublicNoticesAdapter, BOARD, parse_board
+from connectors.campus.campus_network import build_opener, PlatformBudget
+from connectors.campus.campus_store import SQLiteStore
 from test_campus import FakeCampus, COURSES, GRADES
 
 
@@ -52,9 +50,8 @@ class ConnectorServiceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.store = Store(Path(self.tmp.name)/'campus.sqlite3')
-        with self.store.connect() as db:
-            db.executemany('INSERT INTO users VALUES(?,?,?)', [('alice','alice','synthetic'),('bob','bob','synthetic')])
+        self.store = SQLiteStore(Path(self.tmp.name)/'campus.sqlite3')
+        # The retired local-account user table is gone: owners are plain workspace keys.
         self.manager = CampusManager(self.store, FakeCampus)
         self.addCleanup(self.manager.close)
         self.service = self.manager.service
@@ -68,7 +65,7 @@ class ConnectorServiceTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls,0)
         self.service.sync('notices',NoticesQuery(),self.alice)
         self.adapter.error = CampusError('TIMEOUT','ticket=secret')
-        with patch('campus_agent.campus_service.datetime', wraps=datetime) as clock:
+        with patch('connectors.campus.campus_service.datetime', wraps=datetime) as clock:
             clock.now.return_value = datetime.fromisoformat('2099-01-01T00:00:00+08:00')
             cached = self.service.query('notices',NoticesQuery(),self.alice)
         self.assertEqual(cached.freshness,'stale')
@@ -314,28 +311,30 @@ class PublicNoticeTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError):build_opener('webvpn')
 
 
-class ConnectorHTTPTests(unittest.TestCase):
-    def test_identity_comes_from_auth_and_not_payload_and_cache_survives_logout(self):
-        with TemporaryDirectory() as temporary:
-            app=create_app(temporary)
-            app.state.campus_service.registry.adapters['zdbk_public']=FakeAdapter()
-            with TestClient(app,base_url='http://127.0.0.1') as client:
-                client.headers['X-Campus-Request']='1'
-                self.assertEqual(client.get('/api/campus/notices').status_code,401)
-                auth=client.post('/api/auth/register',json={'username':'alice','password':'synthetic-local-password'}).json()
-                client.headers['X-CSRF-Token']=auth['csrf']
-                response=client.post('/api/campus/sync/notices',json={'query':{}})
-                self.assertEqual(response.status_code,200,response.text)
-                self.assertEqual(len(client.get('/api/campus/notices').json()['records']),1)
-                response=client.post('/api/campus/sync/notices',json={'query':{'owner_id':'bob'}})
-                self.assertEqual(response.status_code,400)
-                self.assertEqual(client.post('/api/campus/sync/notices',json={'owner_id':'bob'}).status_code,400)
-                self.assertEqual(client.get('/api/campus/query/notices?url=https://evil').status_code,400)
-                self.assertEqual(client.post('/api/campus/sync/notices',json={'platform':'evil'}).json()['error']['code'],'UNSUPPORTED')
-                self.assertEqual(client.post('/api/campus/disconnect/zdbk_public').status_code,200)
-                self.assertEqual(len(client.get('/api/campus/notices').json()['records']),1)
-                client.headers['X-CSRF-Token']='bad'
-                self.assertEqual(client.post('/api/campus/sync/notices',json={}).status_code,403)
+class ConnectorSessionTests(unittest.TestCase):
+    """Owner/platform scoping and disconnect semantics at the service boundary."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(Path(self.tmp.name)/'campus.sqlite3')
+        self.manager = CampusManager(self.store, FakeCampus)
+        self.addCleanup(self.manager.close)
+        self.service = self.manager.service
+        self.adapter = FakeAdapter()
+        self.service.registry.adapters['zdbk_public'] = self.adapter
+        self.alice, self.bob = UserContext('alice'), UserContext('bob')
+
+    def test_identity_and_platform_are_not_taken_from_the_call_and_disconnect_keeps_cache(self):
+        self.service.sync('notices', NoticesQuery(), self.alice)
+        self.assertEqual(len(self.service.query('notices', NoticesQuery(), self.alice).records), 1)
+        # A caller-supplied unknown platform never fetches and never invents records.
+        wrong = self.service.sync('notices', NoticesQuery(), self.alice, platform='evil')
+        self.assertEqual(wrong.error.code, 'UNSUPPORTED')
+        # Scope cannot be widened by the caller: another owner sees nothing.
+        self.assertEqual(self.service.query('notices', NoticesQuery(), self.bob).records, [])
+        self.manager.disconnect('alice')
+        self.assertEqual(len(self.service.query('notices', NoticesQuery(), self.alice).records), 1)
 
 
 if __name__ == '__main__':unittest.main()

@@ -1,5 +1,9 @@
 # 按账号学院匹配通知正文
 
+> **实现位置已迁移。** 学院通知协议现位于 `connectors/campus`（`connectors/college_notices.py`
+> 与 `campus_college_sources.py`）；旧 `campus_agent.server` 与 `scripts/verify_college_notices.py`
+> 已退役，前端旧页面已由 `/chat` 工作区取代。
+
 更新：2026-10-12。已实现 `ckc_public / college_notices`，试点为竺可桢学院。只读取公开通知，不需要校园 Cookie。
 
 ## 使用

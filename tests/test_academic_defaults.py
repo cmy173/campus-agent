@@ -3,9 +3,9 @@ from datetime import date
 import unittest
 from unittest.mock import patch
 
-from campus_agent.academic_defaults import default_calendar, fallback_terms, resolve_calendar, semester_order
-from campus_agent.academics import agenda
-from campus_agent.campus import CampusClient, CampusError, TIMETABLE
+from connectors.campus.academic_defaults import default_calendar, fallback_terms, resolve_calendar, semester_order
+from connectors.campus.academics import agenda
+from connectors.campus.campus import CampusClient, CampusError, TIMETABLE
 from test_academics import CONFIG, ROW
 import test_campus as campus_fixture
 
@@ -131,62 +131,54 @@ class DefaultCalendarTests(unittest.TestCase):
             with self.assertRaises(CampusError):client.timetable('2026-2027','1|秋')
 
 
-class DegradedSyncTests(unittest.TestCase):
+class DegradedSyncTests(campus_fixture.CampusManagerTests):
     def test_numeric_pair_terms_can_be_displayed_and_calendar_updated(self):
-        self.connect()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':'2026','semester':'1|0','term':'2026-2027 · 秋冬','current':True}]
+        fake = self.client_of()
+        fake.catalog = [{'year': '2026', 'semester': '1|0', 'term': '2026-2027 · 秋冬', 'current': True}]
         self.sync()
-        view=self.client.get('/api/campus/academics',params={'day':'2026-10-09','term':'2026/1|0'})
-        self.assertEqual(view.status_code,200,view.text)
-        self.assertEqual(view.json()['agenda']['term_key'],'2026/1|0')
-        self.assertTrue(view.json()['agenda']['dated'])
-        with patch.object(self.manager.calendar_client,'fetch',side_effect=CampusError('CALENDAR_UNAVAILABLE','暂不可用')):
-            response=self.client.post('/api/campus/calendar',json={'year':'2026','semester':'1|0','campus':'main'})
-        self.assertEqual(response.status_code,200,response.text)
-        self.assertFalse(response.json()['calendar_result']['verified'])
-
-    setUp = campus_fixture.CampusWebTests.setUp
-    tearDown = campus_fixture.CampusWebTests.tearDown
-    register = campus_fixture.CampusWebTests.register
-    connect = campus_fixture.CampusWebTests.connect
-    sync = campus_fixture.CampusWebTests.sync
+        view = self.manager.academic_view(self.OWNER, day='2026-10-09', term='2026/1|0')
+        self.assertEqual(view['agenda']['term_key'], '2026/1|0')
+        self.assertTrue(view['agenda']['dated'])
+        with patch.object(self.manager.calendar_client, 'fetch', side_effect=CampusError('CALENDAR_UNAVAILABLE', '暂不可用')):
+            response = self.manager.calendar(self.OWNER, '2026', '1|0')
+        self.assertFalse(response['calendar_result']['verified'])
 
     def test_original_query_values_and_partial_failure_allow_remaining_terms(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        fake.catalog = [{'year':'2026','query_year':'2026-2027','semester':code,'term':code,'current':i==0}
-                        for i,code in enumerate(('1|秋','1|冬'))]
+        fake = self.client_of()
+        fake.catalog = [{'year': '2026', 'query_year': '2026-2027', 'semester': code, 'term': code, 'current': i == 0}
+                        for i, code in enumerate(('1|秋', '1|冬'))]
         original = fake.timetable
-        def query(year,semester,captcha):
-            if semester=='1|冬':raise CampusError('PROTOCOL_CHANGED','本学期未开放')
-            return original(year,semester,captcha)
-        with patch.object(fake,'timetable',side_effect=query):result=self.sync().json()
-        self.assertEqual(fake.queried,[('2026-2027','1|秋')])
+
+        def query(year, semester, captcha):
+            if semester == '1|冬':
+                raise CampusError('PROTOCOL_CHANGED', '本学期未开放')
+            return original(year, semester, captcha)
+
+        with patch.object(fake, 'timetable', side_effect=query):
+            result = self.sync()
+        self.assertEqual(fake.queried, [('2026-2027', '1|秋')])
         self.assertFalse(result['snapshot']['courses']['complete'])
-        self.assertEqual(len(result['snapshot']['sync_progress']['failed']),1)
+        self.assertEqual(len(result['snapshot']['sync_progress']['failed']), 1)
         self.assertIsNotNone(result['snapshot']['profile'])
-        view=self.client.get('/api/campus/academics?day=2026-10-09&term=2026/1%7C秋').json()
+        view = self.manager.academic_view(self.OWNER, day='2026-10-09', term='2026/1|秋')
         self.assertTrue(view['agenda']['dated'])
-        self.assertEqual(view['agenda']['source_status'],'fallback')
-        fake.catalog.append({'year':'2026','semester':'99','term':'未知','current':False})
+        self.assertEqual(view['agenda']['source_status'], 'fallback')
+        fake.catalog.append({'year': '2026', 'semester': '99', 'term': '未知', 'current': False})
         self.sync()
-        with patch.object(self.manager.calendar_client,'fetch',side_effect=CampusError('CALENDAR_UNSUPPORTED','暂无适配')):
-            response = self.client.post('/api/campus/calendar',json={'year':'2026','semester':'99','campus':'main'})
-        self.assertEqual(response.status_code,200,response.text)
-        self.assertFalse(response.json()['calendar_result']['verified'])
-        self.assertFalse(self.client.get('/api/campus/academics?term=2026/99').json()['agenda']['dated'])
+        with patch.object(self.manager.calendar_client, 'fetch', side_effect=CampusError('CALENDAR_UNSUPPORTED', '暂无适配')):
+            response = self.manager.calendar(self.OWNER, '2026', '99')
+        self.assertFalse(response['calendar_result']['verified'])
+        self.assertFalse(self.manager.academic_view(self.OWNER, term='2026/99')['agenda']['dated'])
 
     def test_first_sync_list_failure_queries_real_data_using_new_grade_history(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        fake.discovery_error = CampusError('TERM_DISCOVERY_FAILED','页面选项缺失')
-        result = self.sync().json()
-        self.assertEqual(result['snapshot']['sync_progress']['total'],8)
+        fake = self.client_of()
+        fake.discovery_error = CampusError('TERM_DISCOVERY_FAILED', '页面选项缺失')
+        result = self.sync()
+        self.assertEqual(result['snapshot']['sync_progress']['total'], 8)
         self.assertTrue(result['auto_continue'])
-        final = self.client.post('/api/campus/sync',json={'resume':True}).json()
+        final = self.sync(resume=True)
         self.assertFalse(final['auto_continue'])
         self.assertFalse(final['snapshot']['courses']['complete'])
-        self.assertEqual(final['snapshot']['sync_progress']['completed'],8)
-        self.assertEqual({y for y,s in fake.queried},{'2025-2026','2026-2027'})
-        self.assertEqual(final['snapshot']['profile']['data']['name'],campus_fixture.PROFILE['name'])
+        self.assertEqual(final['snapshot']['sync_progress']['completed'], 8)
+        self.assertEqual({y for y, s in fake.queried}, {'2025-2026', '2026-2027'})
+        self.assertEqual(final['snapshot']['profile']['data']['name'], campus_fixture.PROFILE['name'])

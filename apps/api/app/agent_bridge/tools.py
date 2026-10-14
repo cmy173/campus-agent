@@ -319,7 +319,10 @@ def execute(name: str, arguments: dict, db: Session, ctx: ToolContext) -> dict:
                     "freshness": {"fetched_at": data.get("fetched_at"), "stale": data["freshness"] != "fresh"},
                     "warnings": data.get("warnings", []), "next_cursor": data.get("next_cursor"), "job_id": None, "error": error}
             elif name == "campus.academics":
-                data = workspace.manager.academic_view(OWNER, date.fromisoformat(args["day"]) if args["day"] else None, args["term"])
+                if args["day"]:
+                    # Validate, then pass the ISO string: the connector parses it itself.
+                    date.fromisoformat(args["day"])
+                data = workspace.manager.academic_view(OWNER, args["day"], args["term"])
             elif name == "campus.notice.read":
                 found = workspace.manager.service.cached_college_notice(UserContext(OWNER), args["record_id"])
                 if not found:

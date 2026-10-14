@@ -59,8 +59,11 @@ def install_campus_router(app, owner_dependency, *, prefix="/api/v1/agent/campus
     def academics(day: str | None = None, term: str | None = None):
         from datetime import date
         try:
-            parsed_day = date.fromisoformat(day) if day else None
-            return get_campus_workspace().manager.academic_view(OWNER, parsed_day, term)
+            if day:
+                # Validate here, but hand the connector the ISO string it parses itself:
+                # `academic_view`/`agenda` call `date.fromisoformat` on the raw value.
+                date.fromisoformat(day)
+            return get_campus_workspace().manager.academic_view(OWNER, day, term)
         except ValueError:
             raise ApiError(400, "INVALID_INPUT", "日期应为 YYYY-MM-DD") from None
 

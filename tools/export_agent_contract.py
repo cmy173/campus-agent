@@ -1,10 +1,15 @@
-"""Export the additive Agent API and its referenced schemas from FastAPI."""
+"""Export the additive Agent API and its referenced schemas from FastAPI.
+
+`--check` re-derives the document and compares it with the committed file without
+writing, so CI fails when the contract and the implementation drift apart.
+"""
 from pathlib import Path
 import sys
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+CONTRACT = ROOT / 'contracts/openapi/agent-openapi.yaml'
 sys.path.insert(0, str(ROOT / 'apps/api'))
 from app.main import app  # noqa: E402
 
@@ -32,5 +37,15 @@ while pending:
     pending.update(references(schemas[name]))
 result = {'openapi': '3.1.0', 'info': {'title': 'Campus Agent additive contract', 'version': '0.2.0-local'},
           'paths': paths, 'components': {'schemas': {name: schemas[name] for name in sorted(schemas)}}}
-(ROOT / 'contracts/openapi/agent-openapi.yaml').write_text(yaml.safe_dump(result, allow_unicode=True, sort_keys=False), encoding='utf-8')
-print(f'Exported {len(paths)} Agent paths and {len(schemas)} schemas')
+document = yaml.safe_dump(result, allow_unicode=True, sort_keys=False)
+
+if '--check' in sys.argv[1:]:
+    if not CONTRACT.exists():
+        raise SystemExit(f'Missing contract file: {CONTRACT}')
+    committed = CONTRACT.read_text(encoding='utf-8')
+    if committed != document:
+        raise SystemExit('Agent contract is stale: run python tools/export_agent_contract.py and commit the result')
+    print(f'Contract is current: {len(paths)} Agent paths and {len(schemas)} schemas')
+else:
+    CONTRACT.write_text(document, encoding='utf-8')
+    print(f'Exported {len(paths)} Agent paths and {len(schemas)} schemas')

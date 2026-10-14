@@ -1,5 +1,11 @@
 # 通知整理事件与待核对事项
 
+> **历史记录（pre-V2）。** `campus_agent/notice_*` 管线与 `scripts/verify_notice_extraction.py`
+> 已在 V2 退役。新系统的对应路径是：`campus.notice.import` 把缓存通知正文写入明确课程资料，
+> 再由 `tasks.build` 的真实任务引擎生成任务；模型侧由唯一 Harness 运行时承担，不保留第二套
+> 模型转发。见 [agent-design/tools-v2.md](agent-design/tools-v2.md) 与
+> [agent-v2-migration.md](agent-v2-migration.md)。
+
 更新：2026-10-12。学院通知保存到资料库后，除既有离线规则提取外，可选用 DeepSeek 把整篇通知整理成事件、时间与待核对事项。所有模型产出初始为“待核对”，不自动报名、提交或发送任何内容。
 
 ## 边界

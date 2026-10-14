@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from campus_agent.academics import agenda, grade_summary, course_periods, week_matches
-from campus_agent.calendar_sources import CalendarClient, quarters, period_times, teaching_changes, CATALOG, ENGLISH, NEWS
-from campus_agent.campus import CampusError
+from connectors.campus.academics import agenda, grade_summary, course_periods, week_matches
+from connectors.campus.calendar_sources import CalendarClient, quarters, period_times, teaching_changes, CATALOG, ENGLISH, NEWS
+from connectors.campus.campus import CampusError
 
 
 TIMES = [['08:00','08:45'],['08:50','09:35'],['10:00','10:45'],['10:50','11:35'],['11:40','12:25'],
@@ -139,7 +139,7 @@ class PublicCalendarTests(unittest.TestCase):
                    ENGLISH: ENGLISH_FIXTURE,
                    NEWS: '<a href="'+notice+'">本科生院关于2026年下半年部分节假日...</a>', notice: NOTICE}
         with patch.object(client, 'read', side_effect=lambda u,*a,**kw: sources[u].encode()), patch(
-                'campus_agent.calendar_sources.subprocess.run', return_value=SimpleNamespace(
+                'connectors.campus.calendar_sources.subprocess.run', return_value=SimpleNamespace(
                     returncode=0, stdout=json.dumps(pages).encode())):
             result = client.fetch('2026','3')
         self.assertTrue(result['verified'])
@@ -150,7 +150,7 @@ class PublicCalendarTests(unittest.TestCase):
             self.assertEqual(client.fetch('2026','3'), result)
         wrong_year_pages = [p | {'notes': p['notes'].replace('2026年','2024年')} for p in pages]
         with patch.object(client, 'read', side_effect=lambda u,*a,**kw: sources[u].encode()), patch(
-                'campus_agent.calendar_sources.subprocess.run', return_value=SimpleNamespace(
+                'connectors.campus.calendar_sources.subprocess.run', return_value=SimpleNamespace(
                     returncode=0, stdout=json.dumps(wrong_year_pages).encode())):
             with self.assertRaises(CampusError): client.fetch('2026','3',force=True)
         with self.assertRaises(CampusError): client.fetch('2026','12')

@@ -1,3 +1,8 @@
+> **历史记录（pre-V2）。** 本文记录的旧服务器、`tests/test_notice_analysis.py`、
+> `scripts/verify_*.py` 与 `campus_agent/notice_*` 管线已在 V2 退役，命令不再可执行。
+> 现状与迁移去向见 [agent-v2-progress.md](agent-v2-progress.md) 与
+> [agent-v2-migration.md](agent-v2-migration.md)。
+
 ## 2026-10-12：通知整理事件与待核对事项
 
 用户反馈游泳通级测试通知只被切分成句子，没有提炼时间、地点与附件。本轮实现“保存到资料库后可用可选模型整理事件与待核对事项”的最小闭环，保留资料问答与无模型时的规则提取，未重写校园连接器，未引入通用 Agent 框架，不自动报名、提交或发送消息。工作区已有未提交改动全部保留，只在其上增量修改。

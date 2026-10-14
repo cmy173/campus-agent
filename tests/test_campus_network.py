@@ -5,8 +5,8 @@ import urllib.request
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
-from campus_agent.campus import CampusClient
-from campus_agent.calendar_sources import CalendarClient
+from connectors.campus.campus import CampusClient
+from connectors.campus.calendar_sources import CalendarClient
 
 
 class TransportReached(Exception):

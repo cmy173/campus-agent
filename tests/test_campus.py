@@ -1,6 +1,12 @@
-"""Synthetic CAS/ZDBK responses only; never require a real student password."""
+"""Synthetic CAS/ZDBK responses only; never require a real student password.
+
+The pre-V2 local-account HTTP application is retired. Campus behavior is asserted
+against the migrated `connectors.campus.CampusManager` directly; only model/network
+responses and the clock are synthetic. `CampusProtocolTests` below stays a wire-level
+regression over the same migrated package.
+"""
 from contextlib import ExitStack
-from datetime import datetime
+from datetime import date, datetime
 from http.cookiejar import Cookie
 from io import BytesIO
 from pathlib import Path
@@ -15,10 +21,10 @@ import time
 import unittest
 import urllib.error
 
-from fastapi.testclient import TestClient
-from campus_agent.campus import (CampusClient, CampusError, CAS, BASE, MENU, SERVICE, GRADES as GRADES_URL, TIMETABLE_INDEX,
-                                  check_url, encrypt_password, normalize_course, normalize_profile)
-from campus_agent.web import create_app
+from connectors.campus.campus import (CampusClient, CampusError, CampusManager, CAS, BASE, MENU, SERVICE,
+                                      GRADES as GRADES_URL, TIMETABLE_INDEX, check_url, encrypt_password,
+                                      normalize_course, normalize_profile)
+from connectors.campus.campus_store import SQLiteStore
 
 
 PROFILE = {'student_id': 'SYNTHETIC-STUDENT', 'name': '合成学生', 'college': '测试学院',
@@ -60,146 +66,121 @@ class FakeCampus:
     def grades(self): return GRADES, self.complete, 1 if self.complete else 2
 
 
-class CampusWebTests(unittest.TestCase):
+class CampusManagerTests(unittest.TestCase):
+    """Migrated connector behavior without the retired local-account HTTP layer."""
+
+    OWNER = 'local'
+
     def setUp(self):
         self.stack = ExitStack()
-        clock = self.stack.enter_context(patch('campus_agent.campus.datetime', wraps=datetime))
+        clock = self.stack.enter_context(patch('connectors.campus.campus.datetime', wraps=datetime))
         clock.now.return_value = datetime.fromisoformat('2026-10-09T12:00:00+08:00')
         self.tmp = self.stack.enter_context(TemporaryDirectory())
-        self.app = create_app(self.tmp)
-        self.manager = self.app.state.campus
-        self.manager.factory = FakeCampus
-        self.client = self.stack.enter_context(TestClient(self.app, base_url='http://127.0.0.1'))
-        self.client.headers['X-Campus-Request'] = '1'
-        self.register('alice')
+        self.store_path = Path(self.tmp) / 'campus.sqlite3'
+        self.manager = self.new_manager()
+        self.login()
 
     def tearDown(self): self.stack.close()
 
-    def register(self, username):
-        r = self.client.post('/api/auth/register', json={'username': username, 'password': 'local-test-pass'})
-        self.assertEqual(r.status_code, 200)
-        self.client.headers['X-CSRF-Token'] = r.json()['csrf']
+    def new_manager(self):
+        return CampusManager(SQLiteStore(self.store_path), client_factory=FakeCampus)
 
-    def connect(self):
-        r = self.client.post('/api/campus/prepare', json={'consent': True})
-        self.assertEqual(r.status_code, 200, r.text)
-        r = self.client.post('/api/campus/login', json={'flow_id': r.json()['flow_id'], 'username': 'synthetic',
-            'password': 'campus-secret-test', 'authcode': '', 'consent': True})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(r.json()['connected'])
+    def login(self, owner=None):
+        owner = owner or self.OWNER
+        flow = self.manager.prepare(owner)['flow_id']
+        self.manager.login(owner, flow, 'synthetic', 'campus-secret-test', '')
+        return self.manager.states[owner]['client']
 
-    def sync(self):
-        return self.client.post('/api/campus/sync', json={})
+    def client_of(self, owner=None):
+        return self.manager.states[owner or self.OWNER]['client']
 
-    def test_connect_sync_logout_and_cached_snapshot(self):
-        self.connect()
-        r = self.sync()
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()['snapshot']['profile']['data']['name'], PROFILE['name'])
-        self.assertEqual({c['year'] for c in r.json()['snapshot']['courses']['data']}, {'2026', '2025'})
-        self.assertTrue(r.json()['snapshot']['courses']['complete'])
-        self.assertEqual(r.json()['snapshot']['grades']['data'][0]['credits'], '0')
-        state = next(iter(self.manager.states.values()))
-        self.client.post('/api/auth/logout')
-        self.assertTrue(state['client'].closed)
-        r = self.client.post('/api/auth/login', json={'username': 'alice', 'password': 'local-test-pass'})
-        self.client.headers['X-CSRF-Token'] = r.json()['csrf']
-        r = self.client.get('/api/campus').json()
-        self.assertFalse(r['connected'])
-        self.assertTrue(r['cached'])
-        self.assertIsNotNone(r['snapshot']['grades'])
+    def sync(self, owner=None, **body):
+        return self.manager.sync(owner or self.OWNER, captcha=body.get('captcha', ''),
+                                 resume=bool(body.get('resume')))
 
-    def test_owner_isolation_flow_and_clear_data(self):
-        self.connect()
+    def status(self, owner=None):
+        return self.manager.status(owner or self.OWNER)
+
+    def disconnect(self, owner=None, delete=True):
+        self.manager.disconnect(owner or self.OWNER, delete=delete)
+
+    def test_connect_sync_cached_snapshot_and_session_stop(self):
+        result = self.sync()
+        self.assertEqual(result['snapshot']['profile']['data']['name'], PROFILE['name'])
+        self.assertEqual({c['year'] for c in result['snapshot']['courses']['data']}, {'2026', '2025'})
+        self.assertTrue(result['snapshot']['courses']['complete'])
+        self.assertEqual(result['snapshot']['grades']['data'][0]['credits'], '0')
+        client = self.client_of()
+        self.manager.disconnect(self.OWNER)
+        self.assertTrue(client.closed)
+        cached = self.status()
+        self.assertFalse(cached['connected'])
+        self.assertTrue(cached['cached'])
+        self.assertIsNotNone(cached['snapshot']['grades'])
+
+    def test_owner_isolation_and_clear_data(self):
         self.sync()
-        alice_state = next(iter(self.manager.states.values()))
-        self.register('bob')
-        r = self.client.get('/api/campus').json()
-        self.assertFalse(r['connected'])
-        self.assertIsNone(r['snapshot']['profile'])
-        r = self.client.post('/api/campus/login', json={'flow_id': 'a'*64, 'username': 'synthetic',
-            'password': 'campus-secret-test', 'consent': True})
-        self.assertEqual(r.status_code, 409)
-        self.client.delete('/api/campus')
+        alice_state = self.manager.states[self.OWNER]
+        self.assertFalse(self.status('other-owner')['connected'])
+        self.assertIsNone(self.status('other-owner')['snapshot']['profile'])
+        self.disconnect('other-owner', delete=True)
         self.assertFalse(alice_state['client'].closed)
-        r = self.client.post('/api/auth/login', json={'username': 'alice', 'password': 'local-test-pass'})
-        self.client.headers['X-CSRF-Token'] = r.json()['csrf']
-        self.client.delete('/api/data')
+        self.disconnect(self.OWNER, delete=True)
         self.assertTrue(alice_state['client'].closed)
-        self.assertIsNone(self.client.get('/api/campus').json()['snapshot']['grades'])
+        self.assertIsNone(self.status(self.OWNER)['snapshot']['grades'])
 
-    def test_consent_csrf_and_no_secrets_in_storage_or_audit(self):
-        r = self.client.post('/api/campus/prepare', json={'consent': False})
-        self.assertEqual(r.status_code, 400)
-        for path in ('/api/campus/prepare', '/api/campus/login', '/api/campus/sync', '/api/campus/captcha'):
-            r = self.client.post(path, json={}, headers={'X-CSRF-Token': 'wrong'})
-            self.assertEqual(r.status_code, 403)
-        self.assertEqual(self.client.delete('/api/campus', headers={'X-CSRF-Token': 'wrong'}).status_code, 403)
-        self.connect()
+    def test_campus_storage_never_contains_credentials(self):
         self.sync()
-        with self.app.state.store.connect() as db:
+        with self.manager.store.connect() as db:
             saved = '\n'.join(db.iterdump())
         for secret in ('campus-secret-test', 'iPlanetDirectoryPro', 'flow_id', 'execution', 'authcode'):
             self.assertNotIn(secret, saved)
-        audit = self.client.get('/api/audit').text
-        self.assertNotIn(PROFILE['student_id'], audit)
-        self.assertNotIn(PROFILE['name'], audit)
 
     def test_partial_failure_expiry_and_captcha_do_not_fake_success(self):
-        self.connect()
         self.sync()
-        state = next(iter(self.manager.states.values()))
-        state['client'].error = CampusError('CAPTCHA_REQUIRED', '需要验证码')
-        state['client'].complete = False
-        result = self.sync().json()
+        client = self.client_of()
+        client.error = CampusError('CAPTCHA_REQUIRED', '需要验证码')
+        client.complete = False
+        result = self.sync()
         self.assertTrue(result['snapshot']['courses']['stale'])
         self.assertFalse(result['snapshot']['grades']['complete'])
         self.assertEqual({w['code'] for w in result['snapshot']['warnings']}, {'CAPTCHA_REQUIRED', 'INCOMPLETE_GRADES'})
-        self.assertEqual(self.client.post('/api/campus/captcha').status_code, 200)
-        state['client'].error = CampusError('SESSION_EXPIRED', '会话失效')
-        result = self.sync().json()
+        self.assertEqual(self.manager.captcha(self.OWNER)['captcha'], 'data:image/png;base64,c3ludGhldGlj')
+        client.error = CampusError('SESSION_EXPIRED', '会话失效')
+        result = self.sync()
         self.assertFalse(result['connected'])
         self.assertTrue(result['snapshot']['grades']['stale'])
-        self.assertEqual(self.client.get('/api/me').status_code, 200)
 
     def test_disconnect_and_new_login_remove_old_student_data(self):
-        self.connect()
         self.sync()
-        self.client.delete('/api/campus')
+        self.disconnect()
         self.assertFalse(self.manager.states)
-        self.assertIsNone(self.client.get('/api/campus').json()['snapshot']['profile'])
-        self.connect()
+        self.assertIsNone(self.status()['snapshot']['profile'])
+        self.login()
         self.sync()
-        self.connect()
-        self.assertIsNone(self.client.get('/api/campus').json()['snapshot']['grades'])
+        self.login()
+        self.assertIsNone(self.status()['snapshot']['grades'])
 
-    def test_expired_flow_input_validation_and_login_throttle(self):
-        prepared = self.client.post('/api/campus/prepare', json={'consent': True}).json()
-        state = next(iter(self.manager.states.values()))
-        state['expires'] = time.monotonic()-1
-        r = self.client.post('/api/campus/login', json={'flow_id': prepared['flow_id'], 'username': 'synthetic',
-            'password': 'campus-secret-test', 'consent': True})
-        self.assertEqual(r.status_code, 409)
+    def test_expired_flow_is_rejected(self):
+        prepared = self.manager.prepare(self.OWNER)
+        state = self.manager.states[self.OWNER]
+        state['expires'] = time.monotonic() - 1
+        with self.assertRaises(CampusError) as expired:
+            self.manager.login(self.OWNER, prepared['flow_id'], 'synthetic', 'campus-secret-test', '')
+        self.assertEqual(expired.exception.code, 'FLOW_EXPIRED')
         self.assertTrue(state['client'].closed)
-        for body in ({'year': '2026', 'semester': '1'}, {'year': {}, 'semester': '3'}, {'year': '2026', 'semester': []}):
-            self.assertEqual(self.client.post('/api/campus/sync', json=body).status_code, 400)
-        body = {'flow_id': 'a'*64, 'username': 'synthetic', 'password': 'test', 'consent': True}
-        for _ in range(2):
-            self.assertEqual(self.client.post('/api/campus/login', json=body).status_code, 409)
-        self.assertEqual(self.client.post('/api/campus/login', json=body).status_code, 429)
 
     def test_all_terms_batched_resume_and_empty_terms_are_preserved(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i)+' · 秋冬', 'current': i==0}
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i)+' · 秋冬', 'current': i == 0}
                         for i in range(8)]
         fake.empty.add(('2025', '3'))
-        first = self.sync().json()
+        first = self.sync()
         self.assertTrue(first['auto_continue'])
         self.assertFalse(first['snapshot']['courses']['complete'])
         self.assertEqual(first['snapshot']['sync_progress']['completed'], 6)
         with patch.object(fake, 'terms', side_effect=AssertionError('resume must not rediscover')):
-            second = self.client.post('/api/campus/sync', json={'resume': True}).json()
+            second = self.sync(resume=True)
         self.assertFalse(second['can_resume'])
         self.assertTrue(second['snapshot']['courses']['complete'])
         self.assertEqual(len(second['snapshot']['courses']['terms']), 8)
@@ -208,266 +189,263 @@ class CampusWebTests(unittest.TestCase):
         self.assertEqual(second['snapshot']['sync_progress']['pending'], [])
 
     def test_shorter_catalog_preserves_known_semesters_and_cached_courses(self):
-        self.connect();self.sync()
-        owner=next(iter(self.manager.states));fake=self.manager.states[owner]['client']
-        before=self.client.get('/api/campus').json()['snapshot']['courses']
-        fake.catalog=[fake.catalog[0]]
-        fake.queried=[]
-        result=self.sync().json()['snapshot']
-        self.assertEqual(len(result['courses']['catalog']),2)
-        self.assertEqual(len(result['courses']['terms']),2)
-        self.assertEqual(result['sync_progress']['total'],1)
-        self.assertEqual(fake.queried,[('2026','3')])
-        old=next(t for t in result['courses']['terms'] if t['year']=='2025')
-        self.assertEqual(old['data'],before['terms'][1]['data'])
-        self.assertEqual(old['fetched_at'],before['terms'][1]['fetched_at'])
-        self.assertTrue(old['stale']);self.assertFalse(old['available'])
-        self.assertIn('CACHED_TERM_RANGE',{w['code'] for w in result['warnings']})
+        self.sync()
+        fake = self.client_of()
+        before = self.status()['snapshot']['courses']
+        fake.catalog = [fake.catalog[0]]
+        fake.queried = []
+        result = self.sync()['snapshot']
+        self.assertEqual(len(result['courses']['catalog']), 2)
+        self.assertEqual(len(result['courses']['terms']), 2)
+        self.assertEqual(result['sync_progress']['total'], 1)
+        self.assertEqual(fake.queried, [('2026', '3')])
+        old = next(t for t in result['courses']['terms'] if t['year'] == '2025')
+        self.assertEqual(old['data'], before['terms'][1]['data'])
+        self.assertEqual(old['fetched_at'], before['terms'][1]['fetched_at'])
+        self.assertTrue(old['stale']); self.assertFalse(old['available'])
+        self.assertIn('CACHED_TERM_RANGE', {w['code'] for w in result['warnings']})
         self.assertFalse(result['courses']['complete'])
-        view=self.client.get('/api/campus/academics?term=2025/12').json()['agenda']
-        self.assertEqual(view['term_key'],'2025/12')
+        view = self.manager.academic_view(self.OWNER, term='2025/12')['agenda']
+        self.assertEqual(view['term_key'], '2025/12')
         self.assertTrue(view['stale'])
 
     def test_sync_does_not_consume_an_adapters_cached_catalog(self):
-        self.connect();fake=next(iter(self.manager.states.values()))['client']
-        catalog=fake.catalog
-        with patch.object(fake,'terms',return_value=catalog):
-            self.sync();second=self.sync().json()['snapshot']
-        self.assertEqual(len(catalog),2)
-        self.assertEqual(second['sync_progress']['total'],2)
+        fake = self.client_of()
+        catalog = fake.catalog
+        with patch.object(fake, 'terms', return_value=catalog):
+            self.sync(); second = self.sync()['snapshot']
+        self.assertEqual(len(catalog), 2)
+        self.assertEqual(second['sync_progress']['total'], 2)
         self.assertTrue(second['courses']['complete'])
 
     def test_empty_response_keeps_nonempty_cache_and_later_valid_update_replaces_it(self):
-        self.connect();self.sync()
-        owner=next(iter(self.manager.states));fake=self.manager.states[owner]['client']
-        before=self.client.get('/api/campus').json()['snapshot']['courses']
-        fake.empty={('2026','3'),('2025','12')}
-        result=self.sync().json()['snapshot']
-        self.assertEqual(result['courses']['data'],[r|{'stale':True} for r in before['data']])
-        self.assertEqual(result['courses']['fetched_at'],before['fetched_at'])
-        self.assertEqual(result['sync_progress']['completed'],0)
-        self.assertEqual(len(result['sync_progress']['failed']),2)
-        self.assertEqual(len([w for w in result['warnings'] if w['code']=='EMPTY_TIMETABLE_CACHE']),2)
-        for old,new in zip(before['terms'],result['courses']['terms']):
-            self.assertEqual(old['fetched_at'],new['fetched_at'])
-        with patch.object(fake,'timetable',return_value=(PROFILE,[COURSES[0]|{'name':'新课程','location':'新教室'}])):
-            updated=self.sync().json()['snapshot']['courses']
+        self.sync()
+        fake = self.client_of()
+        before = self.status()['snapshot']['courses']
+        fake.empty = {('2026', '3'), ('2025', '12')}
+        result = self.sync()['snapshot']
+        self.assertEqual(result['courses']['data'], [r | {'stale': True} for r in before['data']])
+        self.assertEqual(result['courses']['fetched_at'], before['fetched_at'])
+        self.assertEqual(result['sync_progress']['completed'], 0)
+        self.assertEqual(len(result['sync_progress']['failed']), 2)
+        self.assertEqual(len([w for w in result['warnings'] if w['code'] == 'EMPTY_TIMETABLE_CACHE']), 2)
+        for old, new in zip(before['terms'], result['courses']['terms']):
+            self.assertEqual(old['fetched_at'], new['fetched_at'])
+        with patch.object(fake, 'timetable', return_value=(PROFILE, [COURSES[0] | {'name': '新课程', 'location': '新教室'}])):
+            updated = self.sync()['snapshot']['courses']
         self.assertTrue(updated['complete'])
-        self.assertTrue(all(r['name']=='新课程' for r in updated['data']))
+        self.assertTrue(all(r['name'] == '新课程' for r in updated['data']))
         self.assertFalse(updated['stale'])
 
     def test_discovered_but_unqueried_terms_survive_a_smaller_next_catalog(self):
-        self.connect();fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
-        with patch.object(fake,'timetable',side_effect=CampusError('CAPTCHA_REQUIRED','需要验证码')):
-            first=self.sync().json()['snapshot']['courses']
-        self.assertEqual(len(first['catalog']),8);self.assertEqual(first['terms'],[])
-        fake.catalog=fake.catalog[:1]
-        second=self.sync().json()['snapshot']['courses']
-        self.assertEqual(len(second['catalog']),8)
-        self.assertEqual(len(second['terms']),1)
-        self.assertEqual(len(second['data']),1)
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(8)]
+        with patch.object(fake, 'timetable', side_effect=CampusError('CAPTCHA_REQUIRED', '需要验证码')):
+            first = self.sync()['snapshot']['courses']
+        self.assertEqual(len(first['catalog']), 8); self.assertEqual(first['terms'], [])
+        fake.catalog = fake.catalog[:1]
+        second = self.sync()['snapshot']['courses']
+        self.assertEqual(len(second['catalog']), 8)
+        self.assertEqual(len(second['terms']), 1)
+        self.assertEqual(len(second['data']), 1)
         self.assertFalse(second['complete'])
 
     def test_partial_course_merge_retains_original_time_for_cached_rows(self):
-        self.connect();self.sync()
-        owner=next(iter(self.manager.states));fake=self.manager.states[owner]['client']
-        snapshot=self.manager._snapshot(owner)
+        self.sync()
+        owner = self.OWNER
+        fake = self.client_of()
+        snapshot = self.manager._snapshot(owner)
         for term in snapshot['courses']['terms']:
-            term['fetched_at']='2026-09-01T00:00:00+08:00'
-        self.manager._save(owner,snapshot)
-        fake.timetable_warnings=[{'code':'PARTIAL_TIMETABLE','message':'一条未解析'}]
-        with patch.object(fake,'timetable',return_value=(PROFILE,[COURSES[0]|{'code':'NEW','name':'可用新课程'}])):
-            result=self.sync().json()['snapshot']['courses']
-        old=[r for r in result['data'] if r['code']=='DEMO']
-        self.assertEqual(len(old),2)
-        self.assertTrue(all(r['stale'] and r['fetched_at']=='2026-09-01T00:00:00+08:00' for r in old))
-        self.assertTrue(any(r['code']=='NEW' and not r['stale'] for r in result['data']))
+            term['fetched_at'] = '2026-09-01T00:00:00+08:00'
+        self.manager._save(owner, snapshot)
+        fake.timetable_warnings = [{'code': 'PARTIAL_TIMETABLE', 'message': '一条未解析'}]
+        with patch.object(fake, 'timetable', return_value=(PROFILE, [COURSES[0] | {'code': 'NEW', 'name': '可用新课程'}])):
+            result = self.sync()['snapshot']['courses']
+        old = [r for r in result['data'] if r['code'] == 'DEMO']
+        self.assertEqual(len(old), 2)
+        self.assertTrue(all(r['stale'] and r['fetched_at'] == '2026-09-01T00:00:00+08:00' for r in old))
+        self.assertTrue(any(r['code'] == 'NEW' and not r['stale'] for r in result['data']))
 
-    def test_course_cache_and_catalog_survive_restart_but_not_account_switch(self):
-        self.connect();self.sync()
-        before=self.client.get('/api/campus').json()['snapshot']['courses']
+    def test_course_cache_and_catalog_survive_restart(self):
+        self.sync()
+        before = self.status()['snapshot']['courses']
         self.manager.close()
-        restarted=create_app(self.tmp)
-        offline=self.stack.enter_context(TestClient(restarted,base_url='http://127.0.0.1'))
-        offline.cookies.update(self.client.cookies)
-        result=offline.get('/api/campus').json()
-        self.assertFalse(result['connected'])
-        self.assertEqual(result['snapshot']['courses']['catalog'],before['catalog'])
-        self.assertEqual(result['snapshot']['courses']['data'],before['data'])
-        self.register('bob')
-        self.assertIsNone(self.client.get('/api/campus').json()['snapshot']['courses'])
+        restarted = self.new_manager()
+        try:
+            result = restarted.status(self.OWNER)
+            self.assertFalse(result['connected'])
+            self.assertEqual(result['snapshot']['courses']['catalog'], before['catalog'])
+            self.assertEqual(result['snapshot']['courses']['data'], before['data'])
+            # A different owner never sees the saved workspace.
+            self.assertIsNone(restarted.status('other-owner')['snapshot']['courses'])
+        finally:
+            restarted.close()
 
     def test_consecutive_http_server_errors_pause_without_discarding_cache_or_pending(self):
-        self.connect();self.sync()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
-        before=self.client.get('/api/campus').json()['snapshot']['courses']['data']
-        error=CampusError('UPSTREAM_ERROR','服务器错误',{'http_status':500,'reason':'HTTP_STATUS'})
-        with patch.object(fake,'timetable',side_effect=error) as sent:
-            result=self.sync().json()
-        self.assertEqual(sent.call_count,3)
-        self.assertFalse(result['auto_continue']);self.assertTrue(result['can_resume'])
-        self.assertEqual(len(result['snapshot']['sync_progress']['pending']),5)
-        self.assertEqual(len(result['snapshot']['sync_progress']['failed']),3)
-        self.assertEqual(result['snapshot']['courses']['data'][0]['name'],before[0]['name'])
-        self.assertTrue(any(w['code']=='SERVER_ERRORS_PAUSED' for w in result['snapshot']['warnings']))
-        resumed=self.client.post('/api/campus/sync',json={'resume':True}).json()
-        self.assertFalse(resumed['auto_continue']);self.assertFalse(resumed['can_resume'])
-        self.assertEqual(len(resumed['snapshot']['sync_progress']['pending']),0)
+        self.sync()
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(8)]
+        before = self.status()['snapshot']['courses']['data']
+        error = CampusError('UPSTREAM_ERROR', '服务器错误', {'http_status': 500, 'reason': 'HTTP_STATUS'})
+        with patch.object(fake, 'timetable', side_effect=error) as sent:
+            result = self.sync()
+        self.assertEqual(sent.call_count, 3)
+        self.assertFalse(result['auto_continue']); self.assertTrue(result['can_resume'])
+        self.assertEqual(len(result['snapshot']['sync_progress']['pending']), 5)
+        self.assertEqual(len(result['snapshot']['sync_progress']['failed']), 3)
+        self.assertEqual(result['snapshot']['courses']['data'][0]['name'], before[0]['name'])
+        self.assertTrue(any(w['code'] == 'SERVER_ERRORS_PAUSED' for w in result['snapshot']['warnings']))
+        resumed = self.sync(resume=True)
+        self.assertFalse(resumed['auto_continue']); self.assertFalse(resumed['can_resume'])
+        self.assertEqual(len(resumed['snapshot']['sync_progress']['pending']), 0)
 
     def test_custom_status_pauses_without_skipping_term_or_expiring_sessions(self):
-        self.connect()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
-        first=self.sync().json()
-        before=self.client.post('/api/campus/sync',json={'resume':True}).json()['snapshot']['courses']
-        for code in ('UPSTREAM_STATUS_UNKNOWN','UPSTREAM_ERROR'):
-            error=CampusError(code,'未知校方响应',{'http_status':921,'reason':'HTTP_CUSTOM_STATUS'})
-            with patch.object(fake,'timetable',side_effect=error) as sent:
-                result=self.sync().json()
-            self.assertEqual(sent.call_count,1)
-            self.assertFalse(result['auto_continue']);self.assertTrue(result['can_resume'])
-            self.assertEqual(len(result['snapshot']['sync_progress']['pending']),8)
-            self.assertEqual(result['snapshot']['sync_progress']['failed'],[])
-            self.assertEqual(result['snapshot']['sync_progress']['completed'],0)
-            self.assertEqual(len(result['snapshot']['courses']['data']),len(before['data']))
-            self.assertTrue(result['connected']);self.assertFalse(fake.closed)
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(8)]
+        self.sync()
+        before = self.sync(resume=True)['snapshot']['courses']
+        for code in ('UPSTREAM_STATUS_UNKNOWN', 'UPSTREAM_ERROR'):
+            error = CampusError(code, '未知校方响应', {'http_status': 921, 'reason': 'HTTP_CUSTOM_STATUS'})
+            with patch.object(fake, 'timetable', side_effect=error) as sent:
+                result = self.sync()
+            self.assertEqual(sent.call_count, 1)
+            self.assertFalse(result['auto_continue']); self.assertTrue(result['can_resume'])
+            self.assertEqual(len(result['snapshot']['sync_progress']['pending']), 8)
+            self.assertEqual(result['snapshot']['sync_progress']['failed'], [])
+            self.assertEqual(result['snapshot']['sync_progress']['completed'], 0)
+            self.assertEqual(len(result['snapshot']['courses']['data']), len(before['data']))
+            self.assertTrue(result['connected']); self.assertFalse(fake.closed)
             self.assertFalse(result['snapshot']['grades']['stale'])
-            codes={w['code'] for w in result['snapshot']['warnings']}
-            self.assertIn('CUSTOM_STATUS_PAUSED',codes);self.assertNotIn('SERVER_ERRORS_PAUSED',codes)
-        self.client.post('/api/campus/sync',json={'resume':True})
-        final=self.client.post('/api/campus/sync',json={'resume':True}).json()
-        self.assertEqual(final['snapshot']['sync_progress']['completed'],8)
+            codes = {w['code'] for w in result['snapshot']['warnings']}
+            self.assertIn('CUSTOM_STATUS_PAUSED', codes); self.assertNotIn('SERVER_ERRORS_PAUSED', codes)
+        self.sync(resume=True)
+        final = self.sync(resume=True)
+        self.assertEqual(final['snapshot']['sync_progress']['completed'], 8)
         self.assertTrue(final['snapshot']['courses']['complete'])
-        self.assertFalse(any(w['code'] in ('UPSTREAM_STATUS_UNKNOWN','CUSTOM_STATUS_PAUSED') for w in final['snapshot']['warnings']))
+        self.assertFalse(any(w['code'] in ('UPSTREAM_STATUS_UNKNOWN', 'CUSTOM_STATUS_PAUSED') for w in final['snapshot']['warnings']))
 
     def test_one_slow_semester_keeps_cache_and_does_not_block_later_terms(self):
-        self.connect();self.sync()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
-        original=fake.timetable
-        error=CampusError('NETWORK_ERROR','超时',{'stage':'timetable','reason':'TIMEOUT'})
-        def read(year,semester,captcha=''):
-            if year=='2025':raise error
-            return original(year,semester,captcha)
-        with patch.object(fake,'timetable',side_effect=read):
-            first=self.sync().json()
-            final=self.client.post('/api/campus/sync',json={'resume':True}).json()
+        self.sync()
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(8)]
+        original = fake.timetable
+        error = CampusError('NETWORK_ERROR', '超时', {'stage': 'timetable', 'reason': 'TIMEOUT'})
+
+        def read(year, semester, captcha=''):
+            if year == '2025':
+                raise error
+            return original(year, semester, captcha)
+
+        with patch.object(fake, 'timetable', side_effect=read):
+            first = self.sync()
+            final = self.sync(resume=True)
         self.assertTrue(first['auto_continue'])
-        self.assertFalse(final['can_resume']);self.assertFalse(final['snapshot']['courses']['complete'])
-        self.assertEqual(final['snapshot']['sync_progress']['completed'],7)
-        self.assertTrue(any(t['year']=='2025' and t['stale'] for t in final['snapshot']['courses']['terms']))
-        self.assertTrue(any(t['year']=='2019' and not t['stale'] for t in final['snapshot']['courses']['terms']))
+        self.assertFalse(final['can_resume']); self.assertFalse(final['snapshot']['courses']['complete'])
+        self.assertEqual(final['snapshot']['sync_progress']['completed'], 7)
+        self.assertTrue(any(t['year'] == '2025' and t['stale'] for t in final['snapshot']['courses']['terms']))
+        self.assertTrue(any(t['year'] == '2019' and not t['stale'] for t in final['snapshot']['courses']['terms']))
 
     def test_repeated_timetable_timeouts_pause_at_three_and_other_transport_errors_stop(self):
-        self.connect()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(8)]
-        for reason,expected_calls in (('TIMEOUT',3),('DNS',1)):
-            with patch.object(fake,'timetable',side_effect=CampusError('NETWORK_ERROR','失败',{'reason':reason})) as sent:
-                result=self.sync().json()
-            self.assertEqual(sent.call_count,expected_calls);self.assertFalse(result['auto_continue'])
+        self.login()
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(8)]
+        for reason, expected_calls in (('TIMEOUT', 3), ('DNS', 1)):
+            with patch.object(fake, 'timetable', side_effect=CampusError('NETWORK_ERROR', '失败', {'reason': reason})) as sent:
+                result = self.sync()
+            self.assertEqual(sent.call_count, expected_calls); self.assertFalse(result['auto_continue'])
             self.assertTrue(result['can_resume'])
 
     def test_discovery_failure_keeps_cache_and_does_not_claim_all_terms(self):
-        self.connect()
         self.sync()
-        fake = next(iter(self.manager.states.values()))['client']
+        fake = self.client_of()
         fake.discovery_error = CampusError('TERM_DISCOVERY_FAILED', '未发现学期')
-        result = self.sync().json()
+        result = self.sync()
         self.assertFalse(result['snapshot']['courses']['complete'])
         self.assertTrue(result['snapshot']['courses']['stale'])
         self.assertGreater(len(result['snapshot']['courses']['data']), 2)
-        self.assertTrue(any('|' in s for _,s in fake.queried))
+        self.assertTrue(any('|' in s for _, s in fake.queried))
         self.assertFalse(result['snapshot']['grades']['stale'])
         self.assertTrue(result['can_resume'])
 
     def test_known_semester_contract_uses_default_calendar_without_blocking(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        fake.catalog = [{'year':'2026','semester':'1','term':'2026-2027 · 来源学期','current':True}]
-        result=self.sync().json()
-        self.assertEqual(fake.queried,[('2026','1')])
+        fake = self.client_of()
+        fake.catalog = [{'year': '2026', 'semester': '1', 'term': '2026-2027 · 来源学期', 'current': True}]
+        result = self.sync()
+        self.assertEqual(fake.queried, [('2026', '1')])
         self.assertTrue(result['snapshot']['courses']['complete'])
-        view=self.client.get('/api/campus/academics?term=2026/1').json()
-        self.assertEqual(view['agenda']['term_key'],'2026/1')
+        view = self.manager.academic_view(self.OWNER, term='2026/1')
+        self.assertEqual(view['agenda']['term_key'], '2026/1')
         self.assertTrue(view['agenda']['dated'])
-        self.assertEqual(view['agenda']['source_status'],'fallback')
-        with patch.object(self.manager.calendar_client,'fetch',side_effect=CampusError('CALENDAR_UNAVAILABLE','离线')):
-            self.assertEqual(self.client.post('/api/campus/calendar',json={
-                'year':'2026','semester':'1','campus':'main'}).status_code,200)
+        self.assertEqual(view['agenda']['source_status'], 'fallback')
+        with patch.object(self.manager.calendar_client, 'fetch', side_effect=CampusError('CALENDAR_UNAVAILABLE', '离线')):
+            self.manager.calendar(self.OWNER, '2026', '1')
 
     def test_unsupported_catalog_options_do_not_block_known_terms_or_claim_complete(self):
-        self.connect()
-        fake=next(iter(self.manager.states.values()))['client']
-        fake.catalog=[{'year':str(2026-i),'semester':'3','term':str(2026-i),'current':i==0} for i in range(7)]
-        fake.term_warnings=[{'code':'UNSUPPORTED_TERM_OPTIONS','stage':'terms','message':'范围不完整'}]
-        first=self.sync().json()
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0} for i in range(7)]
+        fake.term_warnings = [{'code': 'UNSUPPORTED_TERM_OPTIONS', 'stage': 'terms', 'message': '范围不完整'}]
+        first = self.sync()
         self.assertTrue(first['auto_continue'])
-        final=self.client.post('/api/campus/sync',json={'resume':True}).json()
-        self.assertEqual(final['snapshot']['sync_progress']['completed'],7)
+        final = self.sync(resume=True)
+        self.assertEqual(final['snapshot']['sync_progress']['completed'], 7)
         self.assertFalse(final['can_resume'])
         self.assertFalse(final['snapshot']['courses']['complete'])
         self.assertFalse(final['snapshot']['courses']['stale'])
         self.assertFalse(final['snapshot']['grades']['stale'])
-        self.assertEqual(final['snapshot']['warnings'][0]['code'],'UNSUPPORTED_TERM_OPTIONS')
+        self.assertEqual(final['snapshot']['warnings'][0]['code'], 'UNSUPPORTED_TERM_OPTIONS')
 
     def test_sync_failures_keep_separate_stages_and_safe_diagnostics(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        diagnostic = {'stage':'terms','method':'GET','host':'zdbk.zju.edu.cn',
-                      'reason':'TIMEOUT','elapsed_ms':12000}
-        fake.discovery_error = CampusError('NETWORK_ERROR','学期列表请求超时', diagnostic)
-        with patch.object(fake,'grades',side_effect=CampusError('NETWORK_ERROR','成绩连接失败')):
-            result = self.sync().json()
-        warnings=result['snapshot']['warnings']
-        self.assertEqual([w['stage'] for w in warnings], ['grades','terms','terms'])
+        fake = self.client_of()
+        diagnostic = {'stage': 'terms', 'method': 'GET', 'host': 'zdbk.zju.edu.cn',
+                      'reason': 'TIMEOUT', 'elapsed_ms': 12000}
+        fake.discovery_error = CampusError('NETWORK_ERROR', '学期列表请求超时', diagnostic)
+        with patch.object(fake, 'grades', side_effect=CampusError('NETWORK_ERROR', '成绩连接失败')):
+            result = self.sync()
+        warnings = result['snapshot']['warnings']
+        self.assertEqual([w['stage'] for w in warnings], ['grades', 'terms', 'terms'])
         self.assertEqual(warnings[1]['diagnostic'], diagnostic)
         self.assertIsNotNone(result['snapshot']['profile'])
         self.assertIsNone(result['snapshot']['grades'])
         self.assertTrue(result['auto_continue'])
-        with self.app.state.store.connect() as db:
-            audit=db.execute("SELECT result FROM audit WHERE action='campus.sync' ORDER BY id DESC LIMIT 1").fetchone()
-        self.assertEqual(audit['result'],'incomplete')
 
     def test_interrupted_batch_resumes_without_overwriting_other_terms(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
+        fake = self.client_of()
         original = fake.timetable
+
         def interrupt(year, semester, captcha):
             if year == '2025':
                 raise CampusError('CAPTCHA_REQUIRED', '需要验证码')
             return original(year, semester, captcha)
+
         with patch.object(fake, 'timetable', side_effect=interrupt):
-            first = self.sync().json()
+            first = self.sync()
         self.assertEqual(first['snapshot']['sync_progress']['completed'], 1)
         self.assertTrue(first['can_resume'])
         self.assertFalse(first['auto_continue'])
-        second = self.client.post('/api/campus/sync', json={'resume': True, 'captcha': '1234'}).json()
+        second = self.sync(resume=True, captcha='1234')
         self.assertTrue(second['snapshot']['courses']['complete'])
         self.assertEqual(fake.queried, [('2026', '3'), ('2025', '12')])
 
     def test_unknown_student_identity_never_mixes_academic_data(self):
-        self.connect()
         self.sync()
-        fake = next(iter(self.manager.states.values()))['client']
+        fake = self.client_of()
         with patch.object(fake, 'timetable', return_value=(PROFILE | {'student_id': 'other'}, COURSES)):
-            result = self.sync().json()
+            result = self.sync()
         self.assertFalse(result['connected'])
         self.assertEqual(result['snapshot']['profile']['data']['student_id'], PROFILE['student_id'])
         self.assertTrue(all(t['stale'] for t in result['snapshot']['courses']['terms']))
 
     def test_legacy_snapshot_migration_and_current_profile_priority(self):
-        self.connect()
-        owner = next(iter(self.manager.states))
+        owner = self.OWNER
         self.manager._save(owner, {'profile': None, 'grades': None, 'courses': {
             'year': '2023', 'semester': '3', 'data': COURSES, 'fetched_at': '2023-10-01T00:00:00+08:00'}})
-        fake = self.manager.states[owner]['client']
+        fake = self.client_of()
+
         def timetable(year, semester, captcha):
             return PROFILE | {'major': '当前专业' if year == '2026' else '历史专业'}, COURSES
+
         with patch.object(fake, 'timetable', side_effect=timetable):
-            result = self.sync().json()['snapshot']
+            result = self.sync()['snapshot']
         self.assertEqual(result['profile']['data']['major'], '当前专业')
         self.assertEqual(len(result['courses']['terms']), 3)
         old = next(t for t in result['courses']['terms'] if t['year'] == '2023')
@@ -475,52 +453,40 @@ class CampusWebTests(unittest.TestCase):
         self.assertTrue(next(c for c in result['courses']['data'] if c['year'] == '2023')['stale'])
 
     def test_grade_failure_warning_survives_course_batch_continuation(self):
-        self.connect()
-        fake = next(iter(self.manager.states.values()))['client']
-        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i==0}
+        fake = self.client_of()
+        fake.catalog = [{'year': str(2026-i), 'semester': '3', 'term': str(2026-i), 'current': i == 0}
                         for i in range(7)]
         with patch.object(fake, 'grades', side_effect=CampusError('NETWORK_ERROR', '成绩连接失败')):
-            first = self.sync().json()
+            first = self.sync()
         self.assertTrue(first['auto_continue'])
-        final = self.client.post('/api/campus/sync', json={'resume': True}).json()
+        final = self.sync(resume=True)
         self.assertTrue(final['snapshot']['courses']['complete'])
         self.assertIsNone(final['snapshot']['grades'])
         self.assertEqual(final['snapshot']['warnings'][0]['code'], 'NETWORK_ERROR')
 
-    def test_academic_views_calendar_csrf_owner_and_failure(self):
+    def test_academic_views_calendar_owner_and_failure(self):
         from test_academics import CONFIG
-        self.connect(); self.sync()
-        body = {'year':'2026','semester':'3','campus':'main'}
-        self.assertEqual(self.client.post('/api/campus/calendar', json=body, headers={'X-CSRF-Token':'wrong'}).status_code, 403)
+        self.sync()
         with patch.object(self.manager.calendar_client, 'fetch', return_value=CONFIG):
-            self.assertEqual(self.client.post('/api/campus/calendar', json=body).status_code, 200)
-        view = self.client.get('/api/campus/academics?day=2026-10-09').json()
+            self.manager.calendar(self.OWNER, '2026', '3')
+        view = self.manager.academic_view(self.OWNER, day='2026-10-09')
         self.assertTrue(view['agenda']['dated'])
         self.assertIn('today_agenda', view)
-        with patch.object(self.manager.calendar_client, 'fetch', side_effect=CampusError('CALENDAR_NOT_VERIFIED','未核对')):
-            self.client.post('/api/campus/calendar', json=body)
-        cached = self.client.get('/api/campus/academics?day=2026-10-09').json()['agenda']
+        with patch.object(self.manager.calendar_client, 'fetch', side_effect=CampusError('CALENDAR_NOT_VERIFIED', '未核对')):
+            self.manager.calendar(self.OWNER, '2026', '3')
+        cached = self.manager.academic_view(self.OWNER, day='2026-10-09')['agenda']
         self.assertTrue(cached['dated'])
-        self.assertEqual(cached['source_status'],'cache')
-        for query in ('day=2026-02-30','day=bad','term=2026/0','term=2026/1000','term=2026/-1'):
-            self.assertEqual(self.client.get('/api/campus/academics?'+query).status_code, 400)
-        self.register('bob')
-        self.assertEqual(self.client.get('/api/campus/academics').json()['grades']['overall']['records'], 0)
-        self.assertEqual(self.client.post('/api/campus/calendar', json=body).status_code, 409)
+        self.assertEqual(cached['source_status'], 'cache')
+        self.assertEqual(self.manager.academic_view('other-owner')['grades']['overall']['records'], 0)
 
-    def test_academic_static_assets_and_calendar_cleanup(self):
+    def test_calendar_cleanup_follows_campus_data_deletion(self):
         from test_academics import CONFIG
-        for name in ('academics.js','academics.css'):
-            response = self.client.get('/static/'+name)
-            self.assertEqual(response.status_code, 200)
-            self.assertIn("script-src 'self'", response.headers['content-security-policy'])
-        self.assertEqual(self.client.get('/static/unknown.js').status_code, 404)
-        self.connect(); self.sync()
+        self.sync()
         with patch.object(self.manager.calendar_client, 'fetch', return_value=CONFIG):
-            self.client.post('/api/campus/calendar', json={'year':'2026','semester':'3','campus':'main'})
-        self.client.delete('/api/campus')
-        self.assertIsNone(self.client.get('/api/campus/academics').json()['agenda']['calendar'])
-        self.assertNotIn('calendars', self.client.get('/api/campus').json()['snapshot'])
+            self.manager.calendar(self.OWNER, '2026', '3')
+        self.disconnect()
+        self.assertIsNone(self.manager.academic_view(self.OWNER)['agenda']['calendar'])
+        self.assertNotIn('calendars', self.status()['snapshot'])
 
 
 def cookie(name, domain, value='synthetic-cookie', path='/'):
@@ -544,7 +510,7 @@ class CampusProtocolTests(unittest.TestCase):
         self.assertNotIn('SECRET',json.dumps(caught.exception.public()))
 
     def test_http_error_metadata_precedes_body_decode_and_preserves_query_contract(self):
-        from campus_agent.campus import TIMETABLE
+        from connectors.campus.campus import TIMETABLE
         client=CampusClient()
         with patch.object(client,'request',return_value=(500,{'Content-Type':'text/html'},b'\xffsecret-body')):
             with self.assertRaises(CampusError) as caught:client.timetable('2026-2027','1|秋')
@@ -586,7 +552,7 @@ class CampusProtocolTests(unittest.TestCase):
         self.assertEqual(shape['page_encoding'],'utf-8-sig')
 
     def test_zero_error_is_not_failure_and_true_errors_have_safe_diagnostics(self):
-        from campus_agent.campus import TIMETABLE
+        from connectors.campus.campus import TIMETABLE
         client=CampusClient()
         for flag in (0,'0',False,'false'):
             with patch.object(client,'page_request',return_value=json.dumps({'error':flag,'kbList':[]})):

@@ -41,8 +41,8 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 
 | 条件 | 状态 | 当前证据 / 尚缺 |
 | --- | --- | --- |
-| 1 唯一源码与安装启动 | 进行中 | 主目录独立安装/构建/启动已验证；V2最终干净重建仍待全功能实施后验收 |
-| 2 迁移与旧代码删除 | 进行中 | 快照与逐项台账；校园协议实现已单份化到 connectors/campus，campus_agent 协议模块改为别名；旧服务器/静态UI仍在树中待逐项退役 |
+| 1 唯一源码与安装启动 | 进行中 | 主目录独立安装/构建/启动已验证；旧服务器删除后唯一入口 `tools/dev.py` 仍通过 `--check`/`--smoke-test`；最终干净重建仍待验收 |
+| 2 迁移与旧代码删除 | 已验证（合成范围） | 旧 `campus_agent` 应用整体删除（服务器/静态UI/旧模型转发/旧抽取管线/旧Store/旧调度/旧本地账号）；校园协议单份位于 `connectors/campus`；保留断言改挂到迁移实现（191项+80subtests）；旧库只读导入仍可用；真实校园账号试用与真实旧库导入仍缺 |
 | 3 全部 C 档能力 | 进行中 | 文件/代码/Skills/MCP/文档/双子任务/持久目标/本机调度均已实际执行；按需工具发现（上游 PTC/发现机制）与真实搜索/模型仍缺 |
 | 4 真实官方模型三场景 | 未开始 | 待 provider 与本地账号配置/预算 |
 | 5 浏览器/下载/表单 | 进行中 | 应用自有持久Edge，真实MCP与API/Harness闭环、受控表单一次确认防重、字段变化拒绝、真实下载及UI恢复通过；真实校方登录态试用仍待完成 |
@@ -50,7 +50,7 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 | 7 自动执行及正确性 | 进行中 | 通用本地操作自动执行、可配置预算；计划意图授权与外部提交确认待改造 |
 | 8 UI 分层与浏览器验收 | 进行中 | 请求/状态/展示/主题拆分，主导航收敛为 /chat 且旧URL跳转、任务工作区与换布局预览通过；桌面全宽视觉回归尚缺 |
 | 9 性能前后对照 | 未开始 | 待本地基准，远程耗时单列 |
-| 10 整体验证与交付 | 进行中 | 建立文档与工具，最终待验收 |
+| 10 整体验证与交付 | 进行中 | CI 已迁移到新测试入口与契约新鲜度检查；文档归档进行中；干净重建与真实服务试用待完成 |
 
 ## 下一步（以本文件最后一节为准）
 
@@ -146,4 +146,17 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 依赖按需发现的现状核查：固定 0.2.0-rc.2 上游的按需工具形态是 agent preset 的 `tool-presentation`（native / `run_code` PTC / both），PTC 需要 host 侧 `dsh-ptc-runtime-node` 与沙箱；`dsh-tool-cordis` 提供运行时 API 检视。本轮只做核查与选型，未实现，继续列为条件 3 缺口。
 - 清理 `.gitignore` 补充 `.tmp-install/` 与 `tmp*/`；提交前审计未纳入数据库、凭据、依赖、证据目录与测试临时目录。
 
-下一步：按台账退役旧 `campus_agent` 服务器与静态 UI（先将其承重的服务级回归改挂到 connectors/campus，避免丢失有效断言）、实现按需工具发现、补桌面全宽视觉回归与性能基准、CI 迁移到新测试入口，最后做干净重建与真实服务试用。
+下一步：实现按需工具发现、补桌面全宽视觉回归与性能基准、完成干净重建与真实服务试用。
+
+## 2026-10-14 增量：旧应用整体退役，回归改挂迁移实现
+
+- 校园协议实现单份化到 `connectors/campus`，并新增 `connectors/campus/campus_store.py`（缓存 schema + `SQLiteStore`）：此前 `campus_snapshots`/`connector_cache` 的建表只在 `apps/api` 的 `CacheStore` 里，迁移后的连接器包自己需要持久化契约；现在 `CacheStore` 组合 `CAMPUS_SCHEMA + IMPORT_SCHEMA`，连接器回归测试不再需要旧 `Store`。
+- 旧 `campus_agent` 包整体删除（`git rm` 47 个路径）：`web.py`/`server.py`/`__main__.py`/`campus_routes.py`/`passport_routes.py`（旧本地账号 + CSRF 服务器）、`static/`（10 个旧界面文件）、`llm.py`（第二套模型转发）、`notice_analysis.py`/`notice_contract.py`/`notice_model.py`/`parser_worker.py`/`services.py`（旧抽取管线）、`storage.py`、`campus_sync.py`、`campus_crypto.py`、`core.py`，以及此前的兼容别名模块与 `connectors/` 别名。
+- **保留有效断言而不是删测试**：把原先必须经由已退役 HTTP 层才能断言的 27 项 `CampusWebTests` 与 7 项 `ProfileSyncTests` 改写成直接驱动迁移后的 `CampusManager`（`prepare/login/sync/status/academic_view/calendar/disconnect/adopt_passport/connect_and_sync`）。仅两类断言随实现删除并已在台账记录理由：旧多账号注册/CSRF/consent 语义（V2 是单人本机身份），以及旧静态页与旧 `/api/documents` 路由断言（其端到端覆盖已由 `apps/api/tests/test_campus_migration.py::test_notice_to_material_read_and_real_task_engine_is_versioned` 承接）。测试数由迁移后的 162+72 subtests 提升到 **191 passed + 80 subtests**。
+- 移植过程中实际发现并修复一个产品缺陷：`CampusManager.academic_view`/`agenda` 期望 ISO **字符串** 日期，而 `apps/api/app/routers/campus.py` 与 `apps/api/app/agent_bridge/tools.py` 都传入 `date` 对象，真实调用会 `TypeError` 变成 500。两处改为先校验再传原字符串。
+- 历史导入测试自带冻结 schema：`apps/api/tests/test_campus_migration.py` 不再 `from campus_agent.storage import Store`，改为在测试内声明首轮历史表结构（与被测模块“不实例化旧 Store”的立场一致），9 项导入/回滚/隔离测试保持通过。
+- CI 重写：`.github/workflows/tests.yml` 现在跑 API 套件（隔离数据库/文件/凭据/Harness home）、迁移后根回归、契约新鲜度检查与前端构建+测试，不再引用已删除的 `campus_agent/static/*.js` 或旧 unittest 入口。`tools/export_agent_contract.py` 新增 `--check`（只比较不写入）。
+- 文档：`docs/local-setup.md`（整篇是旧服务器启动指引）归档到 `docs/history/first-round-legacy/` 并修正相对链接；`validation.md`、`notice-extraction.md`、`college-notices.md`、`connectors.md` 加迁移横幅；`docs/agent-v2-migration.md` 台账改为逐项“已删除/已单份化/已迁移”并注明未完成项。
+- 退役后实际验证：根回归 **191 passed + 80 subtests（24.95 秒）**；API 全套 **320 passed（60.96 秒）**；`tsc -b` 退出 0、前端 **149 passed**、Vite 生产构建 exit 0；`tools/dev.py --check` 与 `--smoke-test --platforms`（真实起 API+Vite 并检查网页代理）**exit 0**；`tools/migrate_campus_data.py inventory --source data/campus.sqlite3` 在无 `campus_agent` 环境下仍真实只读运行（`source_read_only: true`、`unmapped: []`、凭据/会话/审计表列在 excluded）；CI YAML 解析通过。全树已无对退役模块的引用（仅历史文档提及）。
+
+剩余：按需工具发现、桌面全宽视觉回归、性能基准、真实旧库导入与真实校园/模型试用、干净重建。

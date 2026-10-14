@@ -1,14 +1,14 @@
 # 本地运行与 OpenAI 配置
 
-登录入口见 [通行证与离线缓存](passport-login.md)：直接使用浙大通行证登录，程序自动获取教务信息；已有本机会话默认展示本人缓存。校园密码不保存，也不作为本地密码哈希；请勿通过 GitHub issue、配置文件或聊天发送给协作者。
+登录入口见 [通行证与离线缓存](../../passport-login.md)：直接使用浙大通行证登录，程序自动获取教务信息；已有本机会话默认展示本人缓存。校园密码不保存，也不作为本地密码哈希；请勿通过 GitHub issue、配置文件或聊天发送给协作者。
 
 适用版本：整合预览版。Python 3.10+；本次在 Windows / Python 3.12 验证。所有命令在解压后的项目根目录执行。
 
-学业日历的程序校历读取需要安装更新后的 requirements.txt：PDF 渲染依赖 pypdfium2，Windows 本机识别依赖 PyWinRT 和系统可用的中文 OCR 语言。语言包不可用、非 Windows 或来源解析失败时，仍可使用同学期缓存或默认日期展示课表、今日课程与成绩概览；不会发送校历给外部模型。校历核对的适用范围见 [学业界面说明](academic-ui.md)。
+学业日历的程序校历读取需要安装更新后的 requirements.txt：PDF 渲染依赖 pypdfium2，Windows 本机识别依赖 PyWinRT 和系统可用的中文 OCR 语言。语言包不可用、非 Windows 或来源解析失败时，仍可使用同学期缓存或默认日期展示课表、今日课程与成绩概览；不会发送校历给外部模型。校历核对的适用范围见 [学业界面说明](../../academic-ui.md)。
 
 ETA 基本信息适配新增 cryptography 依赖。已有环境更新后执行 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`，再重启服务并刷新页面。
 
-修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-12.custom-status` 表示已加载统一服务及通行证 Cookie/关闭恢复修复。再按 Ctrl+Shift+R 强制刷新浏览器。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。启动前可设置 `$env:CAMPUS_NETWORK_POLICY='system'` 跟随系统代理，或 `'direct'` 保持原直连策略；只影响校园请求，仍依赖系统路由。详情见 [连接器指南](connectors.md)。
+修改 Python 连接器后，需要在原服务终端 Ctrl+C，再运行 `.\.venv\Scripts\python.exe -m campus_agent.server`；只刷新网页不能重新加载后端。打开 `/api/health`，campus_connector_revision 为 `2026-10-12.custom-status` 表示已加载统一服务及通行证 Cookie/关闭恢复修复。再按 Ctrl+Shift+R 强制刷新浏览器。缓存默认保留，重新登录更新后才会生成新同步记录；无需删除数据。启动前可设置 `$env:CAMPUS_NETWORK_POLICY='system'` 跟随系统代理，或 `'direct'` 保持原直连策略；只影响校园请求，仍依赖系统路由。详情见 [连接器指南](../../connectors.md)。
 
 
 
@@ -95,7 +95,7 @@ Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
 
 启用前界面必须勾选同意项，说明会发送：通知标题、正文段落、发布日期、学院名称、平台记录 ID 与附件名称。不发送校园 Cookie、CAS ticket、账号密码、个人档案、附件 URL 或官方原文链接；附件不下载、不解析。正文超过 24000 字符时只分析前缀并标记为部分结果。每次输出上限 4000 token、超时 90 秒，每账号最多 12 次模型整理/小时、60 次通知导入/小时，重启后计数重置；这不是财务硬预算，应同时在供应商侧设置额度。
 
-模型产出的每条事项初始为“待核对”，需要你确认、修改或忽略；引用能定位到原文不等于语义正确。真实成功补全尚未联调，详见 [通知整理](notice-extraction.md) 与 [验证记录](validation.md)。参考：[DeepSeek API 文档](https://api-docs.deepseek.com/)、[JSON 输出说明](https://api-docs.deepseek.com/guides/json_mode/)。
+模型产出的每条事项初始为“待核对”，需要你确认、修改或忽略；引用能定位到原文不等于语义正确。真实成功补全尚未联调，详见 [通知整理](../../notice-extraction.md) 与 [验证记录](../../validation.md)。参考：[DeepSeek API 文档](https://api-docs.deepseek.com/)、[JSON 输出说明](https://api-docs.deepseek.com/guides/json_mode/)。
 
 ## 测试
 

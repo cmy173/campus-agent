@@ -1,5 +1,10 @@
 # 校园连接器与扩展指南
 
+> **实现位置已迁移。** 连接器实现现位于 `connectors/campus`（旧 `campus_agent` 包已退役，
+> 其 `campus_agent.server`、静态界面与 `scripts/verify_*.py` 不再存在）。本文描述的能力、
+> 边界与错误语义仍然有效；路径以 [campus-migration-v2.md](agent-design/campus-migration-v2.md)
+> 为准。
+
 更新：2026-10-12。采用 FastAPI + SQLite 模块化单体，不新增依赖或后台服务。
 
 ## 当前可用范围

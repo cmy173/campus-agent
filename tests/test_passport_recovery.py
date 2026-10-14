@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from urllib.request import Request
 
-from campus_agent.campus import CampusClient, CampusError, CAS
+from connectors.campus.campus import CampusClient, CampusError, CAS
 
 
 def issue_cookie(client, host, value, name='_csrf', domain='.zju.edu.cn', path='/'):

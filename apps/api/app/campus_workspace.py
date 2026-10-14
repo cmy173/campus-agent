@@ -5,27 +5,22 @@ passwords, a school identity or an arbitrary remote endpoint.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from http.cookiejar import Cookie
 import os
 from pathlib import Path
-import sqlite3
 import threading
 import time
 
 from connectors.campus.campus import CampusClient, CampusManager, merge_profile
 from connectors.campus.campus_common import CampusError
+from connectors.campus.campus_store import CAMPUS_SCHEMA, SQLiteStore
 from connectors.campus.connector_contracts import UserContext, standard_error
 
 from .config import REPO_ROOT
 from .errors import ApiError
 
 OWNER = "local"
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS campus_snapshots(owner TEXT PRIMARY KEY,snapshot TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS connector_cache(owner TEXT NOT NULL,platform TEXT NOT NULL,
- capability TEXT NOT NULL,scope TEXT NOT NULL,result TEXT NOT NULL,
- PRIMARY KEY(owner,platform,capability,scope));
+IMPORT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS import_batches(id TEXT PRIMARY KEY,source_fingerprint TEXT NOT NULL,
  source_owner TEXT NOT NULL,target_owner TEXT NOT NULL,manifest TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS imported_records(batch_id TEXT NOT NULL REFERENCES import_batches(id),
@@ -37,24 +32,11 @@ CREATE TABLE IF NOT EXISTS import_changes(batch_id TEXT NOT NULL REFERENCES impo
 """
 
 
-class CacheStore:
-    """Only campus cache and exact imported provenance; no passwords/local accounts."""
-    def __init__(self, path: Path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
-            db.executescript(SCHEMA)
+class CacheStore(SQLiteStore):
+    """Campus cache schema plus exact historical-import provenance; no passwords/local accounts."""
 
-    @contextmanager
-    def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+    def __init__(self, path: Path):
+        super().__init__(path, schema=CAMPUS_SCHEMA + IMPORT_SCHEMA)
 
 
 class CampusWorkspace:

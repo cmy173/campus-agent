@@ -2,20 +2,47 @@
 from contextlib import ExitStack
 from io import BytesIO
 import json
+from pathlib import Path
 import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 import urllib.request
 
-from fastapi.testclient import TestClient
-from campus_agent.campus import CampusClient, CampusError, CAS, SERVICE, CONNECTOR_REVISION, merge_profile, stale_profile
-from campus_agent.campus_profiles import (ETA_BASE, ETA_SERVICE, ETA_CURRENT, ETA_ROLES, ETA_COMMON,
+from connectors.campus.campus import (CampusClient, CampusError, CampusManager, CAS, SERVICE,
+                                      CONNECTOR_REVISION, merge_profile, stale_profile)
+from connectors.campus.campus_profiles import (ETA_BASE, ETA_SERVICE, ETA_CURRENT, ETA_ROLES, ETA_COMMON,
     PROFILE_KEYS, ProfilePage, basic_fields, form_fields, schema_shape, self_values, form_data_request,
     eta_encode, eta_decode, eta_profile, zdbk_profile)
-from campus_agent.web import create_app
-from test_campus import PROFILE, COURSES, cookie
-from test_passport import FakePassport
+from connectors.campus.campus_store import SQLiteStore
+from test_campus import FakeCampus, PROFILE, COURSES, cookie
+
+
+class FakePassport(FakeCampus):
+    """Synthetic passport session: no real credentials, no live requests."""
+    created = []
+
+    def __init__(self):
+        super().__init__()
+        self.passport_authenticated = False
+        self.connect_error = None
+        self.password_submissions = 0
+        self.catalog = [{'year': str(2026-i), 'semester': '1', 'term': str(2026-i)+' · 来源学期', 'current': i == 0} for i in range(8)]
+        self.created.append(self)
+
+    def authenticate_passport(self, username, password, authcode):
+        self.password_submissions += 1
+        if password == 'wrong':
+            raise CampusError('CAS_REJECTED', '认证未通过')
+        self.passport_authenticated = True
+
+    def connect_zdbk(self):
+        if self.connect_error:
+            raise self.connect_error
+
+    def close(self):
+        super().close()
+        self.passport_authenticated = False
 
 
 FORM = {'groupFields': [{'fields': [
@@ -79,7 +106,7 @@ class ProfileProtocolTests(unittest.TestCase):
         for url,navigation,remaining,expected in ((ETA_SERVICE.replace('http:','https:'),True,100,20),
                 (ETA_CURRENT,False,100,20),(ETA_CURRENT,False,5,5),(CAS+'login',False,100,12)):
             client=CampusClient();client.deadline=remaining
-            with patch('campus_agent.campus.time.monotonic',return_value=0),patch.object(client.opener,'open',return_value=Response(b'{}')) as opened,patch('campus_agent.campus.time.sleep'):
+            with patch('connectors.campus.campus.time.monotonic',return_value=0),patch.object(client.opener,'open',return_value=Response(b'{}')) as opened,patch('connectors.campus.campus.time.sleep'):
                 client.request(url,read_body=not navigation)
                 self.assertEqual(opened.call_args.kwargs['timeout'],expected)
 
@@ -590,7 +617,7 @@ class ProfileProtocolTests(unittest.TestCase):
 
     def test_eta_expiry_does_not_expire_existing_zdbk_session(self):
         client = CampusClient(); client.authenticated = client.passport_authenticated = True
-        with patch('campus_agent.campus.eta_profile', side_effect=CampusError('SESSION_EXPIRED', '过期')):
+        with patch('connectors.campus.campus.eta_profile', side_effect=CampusError('SESSION_EXPIRED', '过期')):
             records, warnings = client.profiles()
         self.assertEqual(records, [])
         self.assertEqual(warnings[0]['code'], 'PROFILE_SESSION_EXPIRED')
@@ -633,19 +660,28 @@ class FakeProfilePassport(FakePassport):
 
 
 class ProfileSyncTests(unittest.TestCase):
+    """Migrated passport adoption + ETA profile enrichment, without the retired HTTP layer."""
+
+    OWNER = 'local'
+
     def setUp(self):
-        self.stack = ExitStack(); self.tmp = self.stack.enter_context(TemporaryDirectory())
-        self.app = create_app(self.tmp); self.app.state.campus.factory = FakeProfilePassport
-        self.client = self.stack.enter_context(TestClient(self.app, base_url='http://127.0.0.1'))
-        self.client.headers['X-Campus-Request'] = '1'
+        self.stack = ExitStack()
+        self.tmp = self.stack.enter_context(TemporaryDirectory())
+        self.store_path = Path(self.tmp) / 'campus.sqlite3'
+        FakeProfilePassport.created = []
+        self.manager = self.new_manager()
+
     def tearDown(self): self.stack.close()
+
+    def new_manager(self):
+        return CampusManager(SQLiteStore(self.store_path), client_factory=FakeProfilePassport)
+
     def login(self, connect_error=None):
-        prep = self.client.post('/api/auth/passport/prepare', json={}).json()
-        fake = FakeProfilePassport.created[-1]; fake.connect_error = connect_error
-        result = self.client.post('/api/auth/passport/login', json={'flow_id': prep['flow_id'],
-            'username': 'synthetic', 'password': 'synthetic-password'}).json()
-        self.client.headers['X-CSRF-Token'] = result['csrf']
-        return result['campus'], fake
+        fake = FakeProfilePassport()
+        fake.connect_error = connect_error
+        fake.authenticate_passport('synthetic', 'synthetic-password', '')
+        self.manager.adopt_passport(self.OWNER, fake)
+        return self.manager.connect_and_sync(self.OWNER), fake
 
     def test_login_auto_enriches_and_resume_does_not_refetch_profile(self):
         result, fake = self.login()
@@ -654,29 +690,28 @@ class ProfileSyncTests(unittest.TestCase):
         self.assertTrue(profile['complete'])
         self.assertEqual(profile['field_sources']['college']['source'], 'ETA · 个人基本信息')
         self.assertEqual(fake.profile_calls, 1)
-        self.assertEqual(result['connector_revision'],CONNECTOR_REVISION)
-        self.assertEqual(result['snapshot']['sync_revision'],CONNECTOR_REVISION)
-        self.assertEqual(result['snapshot']['profile_checks'][0]['status'],'read')
-        self.assertEqual(self.client.get('/api/health').json()['campus_connector_revision'],CONNECTOR_REVISION)
-        final = self.client.post('/api/campus/sync', json={'resume': True}).json()
+        self.assertEqual(result['connector_revision'], CONNECTOR_REVISION)
+        self.assertEqual(result['snapshot']['sync_revision'], CONNECTOR_REVISION)
+        self.assertEqual(result['snapshot']['profile_checks'][0]['status'], 'read')
+        final = self.manager.sync(self.OWNER, resume=True)
         self.assertFalse(final['auto_continue']); self.assertEqual(fake.profile_calls, 1)
         self.assertTrue(final['snapshot']['courses']['complete'])
 
     def test_old_snapshot_revision_is_not_rewritten_when_viewed(self):
         self.login()
-        owner=next(iter(self.app.state.campus.states))
-        snapshot=self.app.state.campus._snapshot(owner)
+        owner = self.OWNER
+        snapshot = self.manager._snapshot(owner)
         snapshot.pop('sync_revision')
-        self.app.state.campus._save(owner,snapshot)
-        result=self.client.get('/api/campus').json()
-        self.assertEqual(result['connector_revision'],CONNECTOR_REVISION)
-        self.assertNotIn('sync_revision',result['snapshot'])
+        self.manager._save(owner, snapshot)
+        result = self.manager.status(owner)
+        self.assertEqual(result['connector_revision'], CONNECTOR_REVISION)
+        self.assertNotIn('sync_revision', result['snapshot'])
 
     def test_eta_failure_preserves_per_field_cache_and_other_sections(self):
         _, fake = self.login()
-        before = self.client.get('/api/campus').json()['snapshot']['profile']['field_sources']['college']['fetched_at']
+        before = self.manager.status(self.OWNER)['snapshot']['profile']['field_sources']['college']['fetched_at']
         fake.profile_error = CampusError('ETA_UNAVAILABLE', 'ETA 不可用')
-        result = self.client.post('/api/campus/sync', json={}).json()
+        result = self.manager.sync(self.OWNER)
         profile = result['snapshot']['profile']
         self.assertEqual(profile['data']['college'], 'ETA 测试学院')
         self.assertTrue(profile['field_sources']['college']['stale'])
@@ -687,19 +722,19 @@ class ProfileSyncTests(unittest.TestCase):
         self.assertTrue(result['connected'])
 
     def test_reported_eta_callback_timeout_retains_cache_and_does_not_stop_academics(self):
-        _,fake=self.login()
-        before=self.client.get('/api/campus').json()['snapshot']['profile']['field_sources']['college']['fetched_at']
-        fake.profile_error=CampusError('NETWORK_ERROR','ETA 登录回调超时',{
-            'stage':'profile_eta','method':'GET','host':'eta.zju.edu.cn',
-            'path':urlsplit(ETA_SERVICE).path,'reason':'TIMEOUT','elapsed_ms':12078})
-        result=self.client.post('/api/campus/sync',json={}).json()
-        self.assertEqual(result['snapshot']['profile']['data']['college'],'ETA 测试学院')
-        self.assertEqual(result['snapshot']['profile']['field_sources']['college']['fetched_at'],before)
+        _, fake = self.login()
+        before = self.manager.status(self.OWNER)['snapshot']['profile']['field_sources']['college']['fetched_at']
+        fake.profile_error = CampusError('NETWORK_ERROR', 'ETA 登录回调超时', {
+            'stage': 'profile_eta', 'method': 'GET', 'host': 'eta.zju.edu.cn',
+            'path': urlsplit(ETA_SERVICE).path, 'reason': 'TIMEOUT', 'elapsed_ms': 12078})
+        result = self.manager.sync(self.OWNER)
+        self.assertEqual(result['snapshot']['profile']['data']['college'], 'ETA 测试学院')
+        self.assertEqual(result['snapshot']['profile']['field_sources']['college']['fetched_at'], before)
         self.assertTrue(result['snapshot']['profile']['field_sources']['college']['stale'])
         self.assertFalse(result['snapshot']['grades']['stale'])
-        self.assertTrue(result['snapshot']['courses']['data']);self.assertTrue(result['connected'])
-        failure=next(w for w in result['snapshot']['warnings'] if w['stage']=='profile_eta')
-        self.assertEqual(failure['diagnostic']['reason'],'TIMEOUT')
+        self.assertTrue(result['snapshot']['courses']['data']); self.assertTrue(result['connected'])
+        failure = next(w for w in result['snapshot']['warnings'] if w['stage'] == 'profile_eta')
+        self.assertEqual(failure['diagnostic']['reason'], 'TIMEOUT')
 
     def test_eta_works_even_when_zdbk_connection_fails(self):
         result, fake = self.login(CampusError('NETWORK_ERROR', '教务不可用'))
@@ -710,17 +745,15 @@ class ProfileSyncTests(unittest.TestCase):
 
     def test_cached_profile_survives_restart_and_remains_owner_isolated(self):
         self.login()
-        self.app.state.campus.close()
-        restarted = create_app(self.tmp)
-        offline = self.stack.enter_context(TestClient(restarted, base_url='http://127.0.0.1'))
-        offline.cookies.update(self.client.cookies)
-        cached = offline.get('/api/campus').json()
-        self.assertFalse(cached['connected'])
-        self.assertEqual(cached['snapshot']['profile']['data']['college'], 'ETA 测试学院')
-        self.client.post('/api/auth/logout')
-        response = self.client.post('/api/auth/register', json={'username': 'other', 'password': 'synthetic-local'})
-        self.client.headers['X-CSRF-Token'] = response.json()['csrf']
-        self.assertIsNone(self.client.get('/api/campus').json()['snapshot']['profile'])
+        self.manager.close()
+        restarted = self.new_manager()
+        try:
+            cached = restarted.status(self.OWNER)
+            self.assertFalse(cached['connected'])
+            self.assertEqual(cached['snapshot']['profile']['data']['college'], 'ETA 测试学院')
+            self.assertIsNone(restarted.status('other-owner')['snapshot']['profile'])
+        finally:
+            restarted.close()
 
 
 if __name__ == '__main__': unittest.main()
