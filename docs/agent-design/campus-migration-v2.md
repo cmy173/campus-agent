@@ -30,6 +30,7 @@
 精确挂载点：
 
 ```python
+# apps/api/app/main.py，路由装配期（不是 lifespan 内）：
 from .routers.campus import install_campus_router
 install_campus_router(app, agent.browser_owner)
 # 默认 /api/v1/agent/campus，复用网关身份、Origin 与 Cookie 规则
@@ -38,6 +39,11 @@ install_campus_router(app, agent.browser_owner)
 from .campus_workspace import close_campus_workspace
 close_campus_workspace()
 ```
+
+挂载放在装配期是集成验收的结论：lifespan 内挂载会让运行时与 `app.openapi()`/契约导出看到
+不同路由表，契约回归会把正常路由误报为实现漂移（本次实际发生并已修复）。`app/__init__.py`
+在包初始化时调用 `config.ensure_repo_root_on_path()`，使 `connectors.campus.*` 按仓库根解析，
+测试与生产同一路径。
 
 浏览器私有 Cookie 导出与上述函数的产品接线，由主集成增量负责；本文测试未假装此接线已经完成真实登录。
 
