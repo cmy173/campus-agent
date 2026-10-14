@@ -30,8 +30,28 @@ jobs:
           python -m pytest -q
       - name: Migrated connector regression (root tests)
         run: python -m pytest tests -q
+      - name: Launcher and venv/npm environment tests
+        run: python -m pytest tools/test_launcher.py -q
       - name: Contract export matches the implemented Agent API
         run: python tools/export_agent_contract.py --check
+  runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/agent-runtime/package-lock.json
+      - run: npm ci
+        working-directory: apps/agent-runtime
+      # Both scripts drive the real upstream runtime against local fixtures only: no
+      # provider key, no network, no cost. They cover the deferred tool groups and the
+      # actual child-agent lifecycle with selective cancellation.
+      - name: Deferred tool groups
+        run: node apps/agent-runtime/verify-tool-groups.mjs
+      - name: Subagent lifecycle and selective control
+        run: node apps/agent-runtime/verify-subagent-controls.mjs
   web:
     runs-on: windows-latest
     steps:
