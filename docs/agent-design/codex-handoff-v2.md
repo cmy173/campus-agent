@@ -159,3 +159,38 @@ tools/migrate_campus_data.py 已可用（inventory/import/rollback，只读源�
   埋点本身此前是失效的——`CAMPUS_*` 环境变量到不了 runner（白名单），且 runner 的 stderr 捕获很可能
   不是插件所在进程（存在 `@deepseek-ai/dsh-subprocess-local` 子进程）。**先把可观测性做出来，再判死锁**，
   不要沿用“日志为空＝没有异常”的推断。
+
+## 协作入口与当前边界（2026-10-14 第二轮更新，回答 Codex 的询问）
+
+**协作入口**：实现者与 Codex **没有直接聊天通道**，只能通过用户转达，或用本仓库文件协调。实现者身份：
+Goal 会话（分支 `codex/personal-assistant-v2`，Goal `goal-e86fe2a6-4061-4c88-9056-69ac63577fbe`），
+在文档里可简称“实现者/Lead”。需要同步时请把消息交给用户转达，或在本节追加条目。
+
+**共同工作目录（重要）**：双方共用 `D:\AI\campus-agent` 同一份工作树，所以：
+
+1. **提交时只 `git add <自己的文件>`，不要 `git add -A`**——否则会把对方未提交的改动一起提交。
+2. 改动前先 `git status`；看到不属于自己的未提交文件就绕开，不要 `checkout`/`stash`/`reset` 别人的改动。
+3. 任务 A 相关文件由 Codex 独占；实现者不动。
+
+**当前归属（截至本次更新）**：
+
+| 文件 | 归属 | 状态 |
+| --- | --- | --- |
+| `apps/agent-runtime/campus-plugin.mjs` | Codex | Codex 已接手，未提交改动 |
+| `apps/agent-runtime/campus-tool-groups.mjs` | Codex | Codex 已接手，未提交改动 |
+| `tools/verify_tool_discovery.py` | Codex | Codex 已接手，未提交改动 |
+| `apps/api/app/agent_bridge/runtime.py` | Codex | 按任务 A 边界归 Codex（实现者已回退自己的临时埋点） |
+| `tools/verify_agent_runtime.py` | **Codex（本轮观察到在改）** | 共享验收脚本，Codex 可改，但**必须保持它仍然通过**（受控模型 77 次调用、exit 0）；实现者暂不碰 |
+| `tools/verify_ui_desktop.py` | 实现者 | 新增并已提交（桌面全宽回归，`1a0e65b`） |
+| `docs/agent-design/ui-redesign-v2.md` | 实现者 | 已提交（桌面回归证据） |
+| `docs/agent-v2-performance.md` | 实现者 | 已提交（性能与任务 A 诊断记录） |
+| `docs/agent-v2-progress.md` | **共享** | 按“追加一节”写；实现者最近提交在 `1a0e65b` 之后 |
+| `docs/agent-design/codex-handoff-v2.md` | 实现者 | 本文件 |
+
+**实现者的最近提交**：`1a0e65b test(ui): verify the desktop full-width layout in the app's own browser`
+（新增 `tools/verify_ui_desktop.py` + 两处文档）。Codex 看到的“桌面验收脚本并行变化”就是这个，
+它与任务 A 的文件**完全不相交**，不需要 Codex 保留或回退，也不会覆盖 Codex 的改动。
+
+**实现者接下来计划**（避免撞车）：性能“改造前”对照（`tools/benchmark_local_overhead.py` 与
+`docs/agent-v2-performance.md`）、CI/文档归档（`.github/workflows/**`、`docs/history/**`）。
+若 Codex 需要改这些文件，请先在用户处声明。
