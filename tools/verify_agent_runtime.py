@@ -7,6 +7,9 @@ Run with apps/api/.venv/Scripts/python.exe tools/verify_agent_runtime.py.
 from __future__ import annotations
 
 import json
+import csv
+import io
+import re
 import argparse
 import os
 import socket
@@ -107,6 +110,42 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 slow_started.set()
                 time.sleep(2)
             user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
+            if user_text.startswith('[V2文档演练]'):
+                context = json.loads(messages[last_user]['content'].splitlines()[1])
+                attachments = context.get('attachments', [])
+                actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                stem = '文档成果-' + attachments[0]['id'][-6:] if attachments else '文档成果'
+                spec = {}
+                if len(actual_results) >= 3:
+                    # Facts come from the actual read tool output, not fixture DB access.
+                    lines = re.findall(r'^\s*\d+:\s?(.*)$', actual_results[2], re.MULTILINE)
+                    source_rows = list(csv.reader(io.StringIO('\n'.join(lines))))
+                    assert len(source_rows) > 1, actual_results[2]
+                    columns, rows = source_rows[0], source_rows[1:]
+                    rows = [[int(value) if column == 1 and value.isdigit() else value for column, value in enumerate(row)] for row in rows]
+                    spec = {'title': '校园资料整理', 'subtitle': '依据本次上传资料',
+                        'sections': [{'heading': '资料清单', 'paragraphs': ['保留原始页数和截止时间；来源未提供的时间标为未知。'],
+                                      'table': {'columns': columns, 'rows': rows}}],
+                        'sources': [attachments[0]['name']],
+                        'sheets': [{'name': '资料清单', 'columns': columns, 'rows': rows}]}
+                choices = [('skill', {'name': 'document-artifacts'}),
+                    ('read', {'file_path': str(ROOT / 'apps/agent-runtime/skills/document-artifacts/references/input-format.md')}),
+                    ('read', {'file_path': attachments[0]['path']}),
+                    ('write', {'file_path': stem + '.json', 'content': json.dumps(spec, ensure_ascii=False)}),
+                    ('pwsh', {'command': '& $env:DSH_PYTHON_EXECUTABLE -X utf8 $env:DSH_DOCUMENT_EXPORTER --input "' + stem +
+                        '.json" --output-dir "文档成果" --stem "' + stem + '" --formats pdf,xlsx,md',
+                        'description': '生成实际中文 PDF、Excel 和 Markdown'}),
+                    *[('publish_file', {'path': '文档成果/' + stem + '.' + fmt}) for fmt in ['pdf', 'xlsx', 'md']]] if attachments else []
+                calls = []
+                if len(actual_results) < len(choices):
+                    name, args = choices[len(actual_results)]
+                    calls = [{'id': 'document_flow_' + str(len(receipts)), 'type': 'function', 'function': {
+                        'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}]
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': None if calls else
+                    ('已根据上传资料生成 PDF、Excel 和 Markdown，成果可预览或下载。' if attachments else '请先选择资料清单 CSV 附件。'),
+                    'tool_calls': calls}, 'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
+                return
             if user_text.startswith('[V2文件演练]'):
                 context = json.loads(messages[last_user]['content'].splitlines()[1])
                 attachments = context.get('attachments', [])
@@ -482,6 +521,42 @@ with SessionLocal() as db:
         evidence['file_workspace_turn'] = file_done
         evidence['file_checks'] = {'actual_multipart_upload': True, 'selected_attachment_in_sdk_context': True,
             'actual_read_write_publish': True, 'downloadable_output_contains_source': True}
+        csv_source = '资料,页数,截止时间\n原始记录-619,0,未知\n实验讲义,12,2026-10-20\n'
+        uploaded_doc = client.post(base + f'/api/v1/agent/conversations/{cid}/files',
+            files={'file': ('资料清单.csv', csv_source.encode())}, headers={'Idempotency-Key': 'document-source'}, timeout=10)
+        assert uploaded_doc.status_code == 201, uploaded_doc.text
+        document_turn = post(f'/conversations/{cid}/turns', {'text': '[V2文档演练] 根据资料清单生成PDF和Excel及Markdown',
+            'attachment_ids': [uploaded_doc.json()['id']]}, {'Idempotency-Key': 'actual-documents-flow'})
+        document_done = wait_turn(document_turn['id'])
+        assert document_done['status'] == 'succeeded', document_done
+        document_results = [e['data']['event']['data']['message'] for e in document_done['events']
+            if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
+        assert len(document_results) == 8 and all(not result['isError'] for result in document_results), document_results
+        document_files = [e['data']['file'] for e in document_done['events'] if e['kind'] == 'file.published']
+        assert len(document_files) == 3 and {Path(f['name']).suffix for f in document_files} == {'.pdf', '.xlsx', '.md'}
+        from pypdf import PdfReader
+        from openpyxl import load_workbook
+        for item in document_files:
+            content = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{item['id']}/content", timeout=10)
+            assert content.ok, content.text
+            saved = run_dir / item['name']
+            saved.write_bytes(content.content)
+            if saved.suffix == '.pdf':
+                assert '原始记录-619' in ''.join(page.extract_text() for page in PdfReader(saved).pages)
+            elif saved.suffix == '.xlsx':
+                book = load_workbook(saved)
+                assert book['资料清单']['A5'].value == '原始记录-619' and book['资料清单']['B5'].value == 0
+                assert book['资料清单']['B6'].value == 12
+                book.close()
+                preview = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{item['id']}/preview", timeout=10).json()
+                assert preview['kind'] == 'spreadsheet' and preview['sheets'][0]['rows'][4][1] == 0
+            else:
+                assert '原始记录-619' in saved.read_text(encoding='utf-8')
+        evidence['document_turn'] = document_done
+        evidence['document_files'] = document_files
+        evidence['document_checks'] = {'actual_skill_and_reference_read': True, 'actual_uploaded_csv_read': True,
+            'actual_python_pdf_xlsx_md_generation': True, 'all_eight_tools_succeeded': True,
+            'three_published_downloads': True, 'pdf_text_and_xlsx_numeric_values': True}
         parallel = post(f'/conversations/{cid}/turns', {'text': '[V2子任务演练] 同时计算A与阅读B，允许单独停止A'}, {'Idempotency-Key': 'v2-parallel-controls'})
         assert child_b_waiting.wait(timeout=20), 'Both actual children did not reach their independent work'
         view = client.get(base + '/api/v1/agent/turns/' + parallel['id'], timeout=10).json()

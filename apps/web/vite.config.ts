@@ -35,25 +35,12 @@ export default defineConfig(({ mode }) => {
                 priority: 20,
               },
               {
-                name: 'icons-vendor',
-                test: /node_modules[\\/]@ant-design[\\/]icons[\\/]/,
-                priority: 15,
-              },
-              {
-                name: 'cssinjs-vendor',
-                test: /node_modules[\\/](@ant-design[\\/]cssinjs|dayjs)[\\/]/,
-                priority: 14,
-              },
-              {
-                name: 'rc-vendor',
-                test: /node_modules[\\/](@rc-component|rc-[^\\/]+)[\\/]/,
-                priority: 12,
-              },
-              {
-                name: 'antd-vendor',
-                test: /node_modules[\\/](antd|@ant-design|@rc-component|rc-[^\\/]+)[\\/]/,
+                // Ant Design style registration and rc-components share eager
+                // initialization. Splitting their cycles across vendor chunks
+                // produced undefined functions in an actual production run.
+                name: 'ui-vendor',
+                test: /node_modules[\\/](antd|@ant-design|@rc-component|rc-[^\\/]+|dayjs)[\\/]/,
                 priority: 10,
-                maxSize: 400000,
               },
             ],
           },

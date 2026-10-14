@@ -58,7 +58,8 @@ export interface ConversationFile {
   mime_type: string
   created_at: string
 }
-export interface FilePreview { kind: 'text' | 'image' | 'pdf' | 'download'; text?: string; truncated: boolean }
+export interface FilePreview { kind: 'text' | 'image' | 'pdf' | 'spreadsheet' | 'download'; text?: string; truncated: boolean;
+  sheets?: { name: string; rows: (string | number | boolean | null)[][] }[]; has_formulas?: boolean; message?: string | null }
 const filePath = (cid: string, fid?: string) => `/agent/conversations/${encodeURIComponent(cid)}/files${fid ? '/' + encodeURIComponent(fid) : ''}`
 export const fileContentUrl = (cid: string, fid: string, inline = false) => `${apiBaseUrl()}/api/v1${filePath(cid, fid)}/content${inline ? '?inline=true' : ''}`
 

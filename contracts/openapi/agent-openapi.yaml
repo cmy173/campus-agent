@@ -240,7 +240,23 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/TextPreview'
+                - $ref: '#/components/schemas/PdfPreview'
+                - $ref: '#/components/schemas/ImagePreview'
+                - $ref: '#/components/schemas/DownloadPreview'
+                - $ref: '#/components/schemas/SpreadsheetPreview'
+                discriminator:
+                  propertyName: kind
+                  mapping:
+                    text: '#/components/schemas/TextPreview'
+                    pdf: '#/components/schemas/PdfPreview'
+                    image: '#/components/schemas/ImagePreview'
+                    download: '#/components/schemas/DownloadPreview'
+                    spreadsheet: '#/components/schemas/SpreadsheetPreview'
+                title: Response Preview Conversation File Api V1 Agent Conversations  Conversation
+                  Id  Files  File Id  Preview Get
         '422':
           description: Validation Error
           content:
@@ -816,6 +832,26 @@ components:
       required:
       - provider_id
       title: ConversationRequest
+    DownloadPreview:
+      properties:
+        kind:
+          type: string
+          const: download
+          title: Kind
+        truncated:
+          type: boolean
+          const: false
+          title: Truncated
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+      type: object
+      required:
+      - kind
+      - truncated
+      title: DownloadPreview
     Empty:
       properties: {}
       additionalProperties: false
@@ -830,6 +866,21 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    ImagePreview:
+      properties:
+        kind:
+          type: string
+          const: image
+          title: Kind
+        truncated:
+          type: boolean
+          const: false
+          title: Truncated
+      type: object
+      required:
+      - kind
+      - truncated
+      title: ImagePreview
     McpServer:
       properties:
         serverName:
@@ -1004,6 +1055,21 @@ components:
       - call_id
       - name
       title: NativeToolLeaseRequest
+    PdfPreview:
+      properties:
+        kind:
+          type: string
+          const: pdf
+          title: Kind
+        truncated:
+          type: boolean
+          const: false
+          title: Truncated
+      type: object
+      required:
+      - kind
+      - truncated
+      title: PdfPreview
     PublishFileRequest:
       properties:
         conversation_id:
@@ -1096,6 +1162,70 @@ components:
       additionalProperties: false
       type: object
       title: SearchTestRequest
+    SpreadsheetPreview:
+      properties:
+        kind:
+          type: string
+          const: spreadsheet
+          title: Kind
+        sheets:
+          items:
+            $ref: '#/components/schemas/SpreadsheetSheetPreview'
+          type: array
+          title: Sheets
+        truncated:
+          type: boolean
+          title: Truncated
+        has_formulas:
+          type: boolean
+          title: Has Formulas
+      type: object
+      required:
+      - kind
+      - sheets
+      - truncated
+      - has_formulas
+      title: SpreadsheetPreview
+    SpreadsheetSheetPreview:
+      properties:
+        name:
+          type: string
+          title: Name
+        rows:
+          items:
+            items:
+              anyOf:
+              - type: string
+              - type: integer
+              - type: number
+              - type: boolean
+              - type: 'null'
+            type: array
+          type: array
+          title: Rows
+      type: object
+      required:
+      - name
+      - rows
+      title: SpreadsheetSheetPreview
+    TextPreview:
+      properties:
+        kind:
+          type: string
+          const: text
+          title: Kind
+        text:
+          type: string
+          title: Text
+        truncated:
+          type: boolean
+          title: Truncated
+      type: object
+      required:
+      - kind
+      - text
+      - truncated
+      title: TextPreview
     ToolRequest:
       properties:
         conversation_id:

@@ -2,6 +2,12 @@
 
 格式：版本号（日期，状态）→ 变更类型（breaking / 兼容 / 补充）→ 明细。
 
+## v0.2.0-local — 2026-10-14（文档生成与格式预览，CR014）
+
+- preview 正式声明区分类型的响应，新增 spreadsheet；封闭旧类型枚举的客户端需升级，原下载接口可沿用。
+- 新文档生成技能；PDF/Excel/Markdown 共用成果交付，PDF 应用内渲染与表格预览支持实际文件。
+- 修复实际生产构建中 UI vendor 初始化崩溃，详见 reviews/2026-10-14-CR014-文档生成与格式预览.md。
+
 ## v0.2.0-local — 2026-10-14（对话附件与文件成果，CR013）
 
 - 兼容新增会话 multipart 上传、预览/下载和文件交付；TurnRequest 可选 attachment_ids。

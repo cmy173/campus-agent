@@ -23,6 +23,7 @@ from ..errors import ApiError
 from ..providers import ProviderCallError
 from ..agent_bridge.settings import RuntimeSettings, harness_server
 from ..agent_bridge import diagnostics
+from ..agent_bridge.files import Preview
 from .. import secrets_store
 
 router = APIRouter(prefix="/agent", tags=["campus-agent"])
@@ -201,7 +202,7 @@ def upload_conversation_file(conversation_id: str, file: UploadFile = File(), ow
         file.file.close()
 
 
-@router.get('/conversations/{conversation_id}/files/{file_id}/preview')
+@router.get('/conversations/{conversation_id}/files/{file_id}/preview', response_model=Preview)
 def preview_conversation_file(conversation_id: str, file_id: str, owner: str = Depends(browser_owner)):
     runtime = get_runtime()
     runtime.store.conversation(conversation_id, owner)

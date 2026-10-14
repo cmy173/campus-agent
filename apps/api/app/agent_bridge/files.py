@@ -5,12 +5,54 @@ import hashlib
 import mimetypes
 import re
 import secrets
+from datetime import date, datetime, time, timedelta
+from zipfile import BadZipFile, ZipFile
+from xml.etree.ElementTree import ParseError
 from pathlib import Path
-from typing import BinaryIO
+from typing import Annotated, BinaryIO, Literal
+from pydantic import BaseModel, Field
 
 from ..config import MAX_UPLOAD_BYTES
 from ..errors import ApiError
 from .store import Store, now
+
+
+class TextPreview(BaseModel):
+    kind: Literal['text']
+    text: str
+    truncated: bool
+
+
+class PdfPreview(BaseModel):
+    kind: Literal['pdf']
+    truncated: Literal[False]
+
+
+class ImagePreview(BaseModel):
+    kind: Literal['image']
+    truncated: Literal[False]
+
+
+class DownloadPreview(BaseModel):
+    kind: Literal['download']
+    truncated: Literal[False]
+    message: str | None = None
+
+
+class SpreadsheetSheetPreview(BaseModel):
+    name: str
+    rows: list[list[str | int | float | bool | None]]
+
+
+class SpreadsheetPreview(BaseModel):
+    kind: Literal['spreadsheet']
+    sheets: list[SpreadsheetSheetPreview]
+    truncated: bool
+    has_formulas: bool
+
+
+Preview = Annotated[TextPreview | PdfPreview | ImagePreview | DownloadPreview | SpreadsheetPreview,
+                    Field(discriminator='kind')]
 
 
 class ConversationFiles:
@@ -103,8 +145,46 @@ class ConversationFiles:
             return {'kind': 'pdf', 'truncated': False}
         if suffix in {'.png', '.jpg', '.jpeg', '.webp', '.gif'}:
             return {'kind': 'image', 'truncated': False}
+        if suffix == '.xlsx':
+            return self._spreadsheet_preview(path)
         if suffix in {'.txt', '.md', '.csv', '.json', '.yaml', '.yml', '.py', '.js', '.ts', '.html', '.xml', '.log', '.rst'}:
             with path.open('rb') as stream:
                 raw = stream.read(512 * 1024 + 1)
             return {'kind': 'text', 'text': raw[:512 * 1024].decode('utf-8-sig', errors='replace'), 'truncated': len(raw) > 512 * 1024}
         return {'kind': 'download', 'truncated': False}
+
+    @staticmethod
+    def _spreadsheet_preview(path: Path) -> dict:
+        from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
+        try:
+            with ZipFile(path) as archive:
+                if len(archive.infolist()) > 2048 or sum(i.file_size for i in archive.infolist()) > 64 * 1024 * 1024:
+                    return {'kind': 'download', 'truncated': False, 'message': '表格较大，请下载后打开完整内容。'}
+            book = load_workbook(path, read_only=True, data_only=False, keep_links=False)
+            try:
+                sheets = []
+                truncated, formulas = len(book.worksheets) > 8, False
+                for sheet in book.worksheets[:8]:
+                    truncated |= (sheet.max_row or 0) > 100 or (sheet.max_column or 0) > 24
+                    rows = []
+                    for cells in sheet.iter_rows(max_row=min(sheet.max_row or 100, 100), max_col=min(sheet.max_column or 24, 24)):
+                        row = []
+                        for cell in cells:
+                            value = cell.value
+                            if isinstance(value, (date, datetime, time)):
+                                value = value.isoformat()
+                            elif isinstance(value, timedelta):
+                                value = str(value)
+                            if isinstance(value, str) and len(value) > 2000:
+                                value = value[:2000] + '…'
+                                truncated = True
+                            formulas |= cell.data_type == 'f'
+                            row.append(value)
+                        rows.append(row)
+                    sheets.append({'name': sheet.title, 'rows': rows})
+                return {'kind': 'spreadsheet', 'sheets': sheets, 'truncated': bool(truncated), 'has_formulas': bool(formulas)}
+            finally:
+                book.close()
+        except (BadZipFile, OSError, ValueError, KeyError, ParseError, InvalidFileException):
+            raise ApiError(400, 'FILE_PREVIEW_FAILED', '无法读取此 Excel 文件，请确认文件格式或下载后打开') from None

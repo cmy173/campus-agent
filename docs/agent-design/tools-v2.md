@@ -97,7 +97,7 @@ apps/api/.venv/Scripts/python.exe tools/verify_agent_runtime.py
 
 verify-capabilities 使用受控模型/搜索响应及真实文件、命令、公开网页和子任务；verify-mcp 使用受控模型和真正独立的 stdio MCP 进程；完整 Python 验证还覆盖设置API→实际运行时→文件/Python/MCP 的链路。证据保存在各自 var 临时目录，不纳入 Git。
 
-聊天通用结果通过 turnProjection.ts 适配，ToolActivities.tsx 负责展示，useTurnEvents.ts 负责分页/重连。未知工具可显示输入、文本结果和失败状态；校园来源保持专用信封，并按 session/call ID 去重。文本结果不解释为 HTML。文件下载/预览工作区已接入；Markdown 附件链路已实际执行，PDF/图片预览及表格成果生成仍需专门验收；通用浏览器仍待实现。
+聊天通用结果通过 turnProjection.ts 适配，ToolActivities.tsx 负责展示，useTurnEvents.ts 负责分页/重连。未知工具可显示输入、文本结果和失败状态；校园来源保持专用信封，并按 session/call ID 去重。文本结果不解释为 HTML。文件下载/预览工作区已接入；Markdown、PDF、Excel 生成/交付及 PDF/图片/表格预览已实际验证；通用浏览器仍待实现。
 
 ## 子任务停止与官方协议验证
 
@@ -109,8 +109,20 @@ verify-capabilities 使用受控模型/搜索响应及真实文件、命令、�
 
 开始对话后，点输入框旁的“附件”选择本机文件（支持多选，单文件上限默认100 MiB）。成功上传的文件自动选中，随下一条消息发送；附件选择和草稿会在刷新后恢复。每条消息最多选择32个附件，不会自动把会话里的所有文件发送给模型。移除标签只取消本次选择，原文件保留。
 
-聊天上方“文件与成果”列出上传资料与生成成果，可以重新选作附件、预览和下载。文本/Markdown/CSV/代码按原文预览，HTML 也是原文，不运行其中脚本。文本预览最多512 KiB，下载保留完整内容。PDF/图片预览路径已实现但专门浏览器验收尚未完成；其他格式可下载后打开。
+聊天上方“文件与成果”列出上传资料与生成成果，可以重新选作附件、预览和下载。文本/Markdown/CSV/代码按原文预览，HTML 也是原文，不运行其中脚本。文本预览最多512 KiB，下载保留完整内容。PDF 使用按需加载的应用渲染器，支持页码、翻页和放大，不依赖原生 PDF 插件；图片直接预览。Excel 可以按工作表查看，最多8张表、每表100行24列；截断有提示，原件可完整下载。公式显示为原式，不冒充计算结果。其他格式可下载后打开。
 
 模型在实际写出文件后调用 publish_file(path)。相对路径使用该轮任务目录，绝对路径可交付其他明确任务文件。工具复制现有文件形成独立成果副本，返回文件ID/大小/哈希；主聊天出现统一成果卡片，点“打开成果”进入预览，点下载得到原始文件。原工作文件后续修改不会改变已交付副本；同一交付调用重放仍返回原副本，更换文件路径会报幂等冲突。文件生成失败或不存在不会被交付为成功。
 
-验收使用实际 multipart 上传、真实 Harness 读取/写入/交付与实际浏览器下载。模型仍受控，不替代真实 DeepSeek 决策验收；Markdown 最小闭环已通过，PDF/表格生成仍需补齐。文件夹选择与可撤销编辑历史不包含在这项完成声明中。
+验收使用实际 multipart 上传、真实 Harness 读取/写入/交付与实际浏览器下载。模型仍受控，不替代真实 DeepSeek 决策验收；Markdown、中文 PDF、Excel 最小生成/交付闭环已通过。文件夹选择与可撤销编辑历史不包含在这项完成声明中。
+
+## 文档生成技能
+
+“读取这些资料，生成一份 PDF 和 Excel 清单”会使用文件/网页工具读取材料，按需要加载 document-artifacts 技能，再使用应用的 Python 环境生成成果。技能提供报告和清单的可复用脚本及输入格式说明；复杂排版、图表或分析可以直接编写 Python，不限于固定模板。
+
+脚本可生成 Markdown、中文 PDF 和 Excel。PDF 使用可嵌入字体并自动分页，表头跨页重复；Windows 默认微软雅黑，缺失字体或字符会明确失败，可通过 --font 指定字体。Excel 保留数字、零、空值、日期和明确的公式，普通以“=”开头的文本保持文本；公式不自动计算缓存。缺失截止时间保持未知，来源由输入材料提供。现有同名成果拒绝覆盖，修订可另存名称；完成后用 publish_file 交付到聊天。
+
+项目依赖固定 reportlab5.0.1、openpyxl3.1.5、Pillow12.3.0、et-xmlfile2.0.0，已写入 Python 版本/官方 wheel 哈希锁。前端 PDF.js6.4.299 固定在 npm 锁中，只在打开 PDF 时加载其解析器与 worker。Codex 的内置运行库仅用于开发版式检查，不是产品运行依赖。
+
+技能与脚本：apps/agent-runtime/skills/document-artifacts/SKILL.md，references/input-format.md，scripts/export_documents.py。实际 Harness 验收包含加载技能/读取格式说明/读取上传 CSV/写入文档内容/执行 Python/交付三份文件共8项工具操作。模型响应受控，真实服务的格式选择和内容整理效果仍需试用。
+
+实现依据：[ReportLab 字体文档](https://docs.reportlab.com/reportlab/userguide/ch3_fonts/)、[PDF.js 示例](https://mozilla.github.io/pdf.js/examples/index.html)、[openpyxl 文档](https://openpyxl.readthedocs.io/en/stable/)。

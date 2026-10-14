@@ -50,8 +50,10 @@ export async function apply(ctx) {
   const python = process.env.CAMPUS_PYTHON_EXECUTABLE || fileURLToPath(new URL('../api/.venv/Scripts/python.exe', import.meta.url));
   ctx.effect(() => ctx.shellEnv.register({
     name: 'campus-executables',
-    variables: { DSH_PYTHON_EXECUTABLE: { description: 'Absolute path to the Campus Python environment; invoke with & $env:DSH_PYTHON_EXECUTABLE.' } },
-    resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python) }),
+    variables: { DSH_PYTHON_EXECUTABLE: { description: 'Absolute path to the Campus Python environment; invoke with & $env:DSH_PYTHON_EXECUTABLE.' },
+      DSH_DOCUMENT_EXPORTER: { description: 'Path to document-artifacts skill export_documents.py; read its skill before use.' } },
+    resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python),
+      DSH_DOCUMENT_EXPORTER: fileURLToPath(new URL('./skills/document-artifacts/scripts/export_documents.py', import.meta.url)) }),
   }));
   const inventory = await bridge('/api/v1/agent/internal/schemas', {});
   ctx.effect(() => ctx.tools.register({
