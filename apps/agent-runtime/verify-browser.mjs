@@ -121,6 +121,10 @@ try {
   await call('browser_fill_form', { fields: [{ target: '#student', name: '姓名', type: 'textbox', value: '测试学生-819' }] });
   const action = JSON.parse(plain(await call('browser_click', { target: '#submit' })));
   assert.equal(action.status, 'needs_user');
+  // A real school search stalled here: the model waited with browser_wait_for for ~70 s and
+  // burned its turn budget instead of ending the turn for the user to confirm.
+  assert.match(action.message, /立即结束本轮/);
+  assert.match(action.message, /不要用 browser_wait_for 空等/);
   assert.equal(action.preview.action_url, url + '/submit');
   assert.equal(action.preview.method, 'post');
   assert.equal(submitted.length, 0);

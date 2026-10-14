@@ -217,7 +217,9 @@ async function pending(cid, call, preview) {
     await persist();
   }
   return text({ status: 'needs_user', action_id: review.id, preview: review.preview,
-    message: '已准备具体操作，等待用户在浏览器工作区确认一次；不要用其他工具绕过确认。' });
+    message: '已准备具体操作，等待用户在浏览器工作区确认一次；不要用其他工具绕过确认。'
+      + '现在请立即结束本轮并说明正在等待用户确认：不要用 browser_wait_for 空等（真实校方表单提交的'
+      + '确认由用户在界面上完成，模型等多久都不会自动生效），也不要重复调用同一个操作。' });
 }
 
 async function stop() {
