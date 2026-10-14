@@ -85,15 +85,14 @@ PROMPTS = {
     # Three small turns instead of one big one: the operator instance caps model calls per turn
     # (observed: 8), so a single hunt+download turn dies of BUDGET_EXCEEDED before it can answer.
     'download-flow': [
-        '第 1/3 步，只做侦察，不要下载、不要提交任何表单。**最多 5 次工具调用**，用完必须立刻回答。'
-        '1) 用 campus_webvpn_entry 取「本科教务 zdbk」的 WebVPN 地址，用 browser_navigate 打开；'
-        '2) 用 browser_navigate 打开「通知公告」列表页 '
-        '`.../jwglxt/xtgl/xwgl_cxXwListGyxtzgg.html?gnmkdm=index`；'
-        '3) 读取列表：优先用「类别」筛选里的教务处类，或用标题搜索框搜「附件」「表格」「名单」「申报」（有哪个用哪个）。'
-        '然后**立刻**用中文回答：'
-        'A) 列表页有哪些可用的筛选/搜索控件（原文名称）；'
-        'B) 3 条最可能带附件的通知标题（按可能性排序，标题原文照抄，不要改写）；'
-        'C) 你实际用了哪种筛选/搜索方式。',
+        '第 1/3 步，只做侦察，不要下载、不要提交任何表单。严格按顺序做，**最多 4 次工具调用**，用完必须立刻回答。'
+        '1) 用 browser_navigate 打开通知公告列表页 '
+        '`https://webvpn.zju.edu.cn/https/77726476706e69737468656265737421eaf34397692a6245300d8db9d6562d/jwglxt/xtgl/xwgl_cxXwListGyxtzgg.html?gnmkdm=index`'
+        '（浏览器已登录，直接打开即可）；'
+        '2) 在页面上的「通知标题」输入框里填「附件」，按 Enter 查询（这一步必须做）；'
+        '3) 读取结果：条数、以及列表里前 3 条通知标题原文。'
+        '然后**立刻**用中文回答：搜索词「附件」的结果条数与前 3 条标题原文；'
+        '若结果为 0 条，就再用同一个输入框查「申报」并回答同样的内容（不要额外探索）。',
     ],
 }
 
@@ -120,7 +119,7 @@ DOWNLOAD_URLS_TURN2 = (
 
 # Turn 2 of `download-flow`: open one candidate and report its attachment links.
 FLOW_TURN2 = (
-    '第 2/3 步：只打开详情、找附件链接，**不要下载**、不要提交任何表单。**最多 4 次工具调用**，用完必须立刻回答。\n'
+    '第 2/3 步：只打开详情、找附件链接，**不要下载**、不要提交任何表单。**最多 5 次工具调用**，用完必须立刻回答。\n'
     '上一步你的结论：\n{candidates}\n'
     '请按可能性从高到低打开这些通知的详情页（通知公告列表里点标题就会进入详情，'
     '详情页 URL 形如 `.../jwglxt/xtgl/xwgl_ckXw.html?xwbh=<ID>&doType=save`），'
@@ -133,7 +132,7 @@ FLOW_TURN2 = (
 
 # Turn 3 of `download-flow`: spend the whole budget on the download itself.
 FLOW_TURN3 = (
-    '第 3/3 步：完成下载。**最多 4 次工具调用**，用完必须立刻回答。\n'
+    '第 3/3 步：完成下载。**最多 5 次工具调用**，用完必须立刻回答。\n'
     '上一步你报告的候选链接原文：\n{urls}\n'
     '请打开/点击其中真正的附件链接完成下载（如果它就是文件直链，可以直接用 browser_navigate 打开触发下载；'
     '如果是详情页里的链接，就回到该详情页点击它）。\n'
@@ -342,7 +341,7 @@ def main():
     evidence['timeline'] = all_timeline
     evidence['ok'] = bool(evidence['checks']['turn_succeeded'] and evidence['checks']['browser_tool_calls']
                           and evidence['checks']['answer_chars'] > 50)
-    if args.task in ('download', 'download-search', 'download-urls'):
+    if args.task in ('download', 'download-search', 'download-urls', 'download-flow'):
         evidence['checks']['downloaded_file'] = bool(ledger_downloads) or bool(all_downloads)
         evidence['ok'] = bool(evidence['ok'] and evidence['checks']['downloaded_file'])
     (directory / 'evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
