@@ -141,6 +141,8 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 契约按既有 CR 流程重新导出：`tools/export_agent_contract.py` → 42 条 Agent 路径 / 49 个 schema（原 27/36）。`apps/api/tests/test_agent_plan_actions.py` 的写效果工具集合断言补入 `campus.sync`、`campus.notice.import`；授权边界断言（模型不能自带批准）保持不变，未放宽超时或删断言。
 - 实际运行验证（非文档结论）：API 全套 **320 passed（66.23 秒）**；前端 **27 文件 149 passed（maxWorkers=2，111.69 秒）**；`tsc -b` 退出 0；Vite 生产构建成功（981 毫秒，UI vendor 大块提示保留）；真实端到端调度 `tools/verify_schedule_runtime.py` **exit 0，6 次受控模型调用**，证据 var/v2-schedule-runtime-pd3vr0ea/evidence.json，覆盖自然语言建任务→真实后台线程触发第二轮→真实 SDK write/read/publish_file→下载字节核对→两个独立 API 进程前后同一发生/同一 turn、重启无新增模型调用。
 - 真实 Harness 原生目标驱动：`node apps/agent-runtime/verify-goal.mjs complete` **exit 0**，证据 var/v2-goal-6ZKfdf/evidence.json；`create_goal`→原生 round driver→`update_goal complete`，run 返回时目标仍 active、随后 phase=complete、activation=disarmed、agent idle。模型受控，不等于真实 DeepSeek 服务验收。
+- 完整真实 API/Harness 集成回归：`tools/verify_agent_runtime.py` **PY_EXIT=0，77 次受控模型调用**，证据 var/agent-integration-o_omw2us/evidence.json；全部检查组为 true——计划应用/撤销与持久回放、后台任务构建与取消、学习反馈不改学校状态、通用文件/Python/本地MCP、多文件上传/读写/交付下载、PDF+XLSX+Markdown 三产物、双子任务选择性停止、原生长任务轮次、浏览器MCP四项工具/下载交付/表单一次确认防重。可见工具 84 项。首次运行经 `2>&1 | Select-Object` 管道时 pwsh 报 exit 1，经重跑直接捕获真实退出码确认 **PY_EXIT=0**、stderr 为空，判定为 PowerShell 包装层伪影而非产品失败（已按实际退出码复核）。
+- 启动链路复核：`tools/dev.py --check` 通过；`tools/dev.py --smoke-test --platforms` 真实起 API（含全部迁移）与 Vite 并检查网页代理后自动关闭，exit 0。
 - 依赖按需发现的现状核查：固定 0.2.0-rc.2 上游的按需工具形态是 agent preset 的 `tool-presentation`（native / `run_code` PTC / both），PTC 需要 host 侧 `dsh-ptc-runtime-node` 与沙箱；`dsh-tool-cordis` 提供运行时 API 检视。本轮只做核查与选型，未实现，继续列为条件 3 缺口。
 - 清理 `.gitignore` 补充 `.tmp-install/` 与 `tmp*/`；提交前审计未纳入数据库、凭据、依赖、证据目录与测试临时目录。
 
