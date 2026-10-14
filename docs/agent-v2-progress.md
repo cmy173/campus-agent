@@ -260,3 +260,30 @@ Codex 在完成任务 A 后因额度耗尽退出，实现者成为唯一执行�
 （用户已授权真实模型/搜索预算；学校登录尚未完成）。下一步按优先级：修每轮 runner 启动回退 → 条件 10 的
 CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
 
+## 2026-10-14 增量：条件 4 的三条真实场景全部通过（真官方模型 + 真搜索 + 真校园数据）
+
+新增 `tools/verify_real_scenarios.py`：走**真实产品路径**（真实 uvicorn API + 真实 `apps/agent-runtime` Harness +
+本机已配置的官方 DeepSeek provider `prv_c68d2878`/`deepseek-flash`），把**真实旧库导入**（owner 显式选择、映射到
+`local`、`school_cache_imported: true`、不导入凭据）作为前置，然后在隔离 home 内跑三条场景；每轮结束记录
+`/internal/model` 调用数、工具调用名、计划行状态与最终回答。所有真实请求都在一次性 home 内发生，不写用户数据。
+
+| 场景 | 断言 | 实测 | 真实模型请求 |
+| --- | --- | --- | --- |
+| s1 公开网页检索并引用 | 真实网页工具调用 + 回答含可核实 URL | `web_search` 1 次 + `web_fetch` 6 次；回答引用 5 个 URL，且这些 URL 也出现在工具返回里 | 10 |
+| s2 校园信息结合计划修改并撤销 | 读取校园信息 + 计划动作可接受/生效/撤销 | 校园工具 18 次（含导入资料读取、课表/成绩/通知缓存、校历）；预览动作 → 接受(apply) 200 → `plans.apply` 执行，计划 `status=active` 且 `applied_at` 有值 → 接受(revoke) 200 → `plans.revoke` 执行，`status=revoked`、`revoked_at` 有值、`plans.read` 返回 `plan: null` | 11 |
+| s3 附件读取并生成可打开产物 | 附件读取 + 产物存在且可读 | `skill`/`read`/`pwsh`/`write`/`read`/`publish_file`；产出 `workspace/todo-report.md`（550 字符，UTF-8 可读）并发布 | 6 |
+
+合计 **27 次真实付费模型请求**（预算已由用户授权）。证据：`var/real-scenarios-s1|s2|s3/{evidence.json,transcript.json}`。
+
+诚实记录两点限制，不作为已完成项糊过去：
+
+1. **校园方案里没有时间块**：s2 的预览生成了 `blocks: []` 的 120 分钟容量预留，因为本机没有可安排的学习任务
+   （`learning_tasks` 与本地 `courses` 都是空的，导入的 4 份文档不挂课程）。模型自己也明确说明需要课程挂载点与
+   复习资料才能排块。**已生效→已撤销**的机制验证成立，但"有真实内容的计划修改"尚未验证。
+2. **真实校园数据的读取依赖旧库导入**：三条场景里的校园事实来自 `data/campus.sqlite3` 的显式 owner 导入，
+   不是刚同步的学校端点数据；教务连接器仍 `connected: false`，缓存标记 `stale`，模型在回答里如实说明。
+   条件 5（真实学校登录态的只读试用）仍待用户在本机浏览器完成登录。
+
+真实问答里包含用户的真实姓名/学号等个人信息，**只留在 `var/` 证据目录（不提交）**，本文档不复述。
+
+
