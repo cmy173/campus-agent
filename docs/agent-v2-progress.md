@@ -49,7 +49,7 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 | 6 子 Agent/持续任务/调度 | 进行中 | 双子任务独立停止、持久目标冷启动恢复、本机调度真实线程+跨进程断点防重通过；跨轮子任务与独立浏览器归属仍待验收 |
 | 7 自动执行及正确性 | 进行中 | 通用本地操作自动执行、可配置预算；计划意图授权与外部提交确认待改造 |
 | 8 UI 分层与浏览器验收 | 进行中 | 请求/状态/展示/主题拆分，主导航收敛为 /chat 且旧URL跳转、任务工作区与换布局预览通过；桌面全宽视觉回归尚缺 |
-| 9 性能前后对照 | 未开始 | 待本地基准，远程耗时单列 |
+| 9 性能前后对照 | 进行中 | 真实本机受控夹具基准已建立并两次重复（启动2476–2758ms、首个事件266–273ms、write/read≈50ms、pwsh≈630–690ms、额外确认0）；“改造前”对照待解锁，见 agent-v2-performance.md |
 | 10 整体验证与交付 | 进行中 | CI 已迁移到新测试入口与契约新鲜度检查；文档归档进行中；干净重建与真实服务试用待完成 |
 
 ## 下一步（以本文件最后一节为准）
@@ -159,4 +159,12 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 文档：`docs/local-setup.md`（整篇是旧服务器启动指引）归档到 `docs/history/first-round-legacy/` 并修正相对链接；`validation.md`、`notice-extraction.md`、`college-notices.md`、`connectors.md` 加迁移横幅；`docs/agent-v2-migration.md` 台账改为逐项“已删除/已单份化/已迁移”并注明未完成项。
 - 退役后实际验证：根回归 **191 passed + 80 subtests（24.95 秒）**；API 全套 **320 passed（60.96 秒）**；`tsc -b` 退出 0、前端 **149 passed**、Vite 生产构建 exit 0；`tools/dev.py --check` 与 `--smoke-test --platforms`（真实起 API+Vite 并检查网页代理）**exit 0**；`tools/migrate_campus_data.py inventory --source data/campus.sqlite3` 在无 `campus_agent` 环境下仍真实只读运行（`source_read_only: true`、`unmapped: []`、凭据/会话/审计表列在 excluded）；CI YAML 解析通过。全树已无对退役模块的引用（仅历史文档提及）。
 
-剩余：按需工具发现、桌面全宽视觉回归、性能基准、真实旧库导入与真实校园/模型试用、干净重建。
+剩余：按需工具发现、桌面全宽视觉回归、性能基准“改造前”对照、真实旧库导入与真实校园/模型试用、干净重建。
+
+## 2026-10-14 增量：本地性能基准（条件 9 起步）
+
+- 新增 `tools/benchmark_local_overhead.py`：真实 uvicorn + 真实 `apps/agent-runtime` SDK，模型提供方是本机受控 HTTP 夹具，因此**远程模型波动按构造排除**。测量启动（进程→health 200）、首个可见事件、轮次完成、每轮模型请求次数、每工具耗时（由真实 `tool/call`→`tool/result` 事件时间差算出）、待确认动作数，并断言落盘字节与预期一致。支持 `CAMPUS_BENCH_ROOT` 指向其它检出以便跨版本对照。
+- 实际两次独立运行（各 2 轮真实本地任务 write→read→pwsh Python 计算）：启动 **2758ms / 2476ms**，首个可见事件 **273.5ms / 266ms**，轮次完成 6219ms / 5695.5ms，`write` p50 52.6/54.5ms，`read` 49.7/49.6ms，`pwsh` 690.4/628.0ms，每轮 6 次模型请求、3 次工具调用，**待确认动作 0**，落盘校验通过。差异在 ±12% 内且无单向恶化，**未出现可重复的明显回退**。证据 `var/v2-bench-_g6mxube/benchmark-baseline.json`、`var/v2-bench-bymalltp/benchmark-current.json`（本地）。
+- 首次运行因同一 home 重复播种导致 provider id 唯一约束失败，改为幂等 upsert 后通过；不为跑通而放宽断言。
+- 实测记录“改造前”对照当前不可得：首轮未留下可比时间数字，旧应用已退役；保留的首轮 workbench 虽带 venv 与 node_modules，但在该路径下 `tempfile.mkdtemp` 超过 120 秒不返回（进程持续占用 CPU、无输出），判定为该目录环境问题并已终止自有进程。最小解锁条件与复测命令写入 `docs/agent-v2-performance.md`。
+- 新增文档 `docs/agent-v2-performance.md`（方法、两次数字、解释、未完成项与解锁条件）。
