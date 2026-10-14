@@ -286,4 +286,32 @@ CI/文档归档 → 条件 2 的真实旧库导入与回滚演练。
 
 真实问答里包含用户的真实姓名/学号等个人信息，**只留在 `var/` 证据目录（不提交）**，本文档不复述。
 
+## 2026-10-14 增量：条件 2 的真实导入/回滚演练，条件 6 的调度/目标/子任务复验（并修好一个失效验收脚本）
+
+继续独立复验继承来的证据，并对真实旧库做了一次完整演练（不产生模型费用）。
+
+**条件 2 —— 真实旧库导入 + 回滚（已执行，源库只读）**
+
+- `inventory` 实测 3 个 owner，只有 `4e7ff483…` 有数据（documents 4 / chunks 61 / tasks 2 / campus_snapshots 1 /
+  connector_cache 1 / notice_analyses 1）；显式 `--owner` 导入后映射到 `local`，`school_cache_imported: true`、
+  `credentials_imported: false`（不迁移旧密码/会话）。
+- 重入：同源同 owner 再导入 → `replayed: true`，无重复；回滚：`removed: true`，再回滚 `removed: false`（幂等）。
+- 这次导入同时充当条件 4 场景 s2 的真实校园数据来源，模型真的读到了导入的课表/成绩/通知/校历。
+- **修掉一个真实操作陷阱**：`--batch-id` 传给 `import` 会被静默忽略（批次 id 由源指纹+owner+school-cache 派生），
+  之后用这个自造 id 回滚会得到 `removed: false`，看起来像回滚成功。现在 `import` 拒绝 `--batch-id`、
+  `rollback` 拒绝非 `mig_<32hex>` 的 id（exit 2 且给出原因）；已实测两种误用都报错，正确流程不变。
+- 证据 `var/migration-rehearsal-20261014/`；台账与结论见 `docs/agent-v2-migration.md`。
+
+**条件 6 —— 调度 / 原生持续目标 / 子任务控制复验**
+
+- `tools/verify_schedule_runtime.py`：**exit 0，6 次受控模型调用**，真实调度器 + 可控时间。
+- `apps/agent-runtime/verify-goal.mjs`：**exit 0**，原生 goal 驱动到 `phase=complete` 并落盘。
+- `apps/agent-runtime/verify-subagent-controls.mjs`：**发现它在 Codex 的按需工具发现落地后已经失效**——
+  受控模型直接返回 `subagent` 调用，而 `team` 分组现在是延后加载的，于是永远不会创建子 agent，
+  20 秒超时（隔离复跑两次都失败）。**这是验收脚本没跟上按需发现的真实缺口**，不是能力缺陷：
+  按产品语义让受控模型先调 `load_tools({group:'team'})` 后，脚本 **exit 0**，前台与可继续后台两种子 agent
+  生命周期、选择性中断（无凭据 403 / 有凭据 200、只中止 A、B 仍完成）全部通过。
+  同类问题 Codex 已在广覆盖夹具里修过，但漏了这个专用脚本；本轮补齐。
+
+
 

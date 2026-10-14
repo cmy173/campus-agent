@@ -19,7 +19,7 @@
 | `campus_agent/campus_sync.py`（旧自动同步循环） | 本机调度模块 `apps/api/app/agent_bridge/schedules.py` | 保留旧加密数据，重新授权 | **已删除**：不保留第二份调度器 |
 | `campus_agent/campus_crypto.py`（旧设备盐/凭据解密） | 浏览器持久登录 + `adopt_browser_cookies()` | 旧凭据不迁移，用户重新登录 | **已删除**：`connectors/campus/campus_crypto.py` 只保留 WebVPN 线上协议加密 |
 | 校级/学院通知与附件 | `campus.query/sync/notice.read/notice.import` + 文件工作区 | 保留来源与未读声明 | **已迁移**：缓存、正文、附件链接与日期精度保留；其他学院明确 unsupported |
-| 上传 documents/chunks/tasks | 新 materials/tasks 及来源映射 | 只读清点、可重入导入、受保护回滚 | **已迁移**：`tools/migrate_campus_data.py` + 9 项导入/回滚测试；真实旧库导入仍待选定 owner |
+| 上传 documents/chunks/tasks | 新 materials/tasks 及来源映射 | 只读清点、可重入导入、受保护回滚 | **已迁移且已对真实旧库执行**：`tools/migrate_campus_data.py` + 9 项导入/回滚测试；真实 owner 与结果见下 |
 | 旧测试与验证脚本（`tests/test_web.py` 等 6 个、`tests/frontend-*.cjs` 4 个、`scripts/verify_*.py` 3 个） | `tests/` 保留的迁移后回归 + `apps/api/tests` + `apps/web` 测试 | 历史在 Git 与首轮快照 | **已退役**：可迁移断言已改挂到 `connectors.campus`（191 项 + 80 subtests），仅测旧服务器/旧静态页的断言随实现删除 |
 | 旧依赖与 CI | `.github/workflows/tests.yml` 重写为 API 套件 + 迁移后根回归 + 契约新鲜度 + 前端构建/测试 | — | **已更新**：不再引用 `campus_agent/static/*.js` 或旧 unittest 入口 |
 | 首轮文档 | `docs/agent-design/`（现行）+ `docs/history/`（历史） | 历史在 Git | 进行中：`local-setup.md` 已归档到 `docs/history/first-round-legacy/`，受影响文档加迁移横幅 |
@@ -27,5 +27,23 @@
 恢复入口：D:/AI/campus-agent-goal-backups/20261013-v2-start/RESTORE.md。
 快照包含私有数据，不能发布。旧成果本地提交 08ccece，未推送。
 
-**尚未完成**：真实旧库（`data/campus.sqlite3`）的显式 owner 选择与导入、真实浙大只读试用、
-按需工具发现、桌面全宽视觉回归与性能基准、干净重建。
+**尚未完成**：真实浙大只读试用（需要用户在本机浏览器完成学校登录）、每轮 runner 启动的性能回退修复。
+
+## 真实旧库导入与回滚演练（2026-10-14，已执行）
+
+- 源库 `data/campus.sqlite3`（只读打开）。`inventory` 实测 3 个 owner，其中只有
+  `4e7ff483e5be4013b59e15be39d62a37` 有数据（documents 4、chunks 61、tasks 2、campus_snapshots 1、
+  connector_cache 1、notice_analyses 1），它也是唯一有 passport 记录的 owner。其余两个为空。
+- 真实导入（显式 `--owner`，映射到 `local`，`--school-cache`）：
+  `{"batch_id": "mig_5c5b71…", "replayed": false, "status": "imported", "school_cache_imported": true,
+  "credentials_imported": false, "domain_promotion": "explicit course and time estimate required",
+  "notes_feedback_plans": "No such tables in supported legacy schema; unknown tables block import"}`。
+  **凭据不迁移**（旧密码/会话不复用，用户重新登录）。
+- 重入：同一源+owner 再导入 → `replayed: true`，不产生重复记录。
+- 回滚：用 import 打印的 `mig_…` 批次 → `removed: true`；再回滚一次 → `removed: false`（幂等）。
+- 该导入同时作为条件 4 场景 s2 的校园数据来源：模型真的读到了导入的课表/成绩/通知/校历缓存
+  （见 `docs/agent-v2-progress.md` 的真实场景小节）。证据 `var/migration-rehearsal-20261014/`。
+- 本轮修掉一个真实操作陷阱：`--batch-id` 之前可以被传给 `import` 而被**静默忽略**（import 的批次 id 由
+  源指纹+owner+school-cache 派生），随后用这个自造 id 回滚会得到 `removed: false`，看起来像回滚成功。
+  现在 `import` 明确拒绝 `--batch-id`，`rollback` 拒绝非 `mig_<32 hex>` 的 id 并以 exit 2 报错；
+  已实测两种错误用法都报错、正确流程仍为 `removed: true` → `removed: false`。

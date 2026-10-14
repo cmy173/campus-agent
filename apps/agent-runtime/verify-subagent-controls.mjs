@@ -35,7 +35,14 @@ const server = createServer(async (req, res) => {
     state.bReady.resolve();
     return;
   }
-  if (!tools.length) return send(res, { tool_calls: [
+  // The `team` group (which owns `subagent`) is deferred by the product's on-demand tool
+  // discovery, so the controlled model must load it first — the same contract the real
+  // model gets. Without this the spawn calls would never reach a declared tool.
+  if (!state.loaded) {
+    state.loaded = true;
+    return send(res, { tool_calls: [call('load_' + requests.length, 'load_tools', { group: 'team' })] });
+  }
+  if (tools.length <= 1) return send(res, { tool_calls: [
     call('spawn_a_' + requests.length, 'subagent', { description: 'Independent child A', prompt: 'CONTROL_CHILD_A Perform the long computation.', run_in_background: state.background }),
     call('spawn_b_' + requests.length, 'subagent', { description: 'Independent child B', prompt: 'CONTROL_CHILD_B Read the material and report its actual text.', run_in_background: state.background }),
   ] });
@@ -59,7 +66,7 @@ async function bounded(promise) {
 
 try {
   for (const background of [false, true]) {
-    state = { background, aRunning: Promise.withResolvers(), bReady: Promise.withResolvers(), aEnded: Promise.withResolvers(),
+    state = { background, loaded: false, aRunning: Promise.withResolvers(), bReady: Promise.withResolvers(), aEnded: Promise.withResolvers(),
       bEnded: Promise.withResolvers(), notifications: [] };
     const run = harness.run('CONTROL_ROOT_' + (background ? 'BACKGROUND' : 'FOREGROUND') + ' Complete two independent children.', {
       sessionId: rootId,
