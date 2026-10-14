@@ -52,3 +52,24 @@
 - 独立生产预览真实恢复同一会话，课程编辑器懒加载成功；生产 `/__dev/chat-layout` 返回“页面不存在”。生产预览与开发页使用不同端口，sessionStorage 草稿按 origin 隔离；生产验证没有据此声称跨 origin 同步草稿。
 
 真实浏览器证据：`var/agent-integration-o78y5qkz/ui-workspace-evidence.json`；`chat-desktop.jpg`、`chat-narrow.jpg`、`course-workspace-desktop.jpg`、`course-workspace-narrow.jpg`、`accounts-settings-narrow.jpg`、`layout-preview-desktop.jpg`、`layout-preview-narrow.jpg`。
+
+## 桌面全宽回归（2026-10-14 补）
+
+`tools/verify_ui_desktop.py` 用**应用自有的持久 Edge 配置**（`channel=msedge`、持久 profile 目录，与
+`apps/agent-runtime/browser-host.mjs` 同布局）连到真实 API + Vite 实例，在 **1280×900 与 1920×1080**
+分别记录可测量断言与截图，并额外验证刷新后草稿保留。该脚本不接触模型（入口页、工具栏、日历工作区都不需要 provider）。
+
+实测结果（`ok: true`，无失败项）：
+
+| 尺寸 | inner | scrollWidth | 横向溢出 | 输入框（左–右，底） | 工具栏 | 工作区 | 草稿刷新保留 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1280×900 | 1280×900 | 1280 | 无 | 183–1097，831 < 900 | 可见 | 打开，输入框仍可用 | 是 |
+| 1920×1080 | 1920×1080 | 1920 | 无 | 503–1417，1011 < 1080 | 可见 | 打开，输入框仍可用 | 是 |
+
+已**人工查看截图**（不只用 DOM 尺寸下结论）：两个尺寸的聊天入口布局正确——标题栏、工具栏
+（新对话/日历/资料与任务/设置）、历史与课程选择、空态建议、模型提示与输入框全部在位且不截断；
+点「日历」后右侧打开「我的日历」工作区，聊天与输入框仍在视口内可用。
+证据：`var/v2-ui-desktop-*/ui-desktop-evidence.json` 与同目录 `screenshots/chat-*.png`、`workspace-calendar-*.png`。
+
+已知取舍（如实记录）：本次为 **headless** Edge（真实浏览器与真实渲染，但非人工肉眼窗口）；
+脚本按尺寸顺序执行，1920×1080 的聊天截图可能保留前一次点击「日历」的焦点环，属截图时序而非界面缺陷。
