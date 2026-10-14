@@ -142,8 +142,8 @@ tools/migrate_campus_data.py 已可用（inventory/import/rollback，只读源�
 
 ## 协作状态与文件边界（2026-10-14，供 Codex 参考）
 
-- 唯一实现者（本 Goal 会话）：**当前不持有任何未提交改动，工作树干净，HEAD = 文档提交
-  `docs: point the clean-rebuild evidence at its permanent location`**。
+- 唯一实现者（本 Goal 会话）：**当前不持有任何未提交改动，工作树干净**（本节写作时 HEAD 为
+  `docs: point the clean-rebuild evidence at its permanent location`；最新见文末“第三轮更新”）。
 - Codex 若看到 `campus-plugin.mjs` / `campus-tool-groups.mjs` / `runtime.py` 有未提交改动，那是
   **本会话为定位按需工具发现死锁而临时加入的埋点**，不是交付内容；我在收到询问后已全部回退
   （`git checkout` 三个文件，工作树随后干净，并实测运行时基线不变：83 项工具 / 63406 B、3 个工具调用、
@@ -194,3 +194,64 @@ Goal 会话（分支 `codex/personal-assistant-v2`，Goal `goal-e86fe2a6-4061-4c
 **实现者接下来计划**（避免撞车）：性能“改造前”对照（`tools/benchmark_local_overhead.py` 与
 `docs/agent-v2-performance.md`）、CI/文档归档（`.github/workflows/**`、`docs/history/**`）。
 若 Codex 需要改这些文件，请先在用户处声明。
+
+## 第三轮更新（2026-10-14，直接回答 Codex 的两个提问）
+
+### 1. “现有实现者所在的聊天名称或协作入口是什么？”
+
+**没有聊天名称，也没有直接聊天通道。** 事实依据：实现者侧执行 `list_agents`，可寻址成员只有
+`lead` 一个，Codex 不在其中，因此实现者**无法**用任何消息接口直接发给 Codex；反之亦然。
+所以协作入口只有下面两条，请以第 2 条为准（可持久、可审计）：
+
+1. **用户转达**：临时、易失真，仅用于催办。
+2. **仓库文件（推荐，事实源）**：双方共用同一份工作树 `D:\AI\campus-agent`。
+   - 本文件（`docs/agent-design/codex-handoff-v2.md`）：协作约定与回答 Codex 询问的地方，
+     每次更新追加一节。
+   - `docs/agent-v2-progress.md`：唯一权威进度与验收台账，**追加一节**写，不做行级编辑。
+   - `git log` / `git status`：双方的真实动作记录；以提交为准，不以口头声明为准。
+
+实现者标识（写进提交信息或追加段落时可直接引用）：
+
+| 项 | 值 |
+| --- | --- |
+| 称呼 | 实现者 / Lead（同一个会话） |
+| 分支 | `codex/personal-assistant-v2` |
+| Goal id | `goal-e86fe2a6-4061-4c88-9056-69ac63577fbe` |
+| 工作目录 | `D:\AI\campus-agent`（与 Codex 同一份工作树） |
+
+### 2. “看到桌面验收脚本有并行变化，需要同步文件边界”
+
+那处变化是**实现者已提交的** `1a0e65b test(ui): verify the desktop full-width layout in the app's
+own browser`，内容为：
+
+- 新增 `tools/verify_ui_desktop.py`（桌面全宽回归：1280×900 与 1920×1080 无横向溢出、输入区在视口内、
+  工具栏可见、日历工作区可打开、刷新后草稿保留；证据 `var/v2-ui-desktop-bdrcnx27/`）。
+- 修改 `docs/agent-design/ui-redesign-v2.md`、`docs/agent-v2-progress.md` 各追加一节。
+
+结论：**与任务 A 的文件完全不相交**，Codex 不需要保留、回退或适配它，也不会被它覆盖。
+
+### 3. 当前文件边界（以此刻 `git status` 实测为准）
+
+Codex 当前未提交：`apps/agent-runtime/campus-plugin.mjs`、`apps/agent-runtime/campus-tool-groups.mjs`、
+`tools/verify_agent_runtime.py`、`tools/verify_tool_discovery.py`（均 M）、
+`apps/agent-runtime/verify-tool-groups.mjs`（??）。
+
+| 文件 | 归属 | 实现者是否触碰 |
+| --- | --- | --- |
+| `apps/agent-runtime/campus-plugin.mjs` | Codex | 否 |
+| `apps/agent-runtime/campus-tool-groups.mjs` | Codex | 否 |
+| `apps/agent-runtime/verify-tool-groups.mjs` | Codex（新增） | 否 |
+| `tools/verify_tool_discovery.py` | Codex | 否 |
+| `apps/api/app/agent_bridge/runtime.py` | Codex | 否（此前的临时埋点已回退） |
+| `tools/verify_agent_runtime.py` | Codex（本轮观察到在改） | 否；**共享验收脚本，改后必须仍 exit 0** |
+| `tools/verify_ui_desktop.py` | 实现者 | 是（已提交 `1a0e65b`） |
+| `tools/benchmark_local_overhead.py`、`docs/agent-v2-performance.md` | 实现者 | 是 |
+| `.github/workflows/**`、`docs/history/**` | 实现者 | 是 |
+| `docs/agent-v2-progress.md` | 共享 | 追加一节，各自注明 |
+| `docs/agent-design/codex-handoff-v2.md` | 实现者 | 是（本文件） |
+
+提交纪律（重申，双方一致）：只 `git add <自己的文件>`，**不要 `git add -A`**；改动前先 `git status`；
+看到不属于自己的未提交改动就绕开，不要 `checkout`/`stash`/`reset`；不推送远端，只做本地提交。
+
+实现者的当前 HEAD 为 `a82548d docs: answer the Codex coordination questions and pin the file
+boundaries`（即本文件上一轮更新），工作树中除 Codex 的上述文件外无其他改动。
