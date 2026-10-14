@@ -23,7 +23,7 @@
 | 2 | 旧能力台账逐项有迁移证据或明确放弃理由；旧 UI/重复代码移除；旧 URL 不再渲染旧 UI；历史源码与用户数据可恢复 | **已验证** | `docs/agent-v2-migration.md` 台账（47 个 `campus_agent` 路径、旧静态 UI、旧启动脚本已删）；快照恢复入口 `D:/AI/campus-agent-goal-backups/20261013-v2-start/RESTORE.md`；**真实**旧库导入+重入+回滚演练 `var/migration-rehearsal-20261014/` |
 | 3 | 第 5 节能力有实际实现与最小闭环；文档列明插件、模型可见工具、provider、服务依赖 | **已验证** | `docs/agent-v2-tool-discovery.md`（默认 45 项 / 33861 B，加载浏览器后 71 项；分组与装载工具）、`docs/agent-tool-schemas.json`、`docs/agent-design/tools-v2.md`；**受控** `tools/verify_agent_runtime.py` ok=true（83 次调用覆盖工具/文件/文档/浏览器/MCP/子任务/取消/目标） |
 | 4 | 真实 Harness 工具链 + 真实官方模型完成三条自然语言场景 | **已验证（真实）** | `tools/verify_real_scenarios.py`；**27 次真实计费请求**：s1 网页检索引用（`web_search`+6×`web_fetch`，5 个可核实 URL）、s2 校园信息→计划预览→接受生效→撤销（`plans.apply`/`plans.revoke`，`active`→`revoked`，`plans.read` 返回 null）、s3 附件→`todo-report.md` 可读产物并发布。证据 `var/real-scenarios-s1|s2|s3/` |
-| 5 | 登录态浏览器可读取页面与下载文件；受控表单填写、一次确认、提交、防重；真实校外提交非必需 | **读取半边已验证（真实）；模型汇总+下载校方文件未闭环** | **真实** Edge：`verify_agent_runtime.py` 的浏览器流（真实导航、填表、下载 `browser-campus.txt`、提交前 `needs_user` 一次确认、pending review 唯一）；`tools/verify_browser_cancellation.py`。**真实校园只读试用**（`tools/verify_real_school_browser.py`，真实模型）：直连 zdbk 本网络返回空响应（68 字节）→ `campus_webvpn_entry` 取 WebVPN 地址 → 用户登录后浏览器落到 **「本科教学管理信息服务平台」**，`browser_evaluate` 读到真实通知公告条目与编号，`browser_click` 解析到真实导航元素。**未闭环**：模型在四次试用中都在最后一次工具结果后停住（工具全部正常返回），未产出汇总与校方文件下载。证据 `var/real-school-browser-20261014-205127|205855|211018/` |
+| 5 | 登录态浏览器可读取页面与下载文件；受控表单填写、一次确认、提交、防重；真实校外提交非必需 | **读取半边已验证（真实）；下载半边：登录态浏览器的下载路径已验证，但抽样到的校方通知确实不带附件** | **真实** Edge：`verify_agent_runtime.py` 的浏览器流（真实导航、填表、下载 `browser-campus.txt`、提交前 `needs_user` 一次确认、pending review 唯一）；`tools/verify_browser_cancellation.py`。**真实校园试用**（`tools/verify_real_school_browser.py`，真实模型，提示词限制在每回合 3–6 次工具调用）：① 读取——`campus_webvpn_entry` → WebVPN → 「本科教学管理信息服务平台」，给出标题/URL/栏目清单，并如实说明读到的部分没有身份原文；② 通知公告列表读到 **3,811 条 / 255 页**；③ 打开 3 条通知详情逐条核对后确认**没有附件**（正文只给 `jsj.top` / `wj.qq.com` 等外部报名链接），模型明确回答“没有可下载的附件”。证据 `var/real-school-browser-20261014-213144|215540|215910|220523/` |
 | 6 | 子任务/持续任务/调度：真实执行、取消、失败、进程重启恢复；真实调度器 + 可控时间 | **已验证** | **受控** `apps/agent-runtime/verify-subagent-controls.mjs`（前台/可继续后台两种子 agent 并存、选择性中断：无凭据 403、有凭据 200、只中止 A 而 B 完成）、`verify-goal.mjs`（原生 goal 到 `phase=complete`）、`python tools/verify_schedule_runtime.py`（6 次调用）、`python tools/verify_scheduler.py` ok |
 | 7 | 本地明确执行无需重复确认；预览不写入；外部提交前一次确认；错误/取消不显示成功；首轮回归通过 | **已验证** | **受控** API 套件 `apps/api/tests`（同意/浏览器归属/取消/应用与撤销/幂等/防重）；基准 `pending_confirmations = 0`；s2 预览在未被接受前 `plans.read` 仍为 `candidate` |
 | 8 | UI 分层与换布局示例；同一聊天可搜索/查校园/操作浏览器/看文件与日历；桌面与窄屏无阻断；刷新保持状态 | **已验证** | `docs/agent-design/ui-redesign-v2.md`；`python tools/verify_ui_desktop.py`（**真实** Edge，1280×900 与 1920×1080 无横向溢出、输入区在视口内、工具栏可见、日历工作区可打开、刷新后草稿保留）；更早的 390×844 证据见同文档 |
@@ -43,8 +43,13 @@
 
 ## 已知限制
 
-1. **真实学校登录态未试用**（条件 5 唯一缺口）：需要用户在本机浏览器完成浙大登录，模型不接触密码。
-   解锁后做只读试用（读页面、下载文件），不做对外提交。
+1. **真实学校试用只剩“下载一个校方文件”这一步**：需要用户在**本应用自有的浏览器窗口**里完成浙大 WebVPN 登录
+   （模型不接触密码），之后做只读试用（读页面、下载一个真实附件），不做对外提交。
+   注意两个真实约束：① **WebVPN 同一账号只允许一个会话**，在别的浏览器再登录会把 App 这边的登录态挤下线
+   （已在 `var/real-school-browser-20261014-220523/` 观测到）；② 该实例把**每轮模型调用限制为 8 次**
+   （`CAMPUS_MAX_MODEL_CALLS`），一次 12 次工具调用的提示词会以 `BUDGET_EXCEEDED` 结束该轮，
+   所以真实试用按 ≤5 次工具调用/回合分步进行（`--task login-read|download|download-flow`）。
+   已抽样核对的 3 条置顶通知确无附件，下一步要用类别筛选/标题搜索定位带附件的通知。
 2. **第一条消息的启动等待已由会话创建时的预热消除**（实测 5.1 秒 → 0.78 秒，详见
    `docs/agent-v2-performance.md`「冷启动预热」）：预热在后台进行，若用户在 runtime 起来之前就发消息，
    剩余部分仍要等；它消除的是“每开一个新会话都要等 5 秒”的固定成本。
@@ -62,7 +67,7 @@
 
 | 缺口 | 解锁条件 |
 | --- | --- |
-| 条件 5 校方文件下载 + 模型汇总 | 已完成读取半边（真实）；剩下只需再跑一次只读试用（可给更长窗口或更快的模型档位）——浏览器与登录态都已就绪 |
+| 条件 5 校方文件下载 | 用户在 App 的浏览器窗口里重新保持 WebVPN 登录态（一次；期间不要在别的浏览器登录，见「已知限制 1」）；然后按 ≤5 次工具调用/回合跑 `--task download-flow`（筛选/搜索通知 → 打开详情找附件 → 下载），或用已定位到的附件直链让模型一步下载 |
 | 更多真实付费场景 | 用户确认预算（此前授权 100 元，已用 27 次真实请求 + 条件 5 试用的少量请求） |
 
 ## 复现命令（本轮实测）

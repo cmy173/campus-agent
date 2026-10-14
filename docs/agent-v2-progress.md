@@ -461,10 +461,53 @@ owner cookie **取消本轮**，避免在用户实例上留下悬挂回合。
   另把 runner 的轮次异常在 `CAMPUS_RUNNER_MARKS` 下写 stderr，避免再出现“只看到 HARNESS_FAILED 看不到原因”。
 - 详细数字与限定见 `docs/agent-v2-performance.md`「冷启动预热」。
 
+## 2026-10-14 增量（第三轮）：预算内真实试用、每轮模型调用上限、WebVPN 单会话
 
+### 条件 5：读取半边继续坐实；下载半边卡在“这些通知确实没有附件”
 
+在**同一个已登录实例**上（真实官方模型 + 真实 Edge）重跑 `tools/verify_real_school_browser.py`，
+提示词改成**预算内**（每回合 ≤3–6 次工具调用）：
 
+- `--task login-read`（≤3 次调用）：19 秒内收敛，读到「本科教学管理信息服务平台」，
+  给出页面标题、当前 URL（`.../index_initMenu.html?jsdm=06`）与左侧栏目清单，
+  并**如实说明**读到的部分没有学号/姓名原文（未展开的下拉菜单不算）——没有编造身份片段。
+- `--task download`（两步，各 ≤6 次）：第一步读到通知公告列表（**3,811 条 / 255 页**，置顶三条标题）；
+  第二步在预算内打开 3 条通知详情，逐条核对后确认**都没有附件**，正文给的是外部报名链接
+  （`jsj.top`、`wj.qq.com`），模型据此明确回答“没有可下载的附件”并列出缺口。
+- 证据：`var/real-school-browser-20261014-213144/`（客户端被杀但 journal 里 result 事件完整）、
+  `…-215540/`（两步 download，两个回合都有完整回答与 settled_by=result_event）、`…-215910/`、`…-220523/`。
+- 校方站点事实（真实观测）：通知公告列表页是 jqGrid 异步渲染、行内没有 href（只能点进详情拿 `xwbh`）；
+  置顶项多为院系通知，附件要**用类别筛选或标题搜索**才找得到——新的三步流程已按此设计。
 
+### 真实限制：该实例把每轮模型调用限制为 8 次（BUDGET_EXCEEDED）
+
+- 一次写成“12 次工具调用”的提示词在第 8 次模型调用后被拒：journal 出现
+  `model_error {"code":"BUDGET_EXCEEDED","message":"本轮模型调用达到配置预算。"}`，
+  该轮以 `RUNTIME_FAILED` 结束、`response` 为空。**工具全部正常返回**，是预算耗尽而非工具失败。
+- 计数依据：`turns.model_calls=8`；`RunLimits.model_calls` 来自 `CAMPUS_MAX_MODEL_CALLS`（默认 128），
+  该实例被配置为 8。因此真实试用必须让每回合的工具调用数 ≈ N 且 N+1 ≤ 预算；
+  现在学校流程拆成 3 个小回合（≤5 / ≤4 / ≤4 次工具调用），并新增 `--task download-flow`。
+- 这同时修正上一节对“模型在最后一次工具结果之后停住”的解释：不是浏览器或 WebVPN 卡住，
+  而是**预算用尽后上游拒绝下一次模型调用**；应用如实落为失败态（无回答、无假成功）。
+
+### 运维事实：WebVPN 同一账号只允许一个会话
+
+- 用户在第二个浏览器登录 WebVPN 后，App 自有浏览器里的会话被挤下线：`…-220523/` 第二回合明确记录
+  当前 URL 变为 `https://webvpn.zju.edu.cn/login`、页面标题 `WebVPN`，因此再也取不到校方页面。
+- 结论：**真实试用期间只在一个浏览器里保持登录**；需要重登时先在 App 的浏览器窗口里完成，
+  再跑脚本（本轮已按此清理：开发用的插件浏览器会话已 stop，不再与 App 争抢会话）。
+
+### 为什么端口 18100 那个实例的回合总是停在 running
+
+- 该实例启动于 19:08，代码早于 `32974aa`/`b0aa96a`：它的 `_run_owned` 在读到 `result` 帧后仍要等
+  `for line in proc.stdout` 自然结束并 `proc.wait()`，再以 `answered and proc.returncode == 0` 判定成功。
+  于是这些回合永久停在 `running`（脚本用自己持有的 owner cookie 取消，journal 里没有遗留 running 回合）。
+- HEAD 已改成**以 result 帧为准**：`answered` 后立刻 `store.finish(tid, "succeeded", ...)`，
+  是否保留 runner 由 `proc.poll() is None` 决定。`tools/verify_agent_runtime.py` 在 HEAD 上多处断言
+  `status == 'succeeded'` 且集成 ok=true（83 次调用），说明 HEAD 不存在该问题。
+- **浏览器层没有版本差异**：`apps/agent-runtime/browser-host.mjs`（14:28 最后改动）与
+  `apps/api/app/agent_bridge/browser.py`（09:56 最后改动）都早于该实例启动时间，
+  所以本轮真实浏览器证据（读页面、下载路径、ledger）对 HEAD 同样成立。
 
 
 
