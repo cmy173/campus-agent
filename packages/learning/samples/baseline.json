@@ -1,0 +1,348 @@
+{
+  "name": "baseline",
+  "description": "首版基准样例：两门虚构课程、示例资料（含同名新版本与重复文件）、五项作业（含已延期与无截止）、两条无字幕回放、一周空闲（每日上限 180 分钟、周四不可用、周五有锁定复习块）。预期：除已延期作业外全部可排。",
+  "courses": [
+    {
+      "id": "crs_cs261",
+      "title": "数据结构基础",
+      "term": "2026-2027 秋冬",
+      "teacher": "示例教师甲",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-course-261",
+          "canonical_url": "https://example.invalid/xzzd/course/261",
+          "observed_at": "2026-10-09T10:00+08:00"
+        }
+      ]
+    },
+    {
+      "id": "crs_ai202",
+      "title": "人工智能导论",
+      "term": "2026-2027 秋冬",
+      "teacher": "示例教师乙",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-course-202",
+          "canonical_url": "https://example.invalid/xzzd/course/202",
+          "observed_at": "2026-10-09T10:05+08:00"
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "id": "res_cs261_tree_v1",
+      "course_id": "crs_cs261",
+      "kind": "slides",
+      "title": "第4章 树与二叉树（课件）",
+      "version": 1,
+      "content_hash": "sha256:f16c72db8a55d6ab9e965b11248ca926a4f39bca8f69c46bcf3d27298b7f105f",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 1893000,
+      "extent_value": 42,
+      "extent_unit": "page",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-cs261-file-1001",
+          "canonical_url": "https://example.invalid/xzzd/file/1001",
+          "observed_at": "2026-10-09T10:00+08:00"
+        }
+      ]
+    },
+    {
+      "id": "res_cs261_tree_v2",
+      "course_id": "crs_cs261",
+      "kind": "slides",
+      "title": "第4章 树与二叉树（课件）",
+      "version": 2,
+      "content_hash": "sha256:6a3875944bb5d006ac62e6b1bccbfcca2b8a6388b4589d2a6eb1eadf12daf4d2",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 2110000,
+      "extent_value": 46,
+      "extent_unit": "page",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-cs261-file-1002",
+          "canonical_url": "https://example.invalid/xzzd/file/1002",
+          "observed_at": "2026-10-09T10:10+08:00"
+        }
+      ]
+    },
+    {
+      "id": "res_cs261_tree_print",
+      "course_id": "crs_cs261",
+      "kind": "slides",
+      "title": "第4章 树与二叉树（打印版）",
+      "version": 1,
+      "content_hash": "sha256:f16c72db8a55d6ab9e965b11248ca926a4f39bca8f69c46bcf3d27298b7f105f",
+      "parse_status": "ready",
+      "mime_type": "application/pdf",
+      "size_bytes": 1893000,
+      "extent_value": 42,
+      "extent_unit": "page",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-cs261-file-1003",
+          "canonical_url": "https://example.invalid/xzzd/file/1003",
+          "observed_at": "2026-10-09T10:20+08:00"
+        }
+      ]
+    },
+    {
+      "id": "res_ai202_ml_intro",
+      "course_id": "crs_ai202",
+      "kind": "handout",
+      "title": "第3章 机器学习概述（讲义）",
+      "version": 1,
+      "content_hash": "sha256:850a0cd2d96409b04b105a600c20dccb85b3076d399d8688735af9364fc94434",
+      "parse_status": "ready",
+      "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "size_bytes": 4231000,
+      "extent_value": 30,
+      "extent_unit": "slide",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-ai202-file-2001",
+          "canonical_url": "https://example.invalid/xzzd/file/2001",
+          "observed_at": "2026-10-09T10:00+08:00"
+        }
+      ]
+    },
+    {
+      "id": "res_ai202_lab_manual",
+      "course_id": "crs_ai202",
+      "kind": "document",
+      "title": "实验指导书：线性回归",
+      "version": 1,
+      "content_hash": "sha256:a278412c39de8f9e6034bdf6470cfa83e24b51b7fb424bb8cab2ef6d730df072",
+      "parse_status": "ready",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "size_bytes": 86400,
+      "extent_value": 8,
+      "extent_unit": "page",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-ai202-file-2002",
+          "canonical_url": "https://example.invalid/xzzd/file/2002",
+          "observed_at": "2026-10-09T10:00+08:00"
+        }
+      ]
+    }
+  ],
+  "assignments": [
+    {
+      "id": "asg_cs261_hw04",
+      "course_id": "crs_cs261",
+      "title": "作业4：二叉树的遍历与应用",
+      "due_at": "2026-10-16T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "estimated_minutes": 120,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-cs261-hw-04",
+        "canonical_url": "https://example.invalid/xzzd/hw/cs261-04",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    },
+    {
+      "id": "asg_cs261_hw05",
+      "course_id": "crs_cs261",
+      "title": "作业5：图的最短路径",
+      "due_at": "2026-10-17T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-cs261-hw-05",
+        "canonical_url": "https://example.invalid/xzzd/hw/cs261-05",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    },
+    {
+      "id": "asg_ai202_hw03",
+      "course_id": "crs_ai202",
+      "title": "作业3：线性回归实现",
+      "due_at": "2026-10-08T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-ai202-hw-03",
+        "canonical_url": "https://example.invalid/xzzd/hw/ai202-03",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    },
+    {
+      "id": "asg_ai202_proposal",
+      "course_id": "crs_ai202",
+      "title": "课程设计提案",
+      "due_at": null,
+      "due_precision": "unknown",
+      "submission_status": "not_submitted",
+      "estimated_minutes": 60,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-ai202-proposal",
+        "canonical_url": "https://example.invalid/xzzd/hw/ai202-proposal",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    },
+    {
+      "id": "asg_ai202_quiz_prep",
+      "course_id": "crs_ai202",
+      "title": "复习准备：概率基础测验",
+      "due_at": "2026-10-14T23:59:00+08:00",
+      "due_precision": "datetime",
+      "submission_status": "not_submitted",
+      "estimated_minutes": 40,
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-ai202-quiz-01",
+        "canonical_url": "https://example.invalid/xzzd/quiz/ai202-01",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    }
+  ],
+  "recordings": [
+    {
+      "id": "rec_cs261_lec04",
+      "course_id": "crs_cs261",
+      "title": "第4讲 树的遍历（回放）",
+      "started_at": "2026-10-08T10:00+08:00",
+      "duration_seconds": 5400,
+      "canonical_url": "https://example.invalid/xzzd/replay/cs261-lec04",
+      "transcript_status": "pending",
+      "subtitle_languages": [],
+      "transcript_next_check_at": "2026-10-10T10:00+08:00",
+      "source_ref": {
+        "platform": "zykt",
+        "external_id": "zykt-cs261-2401",
+        "canonical_url": "https://example.invalid/zykt/replay/cs261-2401",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    },
+    {
+      "id": "rec_ai202_lec03",
+      "course_id": "crs_ai202",
+      "title": "第3讲 梯度下降（回放）",
+      "started_at": "2026-10-07T14:00+08:00",
+      "duration_seconds": 2700,
+      "canonical_url": "https://example.invalid/zykt/replay/ai202-lec03",
+      "transcript_status": "unknown",
+      "subtitle_languages": null,
+      "transcript_next_check_at": null,
+      "source_ref": {
+        "platform": "zykt",
+        "external_id": "zykt-ai202-0301",
+        "canonical_url": "https://example.invalid/zykt/replay/ai202-0301",
+        "observed_at": "2026-10-09T10:00+08:00"
+      }
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "daily_limit_minutes": 180,
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "22:30"},
+      {"weekday": 1, "start": "19:00", "end": "22:30"},
+      {"weekday": 2, "start": "19:00", "end": "22:30"},
+      {"weekday": 3, "start": "19:00", "end": "22:30"},
+      {"weekday": 4, "start": "19:00", "end": "22:30"},
+      {"weekday": 5, "start": "09:00", "end": "12:00"},
+      {"weekday": 5, "start": "14:00", "end": "17:00"},
+      {"weekday": 5, "start": "19:00", "end": "22:00"},
+      {"weekday": 6, "start": "09:00", "end": "12:00"},
+      {"weekday": 6, "start": "14:00", "end": "17:00"},
+      {"weekday": 6, "start": "19:00", "end": "22:00"}
+    ],
+    "date_exceptions": [
+      {
+        "date": "2026-10-15",
+        "unavailable": true,
+        "windows": null,
+        "daily_limit_minutes": null
+      }
+    ]
+  },
+  "task_options": {
+    "config": {
+      "minutes_per_unit": {"page": 3, "slide": 2},
+      "watch_minutes_factor": 1.0,
+      "default_minutes_by_type": {"reading": 60, "watching": 60, "assignment": 90, "practice": 60, "review": 45}
+    },
+    "user_tasks": [
+      {
+        "id": "t:crs_cs261:review:复习-树的遍历",
+        "course_id": "crs_cs261",
+        "type": "review",
+        "title": "复习：树的遍历",
+        "estimated_minutes": 60,
+        "due_at": null,
+        "due_precision": "unknown",
+        "prerequisite_ids": [],
+        "source_refs": [],
+        "status": "pending",
+        "completion_criteria": "完成自测并整理错题",
+        "estimate_provenance": "user",
+        "splittable": false,
+        "priority": 5
+      }
+    ],
+    "hints": [
+      {
+        "match": {"course_id": "crs_cs261", "type": "assignment", "external_id": "xzzd-cs261-hw-04"},
+        "prerequisites": [{"course_id": "crs_cs261", "type": "reading", "title": "第4章 树与二叉树（课件）"}]
+      },
+      {
+        "match": {"course_id": "crs_ai202", "type": "assignment", "external_id": "xzzd-ai202-quiz-01"},
+        "prerequisites": [{"course_id": "crs_ai202", "type": "reading", "title": "第3章 机器学习概述（讲义）"}]
+      }
+    ]
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1,
+    "locked_blocks": [
+      {
+        "id": "blk_locked_cs261_review",
+        "task_id": "t:crs_cs261:review:复习-树的遍历",
+        "starts_at": "2026-10-16T19:00+08:00",
+        "ends_at": "2026-10-16T20:00+08:00",
+        "locked": true
+      }
+    ],
+    "config": {"min_chunk_minutes": 25, "max_chunk_minutes": 60, "default_splittable": true}
+  },
+  "expected": {
+    "taskgen_warnings": ["DUPLICATE_CONTENT", "TASK_VERSION_UPDATED"],
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": [
+      "t:crs_ai202:assignment:xzzd-ai202-proposal",
+      "t:crs_ai202:assignment:xzzd-ai202-quiz-01",
+      "t:crs_ai202:reading:实验指导书-线性回归",
+      "t:crs_ai202:reading:第3章-机器学习概述(讲义)",
+      "t:crs_ai202:watching:zykt-ai202-0301",
+      "t:crs_cs261:assignment:xzzd-cs261-hw-04",
+      "t:crs_cs261:assignment:xzzd-cs261-hw-05",
+      "t:crs_cs261:reading:第4章-树与二叉树(课件)",
+      "t:crs_cs261:review:复习-树的遍历",
+      "t:crs_cs261:watching:zykt-cs261-2401"
+    ],
+    "unassigned": {
+      "t:crs_ai202:assignment:xzzd-ai202-hw-03": "DEADLINE_PASSED"
+    }
+  }
+}

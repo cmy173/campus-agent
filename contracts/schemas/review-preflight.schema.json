@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewPreflight",
+  "description": "出卷预检结果（无副作用；不发送任何正文、不启动生成）：将发送的材料与备注完整预览、目标 API、限制、题库可用性与 fingerprint 预览。点击生成才实际发送。",
+  "type": "object",
+  "required": ["fingerprint", "materials", "provider", "limits", "bank", "warnings"],
+  "properties": {
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "按当前请求计算的 fingerprint 预览（公式同 MaterialSnapshot.fingerprint）；正式值以生成时持久化的快照为准。"
+    },
+    "materials": {
+      "type": "object",
+      "required": ["items", "missing", "notes", "total_chars"],
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "material-snapshot.schema.json#/$defs/Item" }, "description": "将发送的材料正文（与生成时快照一致）。" },
+        "missing": { "type": "array", "items": { "$ref": "material-snapshot.schema.json#/$defs/Missing" } },
+        "notes": { "$ref": "material-snapshot.schema.json#/$defs/Notes" },
+        "total_chars": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "provider": {
+      "type": "object",
+      "description": "目标 API 信息（不含密钥；bank 模式未用模型时字段为 null）。host 为展示用主机名。",
+      "required": ["config_id", "name", "protocol", "base_url", "host", "model", "has_api_key"],
+      "properties": {
+        "config_id": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"] },
+        "protocol": { "oneOf": [{ "type": "string", "const": "openai_chat_completions" }, { "type": "null" }] },
+        "base_url": { "type": ["string", "null"] },
+        "host": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "has_api_key": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["notes_chars", "notes_max_chars", "material_chars", "material_max_chars", "question_count_total", "question_count_max"],
+      "properties": {
+        "notes_chars": { "type": "integer", "minimum": 0, "description": "本次备注字符数。" },
+        "notes_max_chars": { "type": "integer", "minimum": 1, "description": "服务端备注上限；超限时生成前即报错，不静默截断。" },
+        "material_chars": { "type": "integer", "minimum": 0, "description": "本次材料正文总字符数。" },
+        "material_max_chars": { "type": "integer", "minimum": 1, "description": "服务端材料总量上限；超限时提示减少所选片段。" },
+        "question_count_total": { "type": "integer", "minimum": 0, "description": "本次各题型数量合计。" },
+        "question_count_max": { "type": "integer", "minimum": 1, "description": "单卷题数上限。" }
+      },
+      "additionalProperties": false
+    },
+    "bank": {
+      "type": "object",
+      "description": "题库可用性。mode=bank/hybrid 且无可用来源时 usable=false，message 给出配置或切换模式的建议（不得静默切换、不得假装搜到题）。",
+      "required": ["mode", "usable", "configured_sources", "message"],
+      "properties": {
+        "mode": { "$ref": "common.schema.json#/$defs/review_mode" },
+        "usable": { "type": "boolean" },
+        "configured_sources": { "type": "integer", "minimum": 0 },
+        "message": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "examples": ["MATERIAL_GAP", "NOTES_EMPTY", "BANK_NOT_CONFIGURED"] },
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "description": "预检提示（材料缺口、备注为空、题库未配置等）。"
+    }
+  },
+  "additionalProperties": false
+}

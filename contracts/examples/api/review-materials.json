@@ -1,0 +1,112 @@
+{
+  "items": [
+    {
+      "id": "res_01a7",
+      "kind": "resource",
+      "title": "第03讲-线性表.pdf",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T10:00:31+08:00",
+      "usable": true,
+      "unavailable_reason": null,
+      "parse_status": "ready",
+      "version": 2,
+      "chunk_count": 2,
+      "chars": 91,
+      "due_at": null,
+      "due_precision": null,
+      "attachments": []
+    },
+    {
+      "id": "res_01b2",
+      "kind": "resource",
+      "title": "讲义-附录A.pdf",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T10:01:02+08:00",
+      "usable": true,
+      "unavailable_reason": null,
+      "parse_status": "ready",
+      "version": 1,
+      "chunk_count": 2,
+      "chars": 85,
+      "due_at": null,
+      "due_precision": null,
+      "attachments": []
+    },
+    {
+      "id": "res_01c0",
+      "kind": "resource",
+      "title": "课程大纲.docx",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T10:01:20+08:00",
+      "usable": false,
+      "unavailable_reason": "not_parsed",
+      "parse_status": "pending",
+      "version": 1,
+      "chunk_count": null,
+      "chars": null,
+      "due_at": null,
+      "due_precision": null,
+      "attachments": []
+    },
+    {
+      "id": "res_01d4",
+      "kind": "resource",
+      "title": "实验指导书(受限).pdf",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T09:33:00+08:00",
+      "usable": false,
+      "unavailable_reason": "not_accessible",
+      "parse_status": "pending",
+      "version": 1,
+      "chunk_count": null,
+      "chars": null,
+      "due_at": null,
+      "due_precision": null,
+      "attachments": []
+    },
+    {
+      "id": "asg_a101",
+      "kind": "assignment",
+      "title": "作业3：树与二叉树",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T09:35:00+08:00",
+      "usable": true,
+      "unavailable_reason": null,
+      "parse_status": null,
+      "version": null,
+      "chunk_count": null,
+      "chars": 25,
+      "due_at": "2026-10-01T23:59:00+08:00",
+      "due_precision": "datetime",
+      "attachments": []
+    },
+    {
+      "id": "asg_a102",
+      "kind": "assignment",
+      "title": "实验报告一：顺序表实现",
+      "course_id": "crs_3f8a21",
+      "updated_at": "2026-10-08T09:36:00+08:00",
+      "usable": true,
+      "unavailable_reason": null,
+      "parse_status": null,
+      "version": null,
+      "chunk_count": null,
+      "chars": 16,
+      "due_at": null,
+      "due_precision": "unknown",
+      "attachments": [
+        {
+          "resource_id": "res_01b2",
+          "title": "讲义-附录A.pdf",
+          "parse_status": "ready",
+          "version": 1,
+          "chunk_count": 2,
+          "chars": 85,
+          "usable": true,
+          "unavailable_reason": null
+        }
+      ]
+    }
+  ],
+  "next_cursor": null
+}

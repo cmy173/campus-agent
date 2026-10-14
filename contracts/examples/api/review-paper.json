@@ -1,0 +1,370 @@
+{
+  "id": "pap_7c1a02",
+  "course_id": "crs_3f8a21",
+  "revision": 2,
+  "revision_reason": "revise",
+  "based_on_revision": 1,
+  "title": "数据结构基础 复习卷（线性表与单链表）",
+  "created_at": "2026-10-11T09:10:00+08:00",
+  "mode": "ai",
+  "constraints": {
+    "question_types": [
+      { "type": "single_choice", "count": 4, "points_each": 5 },
+      { "type": "calculation", "count": 2, "points_each": 20 },
+      { "type": "short_answer", "count": 2, "points_each": 15 }
+    ],
+    "difficulty": "mixed",
+    "total_points": 90,
+    "duration_minutes": 90,
+    "answer_display": "separate"
+  },
+  "provider": {
+    "config_id": "prv_cloud02",
+    "name": "示例兼容网关",
+    "protocol": "openai_chat_completions",
+    "base_url": "https://api.example.com/v1",
+    "model": "example-chat-1"
+  },
+  "engine_version": "0.1.0",
+  "snapshot": {
+    "id": "snp_7c1a02",
+    "course_id": "crs_3f8a21",
+    "created_at": "2026-10-11T09:08:00+08:00",
+    "engine_version": "0.1.0",
+    "fingerprint": "sha256:558ccbada7569a59bcd34659913c800ceb5c695af4b81d91f78ffb892cf2d811",
+    "notes": {
+      "text": "重点考察边界条件，增加一道综合计算题，答案单独显示。\n第二章链表部分也要覆盖，出一道头插法相关的题。",
+      "sha256": "sha256:f55a63f4a5b3303ff1b65f34ed980b6d4a15d9d52d6e1d5d8145b98998aa28da",
+      "chars": 50
+    },
+    "items": [
+      {
+        "kind": "resource_text",
+        "resource_id": "res_01a7",
+        "assignment_id": null,
+        "title": "第03讲-线性表.pdf",
+        "version": 2,
+        "content_hash": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+        "chunk_ids": ["chk_01a7c0", "chk_01a7c1"],
+        "locators": [
+          { "chunk_id": "chk_01a7c0", "locator": { "kind": "slide", "slide": 3 } },
+          { "chunk_id": "chk_01a7c1", "locator": { "kind": "slide", "slide": 14 } }
+        ],
+        "chars": 91,
+        "text": "线性表是由n个数据元素构成的有限序列，相邻元素之间存在序偶关系。表头无前驱，表尾无后继。\n顺序存储结构用一段地址连续的存储单元依次存储线性表的数据元素，插入与删除平均移动约一半元素。"
+      },
+      {
+        "kind": "assignment_text",
+        "resource_id": null,
+        "assignment_id": "asg_a102",
+        "title": "实验报告一：顺序表实现",
+        "version": null,
+        "content_hash": null,
+        "chunk_ids": [],
+        "locators": [],
+        "chars": 16,
+        "text": "实现顺序表并提交源码与实验报告。"
+      },
+      {
+        "kind": "attachment_text",
+        "resource_id": "res_01b2",
+        "assignment_id": "asg_a102",
+        "title": "讲义-附录A.pdf（作业附件）",
+        "version": 1,
+        "content_hash": "sha256:c1a8e37f02d96b4e85f3c1a96e207d54b3f8a1c647d05e92a6c3b8f15e94d270",
+        "chunk_ids": ["chk_01b2c0", "chk_01b2c1"],
+        "locators": [
+          { "chunk_id": "chk_01b2c0", "locator": { "kind": "page", "page": 1 } },
+          { "chunk_id": "chk_01b2c1", "locator": { "kind": "page", "page": 2 } }
+        ],
+        "chars": 85,
+        "text": "附录A：单链表的头插法与尾插法对比。头插法建表时间复杂度O(n)，但元素逆序；尾插法保持原序。\n本次作业要求实现含头结点的单链表，完成插入、删除、查找与就地逆置四个函数。"
+      }
+    ],
+    "missing": [
+      {
+        "kind": "resource",
+        "resource_id": "res_01d4",
+        "assignment_id": null,
+        "title": "实验指导书(受限).pdf",
+        "reason": "not_accessible",
+        "message": "平台仅预览、无下载权限，无法获取正文；可在平台内查看或手动上传可读版本。"
+      }
+    ],
+    "total_chars": 192
+  },
+  "blueprint": {
+    "sections": [
+      {
+        "id": "sec-1",
+        "title": "第一章 线性表与顺序存储",
+        "knowledge_points": [
+          {
+            "name": "线性表逻辑结构",
+            "weight": 0.3,
+            "evidence": [
+              { "kind": "courseware", "resource_id": "res_01a7", "chunk_id": "chk_01a7c0", "assignment_id": null, "note_ref": null }
+            ]
+          },
+          {
+            "name": "顺序存储与插入删除的移动代价",
+            "weight": 0.4,
+            "evidence": [
+              { "kind": "courseware", "resource_id": "res_01a7", "chunk_id": "chk_01a7c1", "assignment_id": null, "note_ref": null },
+              { "kind": "note", "resource_id": null, "chunk_id": null, "assignment_id": null, "note_ref": "重点考察边界条件" }
+            ]
+          }
+        ],
+        "question_slots": [
+          { "slot_id": "slot-1", "type": "single_choice", "count": 3, "points_each": 5, "difficulty": "medium", "source_plan": "hybrid" },
+          { "slot_id": "slot-2", "type": "calculation", "count": 1, "points_each": 20, "difficulty": "hard", "source_plan": "ai" }
+        ]
+      },
+      {
+        "id": "sec-2",
+        "title": "第二章 单链表与作业要求",
+        "knowledge_points": [
+          {
+            "name": "单链表头插法与尾插法",
+            "weight": 0.5,
+            "evidence": [
+              { "kind": "courseware", "resource_id": "res_01b2", "chunk_id": "chk_01b2c0", "assignment_id": "asg_a102", "note_ref": null },
+              { "kind": "note", "resource_id": null, "chunk_id": null, "assignment_id": null, "note_ref": "出一道头插法相关的题" }
+            ]
+          },
+          {
+            "name": "含头结点单链表的插入、删除、查找与逆置",
+            "weight": 0.5,
+            "evidence": [
+              { "kind": "homework", "resource_id": "res_01b2", "chunk_id": "chk_01b2c1", "assignment_id": "asg_a102", "note_ref": null }
+            ]
+          }
+        ],
+        "question_slots": [
+          { "slot_id": "slot-3", "type": "single_choice", "count": 1, "points_each": 5, "difficulty": "easy", "source_plan": "bank" },
+          { "slot_id": "slot-4", "type": "calculation", "count": 1, "points_each": 20, "difficulty": "hard", "source_plan": "ai" },
+          { "slot_id": "slot-5", "type": "short_answer", "count": 2, "points_each": 15, "difficulty": "medium", "source_plan": "ai" }
+        ]
+      }
+    ],
+    "type_quotas": [
+      { "type": "single_choice", "count": 4, "points_total": 20 },
+      { "type": "calculation", "count": 2, "points_total": 40 },
+      { "type": "short_answer", "count": 2, "points_total": 30 }
+    ],
+    "difficulty_quota": { "easy": 2, "medium": 4, "hard": 2 },
+    "total_points": 90,
+    "estimated_minutes": 90,
+    "gaps": []
+  },
+  "questions": [
+    {
+      "id": "qst_7c1a01",
+      "ordinal": 1,
+      "question_type": "single_choice",
+      "stem": "下列关于线性表的说法，正确的是：",
+      "options": [
+        { "key": "A", "text": "线性表可以为空表" },
+        { "key": "B", "text": "表中元素可以任意无序但必须连续存储" },
+        { "key": "C", "text": "表头元素存在前驱" },
+        { "key": "D", "text": "顺序表插入元素一定不移动其他元素" }
+      ],
+      "answer": "A",
+      "explanation": "线性表可以为空；元素之间具有序偶关系且表头无前驱、表尾无后继；顺序表插入平均移动约一半元素。",
+      "grading_points": [],
+      "knowledge_points": ["线性表逻辑结构"],
+      "difficulty": "medium",
+      "points": 5,
+      "origin": { "kind": "ai", "candidate_id": null, "note": null },
+      "source_refs": [
+        { "kind": "resource", "resource_id": "res_01a7", "chunk_id": "chk_01a7c0", "assignment_id": null, "url": null, "site_name": null, "locator": "幻灯片 3" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a02",
+      "ordinal": 2,
+      "question_type": "single_choice",
+      "stem": "长度 n 的顺序表在第 i 个位置（1≤i≤n+1）插入元素，平均需要移动的元素个数约为：",
+      "options": [
+        { "key": "A", "text": "1" },
+        { "key": "B", "text": "n/2" },
+        { "key": "C", "text": "n" },
+        { "key": "D", "text": "log n" }
+      ],
+      "answer": "B",
+      "explanation": "顺序表插入的平均移动次数为 n/2（在 n+1 个位置等概率插入）。",
+      "grading_points": [],
+      "knowledge_points": ["顺序存储与插入删除的移动代价"],
+      "difficulty": "medium",
+      "points": 5,
+      "origin": { "kind": "ai", "candidate_id": null, "note": null },
+      "source_refs": [
+        { "kind": "resource", "resource_id": "res_01a7", "chunk_id": "chk_01a7c1", "assignment_id": null, "url": null, "site_name": null, "locator": "幻灯片 14" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a03",
+      "ordinal": 3,
+      "question_type": "single_choice",
+      "stem": "对含头结点的单链表执行头插法建表，插入第一个数据结点时，正确的指针操作是：",
+      "options": [
+        { "key": "A", "text": "头结点的 next 指向新结点，新结点的 next 置空" },
+        { "key": "B", "text": "新结点的 next 指向头结点" },
+        { "key": "C", "text": "尾结点的 next 指向新结点" },
+        { "key": "D", "text": "无需修改头结点" }
+      ],
+      "answer": "A",
+      "explanation": "头插法在头结点之后插入；插入首个结点时新结点的 next 置空，头结点 next 指向新结点。",
+      "grading_points": [],
+      "knowledge_points": ["单链表头插法与尾插法"],
+      "difficulty": "easy",
+      "points": 5,
+      "origin": { "kind": "ai", "candidate_id": null, "note": "按备注“头插法”要求补充" },
+      "source_refs": [
+        { "kind": "resource", "resource_id": "res_01b2", "chunk_id": "chk_01b2c0", "assignment_id": "asg_a102", "url": null, "site_name": null, "locator": "第 1 页 附录A" },
+        { "kind": "note", "resource_id": null, "chunk_id": null, "assignment_id": null, "url": null, "site_name": null, "locator": "备注第2行" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a04",
+      "ordinal": 4,
+      "question_type": "single_choice",
+      "stem": "在长度为 n 的顺序表中，插入一个元素平均需要移动多少个元素？",
+      "options": [
+        { "key": "A", "text": "1" },
+        { "key": "B", "text": "n" },
+        { "key": "C", "text": "n/2" },
+        { "key": "D", "text": "log n" }
+      ],
+      "answer": "C",
+      "explanation": "顺序表插入操作平均移动 n/2 个元素。",
+      "grading_points": [],
+      "knowledge_points": ["顺序存储与插入删除的移动代价"],
+      "difficulty": "easy",
+      "points": 5,
+      "origin": { "kind": "bank", "candidate_id": "qbc_0102a", "note": "网络原题（示例来源）" },
+      "source_refs": [
+        { "kind": "web", "resource_id": null, "chunk_id": null, "assignment_id": null, "url": "https://example.org/question-bank/linear-list/1024", "site_name": "示例题库", "locator": "第 3 题" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a05",
+      "ordinal": 5,
+      "question_type": "calculation",
+      "stem": "顺序表中存储 n=1000 个整数。分别计算：在表头插入一个元素需要移动多少个元素？在表尾插入呢？写出计算过程并说明复杂度。",
+      "options": [],
+      "answer": "表头插入需移动全部 1000 个元素（移动次数 = n）；表尾插入无需移动元素（移动次数 = 0）。单次插入最坏 O(n)，表尾插入为 O(1)。",
+      "explanation": "顺序表插入需要为元素腾出位置：插入位置之后的元素整体后移。表头（位置 1）插入时后移 n 个；表尾（位置 n+1）插入时后移 0 个。",
+      "grading_points": [
+        "表头插入：说明元素整体后移并给出 1000（4 分）",
+        "表尾插入：识别边界情形，给出 0（4 分）",
+        "复杂度结论：最坏 O(n)、表尾 O(1)（2 分）"
+      ],
+      "knowledge_points": ["顺序存储与插入删除的移动代价"],
+      "difficulty": "hard",
+      "points": 20,
+      "origin": { "kind": "ai", "candidate_id": null, "note": "按备注“综合计算题”生成" },
+      "source_refs": [
+        { "kind": "resource", "resource_id": "res_01a7", "chunk_id": "chk_01a7c1", "assignment_id": null, "url": null, "site_name": null, "locator": "幻灯片 14" }
+      ],
+      "validation": { "status": "repaired", "messages": ["首轮缺表尾边界情形，修复指令后补全"] }
+    },
+    {
+      "id": "qst_7c1a06",
+      "ordinal": 6,
+      "question_type": "calculation",
+      "stem": "对含头结点的单链表，用尾插法依次插入数据结点 a、b、c。请画出插入完成后的链表结构（含头结点），并写出插入结点 c 时的指针操作序列。",
+      "options": [],
+      "answer": "结构：head → a → b → c → NULL。插入 c：c.next = NULL；(当前尾结点 b).next = c；尾指针更新为 c。",
+      "explanation": "尾插法保持元素的输入顺序；维护尾指针可避免每次从头遍历，使插入为 O(1)。",
+      "grading_points": [
+        "结构图正确且含头结点（6 分）",
+        "指针操作序列完整正确（8 分）",
+        "说明尾指针作用（6 分）"
+      ],
+      "knowledge_points": ["含头结点单链表的插入、删除、查找与逆置", "单链表头插法与尾插法"],
+      "difficulty": "hard",
+      "points": 20,
+      "origin": { "kind": "ai", "candidate_id": null, "note": null },
+      "source_refs": [
+        { "kind": "assignment", "resource_id": "res_01b2", "chunk_id": "chk_01b2c1", "assignment_id": "asg_a102", "url": null, "site_name": null, "locator": "第 2 页" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a07",
+      "ordinal": 7,
+      "question_type": "short_answer",
+      "stem": "说明单链表头插法与尾插法建表在时间复杂度与元素顺序上的差异，并各举一个适用场景。",
+      "options": [],
+      "answer": "头插法：每次在头部插入，时间 O(1)，建表后元素逆序；适合只需逆序输出的场景（如从表头开始的链表反转预处理）。尾插法：时间 O(n)（或维护尾指针为 O(1)），保持输入顺序；适合需要按顺序保存与遍历的场景。",
+      "explanation": "两者插入本身均为常数时间，差异在于是否需要遍历找尾以及最终顺序。",
+      "grading_points": [
+        "时间复杂度对比正确（5 分）",
+        "元素顺序对比正确（5 分）",
+        "适用场景各举一例合理（5 分）"
+      ],
+      "knowledge_points": ["单链表头插法与尾插法"],
+      "difficulty": "medium",
+      "points": 15,
+      "origin": { "kind": "ai", "candidate_id": null, "note": null },
+      "source_refs": [
+        { "kind": "resource", "resource_id": "res_01b2", "chunk_id": "chk_01b2c0", "assignment_id": "asg_a102", "url": null, "site_name": null, "locator": "第 1 页 附录A" }
+      ],
+      "validation": { "status": "valid", "messages": [] }
+    },
+    {
+      "id": "qst_7c1a08",
+      "ordinal": 8,
+      "question_type": "short_answer",
+      "stem": "已知单链表中仅给出指向某结点 p 的指针（p 非尾结点），请说明如何在 O(1) 时间内删除 p；若 p 为尾结点，该方法是否仍然适用？说明原因。",
+      "options": [],
+      "answer": "将 p 的后继结点 q 的值复制到 p，然后删除 q（p.next = q.next）即可 O(1) 完成。当 p 为尾结点时该方法不适用：p 没有后继，仍需从头遍历找到 p 的前驱。",
+      "explanation": "该技巧牺牲了结点“身份”的一致性（被删的实际是 q 的位置），尾结点情形无法复制后继，必须退化为 O(n)。",
+      "grading_points": [
+        "说明复制后继结点值的技巧（5 分）",
+        "正确解释尾结点边界情形（5 分）"
+      ],
+      "knowledge_points": ["含头结点单链表的插入、删除、查找与逆置"],
+      "difficulty": "medium",
+      "points": 15,
+      "origin": { "kind": "adapted_bank", "candidate_id": "qbc_0103b", "note": "依据网络原题补充边界情形追问；答案由 AI 补写" },
+      "source_refs": [
+        { "kind": "web", "resource_id": null, "chunk_id": null, "assignment_id": null, "url": "https://example.org/question-bank/linked-list/211", "site_name": "示例题库", "locator": null }
+      ],
+      "validation": { "status": "low_confidence", "messages": ["答案由 AI 补写，建议人工核对"] }
+    }
+  ],
+  "warnings": [
+    {
+      "code": "MATERIAL_GAP",
+      "message": "1 项所选材料无可用正文（实验指导书(受限).pdf：平台仅预览、无下载权限），未纳入本次出卷。",
+      "question_ids": [],
+      "details": { "missing_reason": "not_accessible", "resource_id": "res_01d4" }
+    },
+    {
+      "code": "REPAIR_APPLIED",
+      "message": "第 5 题首轮缺少表尾边界情形，经一次有限修复后补全。",
+      "question_ids": ["qst_7c1a05"],
+      "details": { "repair_rounds": 1 }
+    },
+    {
+      "code": "LOW_CONFIDENCE",
+      "message": "第 8 题为改编题且答案由 AI 补写，建议人工检查后再使用。",
+      "question_ids": ["qst_7c1a08"],
+      "details": null
+    }
+  ],
+  "summary": {
+    "question_count": 8,
+    "total_points": 90,
+    "estimated_minutes": 90,
+    "type_counts": { "single_choice": 4, "calculation": 2, "short_answer": 2 },
+    "difficulty_counts": { "easy": 2, "medium": 4, "hard": 2 },
+    "origin_counts": { "ai": 6, "bank": 1, "adapted_bank": 1 }
+  }
+}

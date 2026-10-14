@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PaperBlueprint",
+  "description": "试卷蓝图（D 产出）：章节/知识点覆盖、题型配额、难度配额、分值、预计用时、材料缺口。用户指定题数/分数是约束，不由模型随意改变；无法满足时进 gaps。知识点证据区分课件/作业/备注，缺失不臆造。",
+  "type": "object",
+  "required": ["sections", "type_quotas", "difficulty_quota", "total_points", "estimated_minutes", "gaps"],
+  "properties": {
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "knowledge_points", "question_slots"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "knowledge_points": { "type": "array", "items": { "$ref": "#/$defs/KnowledgePoint" } },
+          "question_slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["slot_id", "type", "count", "points_each", "difficulty", "source_plan"],
+              "properties": {
+                "slot_id": { "type": "string", "minLength": 1 },
+                "type": { "$ref": "common.schema.json#/$defs/question_type" },
+                "count": { "type": "integer", "minimum": 1 },
+                "points_each": { "type": "integer", "minimum": 1 },
+                "difficulty": { "oneOf": [{ "$ref": "common.schema.json#/$defs/difficulty" }, { "type": "null" }] },
+                "source_plan": { "type": "string", "enum": ["ai", "bank", "hybrid"], "description": "该槽位的来源计划；最终以每题 origin 为准。" }
+              },
+              "additionalProperties": false
+            },
+            "description": "题位（蓝图分配；与 constraints 配额一致）。"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "type_quotas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "count", "points_total"],
+        "properties": {
+          "type": { "$ref": "common.schema.json#/$defs/question_type" },
+          "count": { "type": "integer", "minimum": 1 },
+          "points_total": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      },
+      "description": "题型配额（总题数/总分与题目清单一致；不一致时不得标成功）。"
+    },
+    "difficulty_quota": {
+      "type": "object",
+      "required": ["easy", "medium", "hard"],
+      "properties": {
+        "easy": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "hard": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "total_points": { "type": "integer", "minimum": 1 },
+    "estimated_minutes": { "type": "integer", "minimum": 1 },
+    "gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Gap" },
+      "description": "材料缺口/无法满足的约束（如素材不足、题型无法覆盖）；不得用模板题凑数掩盖。"
+    }
+  },
+  "$defs": {
+    "KnowledgePoint": {
+      "type": "object",
+      "required": ["name", "evidence"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "weight": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "权重；无法估计为 null。" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Evidence" },
+          "description": "材料证据（课件/作业/备注分别标记；不得编造）。"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "required": ["kind", "resource_id", "chunk_id", "assignment_id", "note_ref"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["courseware", "homework", "note"], "description": "courseware=课件正文 / homework=作业（正文或附件）/ note=用户备注。" },
+        "resource_id": { "type": ["string", "null"] },
+        "chunk_id": { "type": ["string", "null"] },
+        "assignment_id": { "type": ["string", "null"] },
+        "note_ref": { "type": ["string", "null"], "description": "kind=note 时指向备注原文的子串；不得编造。" }
+      },
+      "additionalProperties": false
+    },
+    "Gap": {
+      "type": "object",
+      "required": ["kind", "message", "knowledge_point"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "description": "缺口类别（开放集合，如 material_missing / constraint_unsatisfiable / low_coverage）。" },
+        "message": { "type": "string", "minLength": 1 },
+        "knowledge_point": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

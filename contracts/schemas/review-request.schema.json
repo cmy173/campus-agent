@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewRequest",
+  "description": "出卷请求（POST /review-papers/generate 请求体；POST /review-papers/{paper_id}/revisions 使用同形可空字段子集）。幂等键经 Idempotency-Key 请求头传入（沿用既有约定）。notes 为用户备注原文，逐字节发送，不 trim/不摘要/不静默截断。",
+  "type": "object",
+  "required": ["course_id", "mode", "provider_config_id", "title", "materials", "notes", "constraints"],
+  "properties": {
+    "course_id": { "$ref": "common.schema.json#/$defs/id", "description": "课程 ID；材料与作业必须属于该课程。" },
+    "mode": { "$ref": "common.schema.json#/$defs/review_mode" },
+    "provider_config_id": {
+      "type": ["string", "null"],
+      "description": "AI 服务配置 ID。mode=ai/hybrid 必填；bank 模式应为 null（不调用模型）。"
+    },
+    "title": { "type": ["string", "null"], "maxLength": 120, "description": "试卷标题；null 由服务端按课程名给出可读默认标题（不返回内部 ID 兜底）。" },
+    "materials": { "$ref": "#/$defs/MaterialSelection" },
+    "notes": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "用户备注原文（保留换行/中文/数学表达）。超过服务端限制时 VALIDATION_FAILED（details 含 max_chars），不静默截断。空字符串=无备注。"
+    },
+    "constraints": { "$ref": "#/$defs/Constraints" }
+  },
+  "$defs": {
+    "MaterialSelection": {
+      "type": "object",
+      "description": "材料选择：课件/附件文件 + 作业（含正文与附件）。作业被选中时其正文必含；附件正文按 include_attachments 控制（不得只传文件名或标题冒充正文）。",
+      "required": ["resources", "assignments"],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["resource_id", "version", "chunk_ids"],
+            "properties": {
+              "resource_id": { "$ref": "common.schema.json#/$defs/id" },
+              "version": { "type": ["integer", "null"], "minimum": 1, "description": "使用的资源版本；null=当前版本。" },
+              "chunk_ids": {
+                "oneOf": [
+                  { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/id" } },
+                  { "type": "null" }
+                ],
+                "description": "选中的片段 ID（升序去重，须属所选版本）；null=该版本全部可用片段（章节/页面范围选择由客户端映射为片段列表）。"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "课件/独立附件文件。"
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["assignment_id", "include_attachments"],
+            "properties": {
+              "assignment_id": { "$ref": "common.schema.json#/$defs/id" },
+              "include_attachments": { "type": "boolean", "default": true, "description": "是否包含该作业的附件正文（默认 true）。" }
+            },
+            "additionalProperties": false
+          },
+          "description": "作业材料（正文 + 可选附件）。"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Constraints": {
+      "type": "object",
+      "description": "出卷约束（用户指定，不由模型随意改变；无法满足时预检/蓝图返回原因）。",
+      "required": ["question_types", "difficulty", "total_points", "duration_minutes", "answer_display"],
+      "properties": {
+        "question_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["type", "count", "points_each"],
+            "properties": {
+              "type": { "$ref": "common.schema.json#/$defs/question_type" },
+              "count": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "points_each": { "type": ["integer", "null"], "minimum": 1, "maximum": 200, "description": "每题分值；null=在总分约束下由蓝图分配。" }
+            },
+            "additionalProperties": false
+          },
+          "description": "题型数量配额（合计上限见预检 limits）。"
+        },
+        "difficulty": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/difficulty" },
+            { "type": "string", "const": "mixed" },
+            { "type": "null" }
+          ],
+          "description": "目标难度；mixed=混合；null=由引擎按材料推断。"
+        },
+        "total_points": { "type": ["integer", "null"], "minimum": 1, "maximum": 500, "description": "总分约束；与每题分值冲突时预检报错。" },
+        "duration_minutes": { "type": ["integer", "null"], "minimum": 5, "maximum": 600, "description": "目标时长（分钟），影响题量建议与预计用时。" },
+        "answer_display": { "type": "string", "enum": ["separate", "inline"], "description": "答案显示方式偏好（默认 separate）：影响阅读/导出默认版式，不改变题目内容。" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

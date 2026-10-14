@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProviderConfig",
+  "description": "AI 服务配置（首版仅 OpenAI 兼容 Chat Completions 协议）。普通查询/列表永不返回密钥，仅 has_api_key 标记；密钥保存在 B 管理的本地密钥存储（DPAPI），不落库、不落日志、不进导出。",
+  "type": "object",
+  "required": [
+    "id", "name", "protocol", "base_url", "model", "has_api_key", "timeout_seconds",
+    "created_at", "updated_at", "last_tested_at", "last_test_result"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "配置 ID（prv_ 前缀）。" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80, "description": "显示名称（用户可读）。" },
+    "protocol": {
+      "type": "string",
+      "enum": ["openai_chat_completions"],
+      "description": "协议。首版仅支持 OpenAI 兼容 Chat Completions；其他协议 UI 显示“不支持”，不静默套用。"
+    },
+    "base_url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "规范化后的服务基础地址。规则：去首尾空白与末尾斜杠；只接受 http/https、无查询串/片段/用户信息；http 仅限本机与内网地址；路径为空时补 /v1，其余路径原样保留（不重复拼接 /v1）；含 /chat/completions 等具体端点或出现 v1/v1 重复段时拒绝（VALIDATION_FAILED 附正确示例）。实际请求地址 = base_url + /chat/completions。",
+      "examples": ["https://api.example.com/v1", "http://127.0.0.1:11434/v1"]
+    },
+    "model": { "type": "string", "minLength": 1, "description": "模型名（用户自行填写；不提供假定正确的默认厂商与模型）。" },
+    "has_api_key": { "type": "boolean", "description": "本地密钥存储中是否已有密钥。密钥本身永不出现在任何 API 响应/日志/导出。" },
+    "timeout_seconds": { "type": "integer", "minimum": 5, "maximum": 600, "description": "单次模型请求超时（秒）。" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "last_tested_at": { "type": ["string", "null"], "format": "date-time", "description": "最近一次连接测试时间；从未测试为 null。" },
+    "last_test_result": {
+      "oneOf": [{ "$ref": "#/$defs/TestResult" }, { "type": "null" }],
+      "description": "最近一次连接测试结果摘要（不含密钥内容）；从未测试为 null。"
+    }
+  },
+  "$defs": {
+    "TestResult": {
+      "type": "object",
+      "description": "连接测试结果。远端失败（401/超时/限流等）也是测试结果本身，经 error.code 传达（PROVIDER_* 码表）。",
+      "required": ["ok", "checked_at", "latency_ms", "http_status", "error"],
+      "properties": {
+        "ok": { "type": "boolean", "description": "端到端可用（成功返回可解析的响应）。" },
+        "checked_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "latency_ms": { "type": ["integer", "null"], "minimum": 0, "description": "往返耗时毫秒；未发出请求（如缺少密钥）为 null。" },
+        "http_status": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
+        "error": {
+          "oneOf": [{ "$ref": "error.schema.json#/$defs/ErrorInfo" }, { "type": "null" }],
+          "description": "失败时的结构化结果；成功为 null。code 见 contracts/README.md 的 PROVIDER_* 码表，绝不包含密钥。"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Capabilities",
+  "description": "适配器能力清单（A3 §3.2 冻结版）。未实测的能力必须为 unknown，不得声明为 supported。",
+  "type": "object",
+  "required": ["platform", "connector_version", "auth", "features", "limits", "checked_at"],
+  "properties": {
+    "platform": { "type": "string", "minLength": 1, "examples": ["xzzd", "zykt"] },
+    "connection_id": { "type": "string", "description": "API 响应中返回的连接 ID；适配器内部输出可省略。" },
+    "connector_version": { "type": "string", "minLength": 1, "description": "适配器版本，保留用于解释结果差异。" },
+    "auth": { "$ref": "#/$defs/AuthInfo" },
+    "features": {
+      "type": "object",
+      "description": "能力项。键为登记的 feature 名称；值为三态+预览状态。",
+      "additionalProperties": { "$ref": "#/$defs/FeatureStatus" }
+    },
+    "limits": { "$ref": "#/$defs/Limits" },
+    "checked_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "FeatureStatus": {
+      "type": "object",
+      "required": ["status", "note"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["supported", "unsupported", "unknown", "preview_only"],
+          "description": "supported=实测可用；unsupported=确认不可用；unknown=未验证（不承诺）；preview_only=可得但受限。"
+        },
+        "note": { "type": ["string", "null"], "description": "说明（含负面证据与限制）；不得包含凭据。" }
+      },
+      "additionalProperties": false
+    },
+    "AuthInfo": {
+      "type": "object",
+      "required": ["mode", "sso", "recovery_hint"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["user_session"], "description": "认证模式；首版仅 user_session。" },
+        "sso": { "type": ["string", "null"], "examples": ["zjuam-cas", "zjuam-oauth2"] },
+        "recovery_hint": { "type": ["string", "null"], "description": "登录失效时的用户提示。" }
+      },
+      "additionalProperties": false
+    },
+    "Limits": {
+      "type": "object",
+      "required": ["page_size_max", "rate_limit_note", "campus_network_required"],
+      "properties": {
+        "page_size_max": { "type": ["integer", "null"], "minimum": 1 },
+        "rate_limit_note": { "type": ["string", "null"] },
+        "campus_network_required": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string", "const": "unknown" }],
+          "description": "是否需要校园网；未验证为字符串 unknown。"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FeatureNames": {
+      "type": "array",
+      "description": "首版登记的能力项名称（开放集合，新增需契约版本记录）。",
+      "items": {
+        "type": "string",
+        "enum": [
+          "course_list", "course_meta", "attachments_meta", "attachment_download",
+          "assignments", "recordings", "subtitles", "playback_seek", "deletion_signal"
+        ]
+      }
+    }
+  }
+}

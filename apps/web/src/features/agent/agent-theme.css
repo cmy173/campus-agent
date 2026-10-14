@@ -1,0 +1,14 @@
+:root {
+  --agent-content-width: 940px;
+  --agent-space: 16px;
+  --agent-surface: #fff;
+  --agent-surface-subtle: #fafcff;
+  --agent-user-surface: #e6f4ff;
+  --agent-border: #d9e1e8;
+  --agent-accent-border: #91caff;
+  --agent-muted: #666;
+  --agent-note: #685224;
+  --agent-radius: 14px;
+  --agent-text-size: 15px;
+  --agent-line-height: 1.8;
+}

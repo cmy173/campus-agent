@@ -1,62 +1,40 @@
-# Campus Agent
+# Campus Agent 个人校园助手
 
-面向浙江大学学生的校园资料工作台。**v0.2 已实现可运行的本地 Web 闭环**：上传资料、提取待办、检索原文、核对时间及删除资料。支持由用户在本机配置的 OpenAI 接口，默认关闭。
+通过一个对话入口查询校园信息、阅读资料、生成复习产物和调整学习安排。
+项目正在实施 V2：扩展 Harness 通用能力、迁移旧校园功能，并为后续 UI 改版拆分状态与展示。
 
-这不是学校官方服务。目前未接入真实校园账号、实时通知、自动报名或真实学分认定。
+唯一开发目录 D:/AI/campus-agent，主要启动器 tools/dev.py。
+旧版 Python 静态界面已退出默认启动链路；尚未迁移的教务、通知等实现暂时保留，逐项验收后删除。
+V2 尚未完成验收，当前能力与下一步见 [进度记录](docs/agent-v2-progress.md)。
 
-![本地工作台预览（合成演示资料）](docs/assets/preview.jpg)
+## 安装与启动
 
-交付范围、验证结果和后续事项见 [成果清单](docs/delivery.md)。
-
-## 已实现
-
-- Web 对话、资料库、待办、活动演示和设置，含窄屏布局。
-- 独立本地账号、密码哈希、会话/CSRF 校验及按账号隔离的 SQLite 数据。
-- TXT、PDF、DOCX、PPTX 上传、异步解析、去重、状态与错误提示。
-- 按行、PDF 页、DOCX 段落/表格、PPTX 页定位，引用可回到原文。
-- 通知候选待办、明确截止时间提取、人工修正与完成状态。
-- 本地中文关键词检索，以及可选 OpenAI Responses 问答、引用校验和失败回退。
-- 单份/全部资料删除，级联清理片段与待办；脱敏操作日志。
-- 保留阶段 0 的 CLI、Mock Connector 和活动冲突规则。
-
-## 启动
-
-安装 Python 3.10+，在项目根目录执行：
+需要 Python 3.11+、Node.js 24 和 npm；校园登录及通用浏览器默认使用已安装的 Microsoft Edge。
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m campus_agent.server
+python tools/dev.py --setup
+python tools/dev.py --check
+python tools/dev.py --open-browser
 ```
 
-打开 **http://127.0.0.1:8765**，创建本地账号，点击“体验演示资料”。不要使用校园密码。后续可运行 `./start.ps1`，Ctrl+C 停止。详细的模型配置、备份和常见限制见 [本地运行说明](docs/local-setup.md)。
+默认进入 /chat。start.cmd、start.ps1 与 python launch.py 均采用同一启动器，原 --port 参数映射为网页端口。
+不需要学校登录时可运行 python tools/dev.py --platforms --open-browser。
+环境初始化需要网络；Ctrl+C 关闭本次启动的服务。
 
-## 当前状态
+个人数据库和必要本地文件已从首轮目录保全带入，不导入演示数据。
+旧数据库 data/campus.sqlite3 保留，新个人数据在 var/personal.db。
+个人数据、凭据、浏览器配置与依赖目录不得提交。真实学校连接需要在受控窗口登录。
 
-| 能力 | 状态 |
-|---|---|
-| 上传、检索、原文引用、待办核对 | 已实现并以合成资料验证 |
-| OpenAI 问答 | 接口和模拟响应测试完成，真实密钥/模型尚未联调 |
-| 活动推荐 | 仅虚构数据，不代表浙大学分规则 |
-| 真实平台、SSO、自动报名 | 未接入，需要合法接口与授权 |
-| OCR、音视频、完整课程规划 | 未实现 |
-| 公网多人服务 | 未完成，当前限定本机试用 |
+聊天中的“浏览器”工作区可打开助手自己的浏览器窗口完成登录，查看待提交内容并确认一次。网页读取、下载与填写由 Harness 工具执行；下载附件自动进入“文件与成果”。浏览器配置独立于日常 Edge 配置，聊天轮次结束不会关闭它。具体用法和当前验证范围见工具说明。
 
-本地检索使用中文双字片段及英文词匹配，不等同于语义检索。日期不明确时保留待核对。来源存在性校验不等于模型事实正确性保证。
+## 源码结构
 
-## 测试
+- apps/web：React 界面。
+- apps/api：FastAPI 业务和数据。
+- apps/agent-runtime：官方 DeepSeek Harness 接入。
+- packages/learning：解析、排程和复习引擎。
+- connectors：平台适配器。
+- contracts：接口与数据契约。
+- tools：启动、验证和迁移工具。
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-测试使用合成资料与模拟模型，不消耗 API 额度。实际验证结果见 [验证记录](docs/validation.md)。
-
-## 文档与代码
-
-[愿景](docs/vision.md) · [需求](docs/requirements.md) · [架构](docs/architecture.md) · [平台调研](docs/integrations.md) · [安全](docs/security.md) · [技术选型](docs/tech-stack.md) · [MVP](docs/mvp.md) · [路线图](docs/roadmap.md) · [待决策事项](docs/open-questions.md) · [API](docs/api.md)
-
-`core.py` 为阶段 0 原型；`web.py` 为 REST、身份与编排；`storage.py` 管理 SQLite；`parser_worker.py` 解析文件；`services.py` 提取与检索；`llm.py` 适配 OpenAI；`static/` 为无需构建的原生 HTML/CSS/JS 前端；`server.py` 为启动入口。
-
-数据默认保存在 `data/`，不要提交或分享。许可证仍待团队决定。
+[V2 合同](docs/agent-design/goal-v2-personal-assistant.md) · [工具使用说明](docs/agent-design/tools-v2.md) · [迁移台账](docs/agent-v2-migration.md) · [首轮验收](docs/agent-acceptance.md)

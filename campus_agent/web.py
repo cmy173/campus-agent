@@ -21,9 +21,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from .core import MockConnector, TZ, recommend
-from . import llm
-from .services import extract_tasks, retrieve
+from . import llm, notice_analysis, notice_contract, notice_model
+from .campus_common import CampusError
+from .connector_contracts import UserContext
+from .services import retrieve
 from .storage import Store
+from .campus_routes import install_campus_routes
 
 MAX_UPLOAD = 20 * 1024 * 1024
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,27 +102,67 @@ def create_app(data_dir=None):
     directory = Path(data_dir or os.environ.get('CAMPUS_DATA_DIR', str(ROOT / 'data')))
     store = Store(directory / 'campus.sqlite3')
     pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='parser')
+    # Separate from parsing so a slow provider call cannot block document parsing.
+    analysis_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='notice')
     attempts, attempts_lock = {}, threading.Lock()
     model_attempts = {}
+    analysis_attempts = {}
+    # In-memory storage for user-provided API keys (not persisted, cleared on restart).
+    runtime_api_keys = {}
+    runtime_keys_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app):
+        # Initialize campus sync scheduler
+        from .campus_sync import SyncScheduler
+        sync_service = SyncScheduler(store, campus.service)
+        app.state.campus_sync = sync_service
+        sync_service.start()
+        
         yield
+        
+        # Cleanup
+        sync_service.stop()
         pool.shutdown(wait=True, cancel_futures=True)
+        analysis_pool.shutdown(wait=True, cancel_futures=True)
+        campus.close()
+        close_passport_flows()
 
     app = FastAPI(title='Campus Agent 本地版', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(RequestGuard)
     app.state.store = store
+    
+    def make_extractor_factory():
+        """Create an extractor factory that can access runtime API keys."""
+        def extractor_factory(owner=None):
+            # Get runtime key for this owner if available
+            runtime_key = None
+            if owner:
+                with runtime_keys_lock:
+                    owner_keys = runtime_api_keys.get(owner, {})
+                    runtime_key = owner_keys.get('deepseek')
+            return notice_model.extractor(runtime_key=runtime_key)
+        return extractor_factory
+    
+    app.state.notice_analyses = notice_analysis.NoticeAnalysisService(store, analysis_pool.submit, make_extractor_factory())
 
     def user(request, mutate=False):
         token = request.cookies.get('campus_session', '')
         with store.connect() as db:
-            row = db.execute('SELECT s.*, u.username FROM sessions s JOIN users u ON u.id=s.owner WHERE token=? AND expires>?', (digest(token), time.time())).fetchone()
+            row = db.execute('''SELECT s.*, COALESCE(p.identifier,u.username) AS username,
+                p.identifier AS passport_identifier FROM sessions s JOIN users u ON u.id=s.owner
+                LEFT JOIN passport_accounts p ON p.owner=u.id WHERE token=? AND expires>?''', (digest(token), time.time())).fetchone()
         if not row:
-            raise HTTPException(401, '请先登录本地账号')
+            raise HTTPException(401, '请先登录通行证；已有本机会话可查看离线缓存')
         if mutate and not hmac.compare_digest(request.headers.get('x-csrf-token', ''), row['csrf']):
             raise HTTPException(403, '会话校验失败，请刷新页面')
         return dict(row)
+
+    campus = install_campus_routes(app, store, user)
+    app.state.campus = campus
+    app.state.campus_service = campus.service
+    from .passport_routes import install_passport_routes
+    close_passport_flows = install_passport_routes(app, store, campus, user, hash_password)
 
     async def payload(request):
         try:
@@ -142,9 +185,28 @@ def create_app(data_dir=None):
 
     def all_tasks(owner):
         with store.connect() as db:
-            return [dict(r) for r in db.execute('''SELECT t.*, d.name, c.locator, c.text FROM tasks t
+            rows = [dict(r) for r in db.execute('''SELECT t.*, d.name, c.locator, c.text FROM tasks t
                 JOIN documents d ON d.id=t.document JOIN chunks c ON c.id=t.chunk
                 WHERE d.owner=? ORDER BY t.due IS NULL,t.due,t.id''', (owner,))]
+        for row in rows:
+            row['evidence'] = json.loads(row['evidence'] or '[]')
+            row['attachment_refs'] = json.loads(row['attachment_refs'] or '[]')
+        return rows
+
+    def store_document(db, owner, name, kind, content):
+        """Return (doc_id, duplicate). Callers submit parsing only for new documents."""
+        sha = hashlib.sha256(content).hexdigest()
+        existing = db.execute('SELECT id FROM documents WHERE owner=? AND sha=?', (owner, sha)).fetchone()
+        if existing:
+            return existing['id'], True
+        count = db.execute('SELECT COUNT(*) FROM documents WHERE owner=?', (owner,)).fetchone()[0]
+        active = db.execute("SELECT COUNT(*) FROM documents WHERE status IN ('queued','processing')").fetchone()[0]
+        if count >= 100 or active >= 10:
+            raise HTTPException(429, '资料数达到 100 份或解析队列已满，请稍后再试或删除旧资料')
+        doc_id = uid()
+        db.execute('INSERT INTO documents(id,owner,name,kind,sha,content,status,created) VALUES(?,?,?,?,?,?,?,?)',
+                   (doc_id, owner, name, kind, sha, content, 'queued', now()))
+        return doc_id, False
 
     def parse_document(doc_id, owner):
         with store.connect() as db:
@@ -162,18 +224,23 @@ def create_app(data_dir=None):
             if 'error' in output:
                 raise ValueError(output['error'])
             with store.connect() as db:
-                record = db.execute('SELECT kind FROM documents WHERE id=? AND owner=?', (doc_id, owner)).fetchone()
+                record = db.execute('SELECT kind,sha FROM documents WHERE id=? AND owner=?', (doc_id, owner)).fetchone()
                 if not record:  # Deleted while parsing: never recreate derived data.
                     return
+                chunks = []
                 for position, chunk in enumerate(output['chunks']):
                     chunk_id = uid()
                     db.execute('INSERT INTO chunks VALUES(?,?,?,?,?)', (chunk_id, doc_id, position, chunk['locator'], chunk['text']))
-                    if record['kind'] == 'notice':
-                        for task in extract_tasks(chunk['text']):
-                            db.execute('INSERT INTO tasks(id,document,chunk,title,due,raw_date) VALUES(?,?,?,?,?,?)',
-                                       (uid(), doc_id, chunk_id, task['title'], task['due'], task['raw_date']))
+                    chunks.append({'id': chunk_id, 'ref': notice_contract.paragraph_ref(position),
+                                   'locator': chunk['locator'], 'text': chunk['text']})
                 db.execute("UPDATE documents SET status='ready',warnings=? WHERE id=? AND owner=?",
                            (json.dumps(output['warnings'], ensure_ascii=False), doc_id, owner))
+                if record['kind'] == 'notice':
+                    # Offline rule extraction stays available without any model configured.
+                    source = db.execute('SELECT attachments FROM document_sources WHERE document=? AND owner=?',
+                                        (doc_id, owner)).fetchone()
+                    app.state.notice_analyses.write_rules(db, owner, doc_id, record['sha'], chunks,
+                        json.loads(source['attachments']) if source else [])
             store.log(owner, 'document.parse', 'ready', now())
         except Exception as exc:
             message = '解析超过 30 秒，请拆分文件' if isinstance(exc, subprocess.TimeoutExpired) else (str(exc) if isinstance(exc, ValueError) else '解析失败，请重试或更换文件')
@@ -186,22 +253,27 @@ def create_app(data_dir=None):
 
     @app.get('/static/{name}')
     def asset(name: str):
-        if name not in ('app.js', 'style.css'):
+        if name not in ('app.js', 'campus.js', 'academics.js', 'passport.js', 'college-notices.js',
+                        'notice-analysis.js', 'webvpn.js', 'style.css', 'academics.css'):
             raise HTTPException(404)
         return FileResponse(STATIC / name)
 
     @app.get('/api/health')
     def health():
-        return {'status': 'ok', 'mode': 'local-retrieval', 'version': '0.2.0'}
+        from .campus import CONNECTOR_REVISION
+        return {'status': 'ok', 'mode': 'local-retrieval', 'version': '0.2.0',
+                'campus_connector_revision': CONNECTOR_REVISION}
 
     @app.post('/api/auth/{action}')
     async def auth(action: str, request: Request):
         if action == 'logout':
             account = user(request, True)
+            await run_in_threadpool(campus.disconnect, account['owner'])
             with store.connect() as db:
                 db.execute('DELETE FROM sessions WHERE token=?', (account['token'],))
             response = JSONResponse({'ok': True})
             response.delete_cookie('campus_session', path='/')
+            response.delete_cookie('campus_passport_flow', path='/api/auth/passport')
             return response
         if action not in ('login', 'register'):
             raise HTTPException(404)
@@ -235,7 +307,8 @@ def create_app(data_dir=None):
                 owner = row['id']
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
-            db.execute('INSERT INTO sessions VALUES(?,?,?,?)', (digest(token), owner, csrf, time.time()+43200))
+            db.execute('INSERT INTO sessions(token,owner,csrf,expires) VALUES(?,?,?,?)',
+                       (digest(token), owner, csrf, time.time()+43200))
         response = JSONResponse({'username': username, 'csrf': csrf})
         response.set_cookie('campus_session', token, max_age=43200, httponly=True, samesite='strict', path='/')
         return response
@@ -243,12 +316,215 @@ def create_app(data_dir=None):
     @app.get('/api/me')
     def me(request: Request):
         account = user(request)
-        return {'username': account['username'], 'csrf': account['csrf']}
+        mode = 'legacy'
+        if account['passport_identifier']:
+            mode = 'passport' if campus.status(account['owner'])['passport_connected'] else 'offline'
+        return {'username': account['username'], 'csrf': account['csrf'], 'mode': mode}
 
     @app.get('/api/model')
     def model_configuration(request: Request):
-        user(request)
-        return llm.configuration()
+        account = user(request)
+        # Get runtime key for this owner if available
+        runtime_key = None
+        with runtime_keys_lock:
+            owner_keys = runtime_api_keys.get(account['owner'], {})
+            runtime_key = owner_keys.get('deepseek')
+        
+        config = llm.configuration() | {'notice': notice_model.configuration(runtime_key=runtime_key)}
+        # Include runtime key status (never the actual key)
+        config['notice']['has_runtime_key'] = bool(runtime_key)
+        return config
+
+    @app.post('/api/model/configure', status_code=200)
+    async def configure_model(request: Request):
+        """Set a runtime API key for the current user (in-memory, cleared on restart)."""
+        account = user(request, True)
+        data = await payload(request)
+        key_type = data.get('key_type')
+        key_value = (data.get('key_value') or '').strip()
+        if key_type not in ('deepseek', 'openai'):
+            raise HTTPException(400, '不支持的模型类型')
+        if key_value and len(key_value) < 8:
+            raise HTTPException(400, 'API Key 格式无效')
+        with runtime_keys_lock:
+            if key_value:
+                runtime_api_keys[account['owner']] = {key_type: key_value}
+            else:
+                # Clear the key if empty value provided
+                if account['owner'] in runtime_api_keys:
+                    runtime_api_keys[account['owner']].pop(key_type, None)
+                    if not runtime_api_keys[account['owner']]:
+                        del runtime_api_keys[account['owner']]
+        store.log(account['owner'], 'model.configure', f'{key_type}={"set" if key_value else "cleared"}', now())
+        return {'configured': bool(key_value), 'key_type': key_type}
+
+    @app.post('/api/campus/webvpn/credentials', status_code=200)
+    async def save_campus_credentials(request: Request):
+        """Save encrypted WebVPN and CAS credentials for automatic login.
+        
+        IMPORTANT: WebVPN account and CAS (passport) account may be different!
+        - WebVPN account: Used to login to WebVPN system (network account)
+        - CAS account: Used to login to campus services (academic affairs, email, etc.)
+        
+        For most users, both accounts are the same (student ID).
+        If they differ, you must specify both separately.
+        
+        Expects JSON body with:
+        - webvpn_username: WebVPN network account (required)
+        - webvpn_password: WebVPN password (required)
+        - zjuam_username: CAS/passport account (optional, defaults to webvpn_username)
+        - zjuam_password: CAS/passport password (optional, defaults to webvpn_password)
+        
+        Example (same account):
+        {
+            "webvpn_username": "3250103732",
+            "webvpn_password": "password"
+        }
+        
+        Example (different accounts):
+        {
+            "webvpn_username": "net-account",
+            "webvpn_password": "net-password",
+            "zjuam_username": "3250103732",
+            "zjuam_password": "cas-password"
+        }
+        """
+        from .campus_crypto import CredentialCipher
+        
+        account = user(request, True)
+        data = await payload(request)
+        
+        # Validate required fields
+        if not data.get('webvpn_username') or not data.get('webvpn_password'):
+            raise HTTPException(400, '缺少 WebVPN 账号或密码')
+        
+        # Encrypt passwords
+        cipher = CredentialCipher(account['owner'])
+        webvpn_encrypted = cipher.encrypt(data['webvpn_password'])
+        zjuam_username = data.get('zjuam_username', data['webvpn_username'])
+        zjuam_password = data.get('zjuam_password', data['webvpn_password'])
+        zjuam_encrypted = cipher.encrypt(zjuam_password)
+        
+        now_str = now()
+        auto_sync = 1 if data.get('auto_sync', True) else 0
+
+        with store.connect() as db:
+            # Upsert keeps any existing session cookies and sync history.
+            db.execute('''INSERT INTO campus_credentials
+                (owner, webvpn_username, webvpn_password_encrypted,
+                 zjuam_username, zjuam_password_encrypted,
+                 encryption_version, auto_sync_enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(owner) DO UPDATE SET
+                    webvpn_username=excluded.webvpn_username,
+                    webvpn_password_encrypted=excluded.webvpn_password_encrypted,
+                    zjuam_username=excluded.zjuam_username,
+                    zjuam_password_encrypted=excluded.zjuam_password_encrypted,
+                    auto_sync_enabled=excluded.auto_sync_enabled,
+                    updated_at=excluded.updated_at''',
+                (account['owner'],
+                 str(data['webvpn_username'])[:128],
+                 json.dumps(webvpn_encrypted),
+                 str(zjuam_username)[:128],
+                 json.dumps(zjuam_encrypted),
+                 auto_sync, now_str, now_str))
+
+        store.log(account['owner'], 'campus.credentials.save', 'success', now_str)
+
+        return {'status': 'success', 'message': '凭据已保存，后台将尝试自动登录'}
+
+    @app.post('/api/campus/webvpn/sync', status_code=202)
+    async def trigger_campus_sync(request: Request):
+        """Trigger manual synchronization of campus data.
+        
+        Returns immediately; sync runs in background thread.
+        """
+        account = user(request, True)
+        
+        # Check if credentials exist
+        with store.connect() as db:
+            cred = db.execute('SELECT owner FROM campus_credentials WHERE owner=?',
+                            (account['owner'],)).fetchone()
+        
+        if not cred:
+            raise HTTPException(404, '未保存 WebVPN 凭据，请先配置')
+        
+        # Trigger sync via service
+        sync_service = getattr(app.state, 'campus_sync', None)
+        if sync_service:
+            result = sync_service.trigger_manual_sync(account['owner'])
+            return result
+        else:
+            # Fallback: just log that sync was requested
+            store.log(account['owner'], 'campus.sync.requested', 'queued', now())
+            return {'status': 'queued', 'message': '同步请求已接收'}
+
+    @app.get('/api/campus/webvpn/status')
+    def get_campus_status(request: Request):
+        """Get current WebVPN credential and sync status (never the secrets)."""
+        account = user(request)
+
+        with store.connect() as db:
+            cred = db.execute('''SELECT webvpn_username, zjuam_username, last_used_at,
+                webvpn_expires_at, auto_sync_enabled, sync_interval_minutes,
+                last_sync_at, last_sync_status FROM campus_credentials WHERE owner=?''',
+                (account['owner'],)).fetchone()
+
+        if not cred:
+            return {'has_credentials': False, 'auto_sync': None}
+
+        return {
+            'has_credentials': True,
+            'webvpn_username': cred['webvpn_username'],
+            'zjuam_username': cred['zjuam_username'],
+            'last_used_at': cred['last_used_at'],
+            'session_expires_at': cred['webvpn_expires_at'],
+            'auto_sync': bool(cred['auto_sync_enabled']),
+            'sync_interval_minutes': cred['sync_interval_minutes'],
+            'last_sync_at': cred['last_sync_at'],
+            'last_sync_status': cred['last_sync_status'],
+        }
+
+    @app.patch('/api/campus/webvpn/sync-settings')
+    async def update_sync_settings(request: Request):
+        """Toggle automatic synchronization without re-entering credentials."""
+        account = user(request, True)
+        data = await payload(request)
+        allowed = {'auto_sync', 'sync_interval_minutes'}
+        if set(data) - allowed:
+            raise HTTPException(400, '只接受 auto_sync 与 sync_interval_minutes')
+        auto_sync = data.get('auto_sync')
+        interval = data.get('sync_interval_minutes')
+        if auto_sync is not None and not isinstance(auto_sync, bool):
+            raise HTTPException(400, 'auto_sync 必须为布尔值')
+        if interval is not None and not (isinstance(interval, int) and 5 <= interval <= 1440):
+            raise HTTPException(400, '同步间隔需为 5-1440 分钟的整数')
+
+        sets, values = [], []
+        if auto_sync is not None:
+            sets.append('auto_sync_enabled=?')
+            values.append(1 if auto_sync else 0)
+        if interval is not None:
+            sets.append('sync_interval_minutes=?')
+            values.append(interval)
+        if not sets:
+            raise HTTPException(400, '没有可更新的设置')
+        values.append(account['owner'])
+        with store.connect() as db:
+            cursor = db.execute(f'UPDATE campus_credentials SET {", ".join(sets)} WHERE owner=?', values)
+            if cursor.rowcount == 0:
+                raise HTTPException(404, '未保存 WebVPN 凭据，请先配置')
+        store.log(account['owner'], 'campus.sync-settings', 'updated', now())
+        return {'status': 'success'}
+
+    @app.delete('/api/campus/webvpn/credentials')
+    def delete_campus_credentials(request: Request):
+        """Remove stored credentials, cookies and sync state for this account."""
+        account = user(request, True)
+        with store.connect() as db:
+            db.execute('DELETE FROM campus_credentials WHERE owner=?', (account['owner'],))
+        store.log(account['owner'], 'campus.credentials.delete', 'success', now())
+        return {'status': 'success', 'message': '凭据已清除'}
 
     @app.get('/api/documents')
     def documents(request: Request):
@@ -271,30 +547,92 @@ def create_app(data_dir=None):
         content = await request.body()
         if not content:
             raise HTTPException(400, '不能上传空文件')
-        sha = hashlib.sha256(content).hexdigest()
         with store.connect() as db:
-            duplicate = db.execute('SELECT id FROM documents WHERE owner=? AND sha=?', (account['owner'], sha)).fetchone()
-            if duplicate:
-                return JSONResponse({'id': duplicate['id'], 'duplicate': True}, status_code=200)
-            count = db.execute('SELECT COUNT(*) FROM documents WHERE owner=?', (account['owner'],)).fetchone()[0]
-            active = db.execute("SELECT COUNT(*) FROM documents WHERE status IN ('queued','processing')").fetchone()[0]
-            if count >= 100 or active >= 10:
-                raise HTTPException(429, '资料数达到 100 份或解析队列已满，请稍后再试或删除旧资料')
-            doc_id = uid()
-            db.execute('INSERT INTO documents(id,owner,name,kind,sha,content,status,created) VALUES(?,?,?,?,?,?,?,?)',
-                       (doc_id, account['owner'], name, kind, sha, content, 'queued', now()))
-        pool.submit(parse_document, doc_id, account['owner'])
-        store.log(account['owner'], 'document.upload', 'queued', now())
-        return {'id': doc_id, 'duplicate': False}
+            doc_id, duplicate = store_document(db, account['owner'], name, kind, content)
+        if not duplicate:
+            pool.submit(parse_document, doc_id, account['owner'])
+        store.log(account['owner'], 'document.upload', 'duplicate' if duplicate else 'queued', now())
+        return JSONResponse({'id': doc_id, 'duplicate': duplicate}, status_code=200 if duplicate else 202)
+
+    def throttle_analysis(owner, action):
+        with attempts_lock:
+            recent = [t for t in analysis_attempts.get(owner, []) if t > time.time()-3600]
+            limit = 60 if action == 'import' else 12
+            if len(recent) >= limit:
+                kind = '通知导入' if action == 'import' else '模型整理'
+                raise HTTPException(429, f'本账号每小时最多 {limit} 次{kind}，请稍后再试')
+            analysis_attempts[owner] = recent + [time.time()]
+
+    @app.post('/api/college-notices/import', status_code=202)
+    async def import_college_notice(request: Request):
+        """Save a cached college notice. Provenance is server-owned: only an ID is accepted."""
+        account = user(request, True)
+        data = await payload(request)
+        if set(data) - {'record_id'}:
+            raise HTTPException(400, '只接受 record_id；来源、附件与身份都由服务端缓存决定')
+        record_id = data.get('record_id')
+        try:
+            found = await run_in_threadpool(campus.service.cached_college_notice,
+                                            UserContext(account['owner']), record_id)
+        except CampusError:
+            raise HTTPException(400, '通知记录标识无效') from None
+        if not found:
+            raise HTTPException(404, '当前账号缓存中没有这条通知，请先同步学院通知')
+        platform, record = found
+        throttle_analysis(account['owner'], 'import')
+        name = re.sub(r'[\\/:*?"<>|\r\n\x00]', '_', record.title)[:150].strip() or '学院通知'
+        content = (record.title + '\n\n' + record.body).encode('utf-8')
+        with store.connect() as db:
+            doc_id, duplicate = store_document(db, account['owner'], name + '.txt', 'notice', content)
+            notice_analysis.save_source(db, account['owner'], doc_id, platform, record, now())
+        if not duplicate:
+            pool.submit(parse_document, doc_id, account['owner'])
+        store.log(account['owner'], 'notice.import', 'duplicate' if duplicate else 'queued', now())
+        return JSONResponse({'id': doc_id, 'duplicate': duplicate, 'name': name + '.txt',
+                             'attachments': len(record.attachments),
+                             'has_unread_content': record.has_unread_content},
+                            status_code=200 if duplicate else 202)
 
     @app.get('/api/documents/{doc_id}')
     def get_document(doc_id: str, request: Request):
         account = user(request)
         row = document(account['owner'], doc_id)
         with store.connect() as db:
-            chunks = [dict(r) for r in db.execute('''SELECT c.id,c.locator,c.text FROM chunks c JOIN documents d ON c.document=d.id
+            chunks = [dict(r) for r in db.execute('''SELECT c.id,c.position,c.locator,c.text FROM chunks c JOIN documents d ON c.document=d.id
                 WHERE c.document=? AND d.owner=? ORDER BY c.position''', (doc_id, account['owner']))]
-        return public_document(row) | {'chunks': chunks}
+        for chunk in chunks:
+            chunk['ref'] = notice_contract.paragraph_ref(chunk.pop('position'))
+        analysis = app.state.notice_analyses.read(account['owner'], doc_id)
+        return public_document(row) | {'chunks': chunks, 'source': (analysis or {}).get('source'),
+                                       'analyses': (analysis or {}).get('analyses', [])}
+
+    @app.get('/api/notice-analyses')
+    def notice_analyses(request: Request):
+        """Every notice of this account with its provenance and analysis state."""
+        account = user(request)
+        return {'documents': app.state.notice_analyses.list_all(account['owner']),
+                'model': notice_model.configuration()}
+
+    @app.post('/api/documents/{doc_id}/analysis')
+    async def analyze_document(doc_id: str, request: Request):
+        account = user(request, True)
+        data = await payload(request)
+        if set(data) - {'mode', 'consent'}:
+            raise HTTPException(400, '只接受 mode 与 consent')
+        mode = data.get('mode', notice_analysis.MODEL)
+        consent = data.get('consent') is True
+        if not isinstance(mode, str) or mode not in (notice_analysis.RULES, notice_analysis.MODEL):
+            raise HTTPException(400, '未知整理方式')
+        throttle_analysis(account['owner'], mode)
+        try:
+            result = await run_in_threadpool(app.state.notice_analyses.request,
+                                             account['owner'], doc_id, mode, consent)
+        except notice_analysis.AnalysisError as exc:
+            raise HTTPException(exc.status, exc.message) from None
+        if result is None:
+            raise HTTPException(404, '资料不存在')
+        store.log(account['owner'], 'notice.analyze', mode, now())
+        return result
 
     @app.get('/api/documents/{doc_id}/download')
     def download(doc_id: str, request: Request):
@@ -322,7 +660,7 @@ def create_app(data_dir=None):
         data = await payload(request)
         state = data.get('state', 'pending')
         due = data.get('due')
-        if state not in ('pending', 'done'):
+        if state not in ('pending', 'done', 'ignored'):
             raise HTTPException(400, '未知待办状态')
         if due:
             try:
@@ -390,8 +728,9 @@ def create_app(data_dir=None):
             return [dict(r) for r in db.execute('SELECT action,result,created FROM audit WHERE owner=? ORDER BY id DESC LIMIT 50', (account['owner'],))]
 
     @app.delete('/api/data')
-    def clear_data(request: Request):
+    async def clear_data(request: Request):
         account = user(request, True)
+        await run_in_threadpool(campus.disconnect, account['owner'], True)
         with store.connect() as db:
             db.execute('DELETE FROM documents WHERE owner=?', (account['owner'],))
             db.execute('DELETE FROM audit WHERE owner=?', (account['owner'],))

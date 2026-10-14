@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Recording",
+  "description": "智云课堂回放元数据。转写状态独立标注；无字幕时 transcript_status=unavailable，不阻塞回放可用。",
+  "type": "object",
+  "required": [
+    "id", "course_id", "title", "started_at", "duration_seconds",
+    "canonical_url", "transcript_status", "subtitle_languages",
+    "transcript_next_check_at", "fact_source", "source_ref",
+    "observed_at", "created_at", "updated_at"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "started_at": { "type": ["string", "null"], "format": "date-time", "description": "回放开始时间；缺失为 null。" },
+    "duration_seconds": { "type": ["integer", "null"], "minimum": 0, "description": "时长（秒）；缺失为 null。" },
+    "canonical_url": { "type": ["string", "null"], "format": "uri", "description": "回放页面的长期可用 URL；临时签名 URL 不得存此字段。" },
+    "transcript_status": {
+      "type": "string",
+      "enum": ["pending", "processing", "ready", "unavailable", "unknown", "failed"],
+      "description": "字幕/转写状态。pending=生成中待获取（配合 transcript_next_check_at 复查）；ready=可用；unavailable=确认不可获取（含平台无字幕能力）；unknown=能力未验证；failed=获取失败；processing=服务端处理中（如后续转写）。"
+    },
+    "subtitle_languages": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string", "minLength": 2 } },
+        { "type": "null" }
+      ],
+      "description": "字幕语言标签（BCP-47，如 zh-CN）；空数组=已确认无字幕，null=未知。"
+    },
+    "transcript_next_check_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "下次复查字幕的时间（pending 时使用，如平台字幕 24 小时内生成）；无计划为 null。"
+    },
+    "fact_source": { "$ref": "common.schema.json#/$defs/fact_source" },
+    "source_ref": {
+      "oneOf": [{ "$ref": "source-ref.schema.json" }, { "type": "null" }]
+    },
+    "observed_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false
+}

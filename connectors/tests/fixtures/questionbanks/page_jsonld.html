@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>JSON-LD 示例题页（合成 fixture）</title>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "勾股定理的逆定理内容是什么？",
+        "acceptedAnswer": {"@type": "Answer", "text": "若三角形三边满足 a^2+b^2=c^2，则该三角形为直角三角形。"}
+      },
+      {
+        "@type": "Question",
+        "name": "什么是等差数列的通项公式？"
+      }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  { this is not valid json !
+  </script>
+</head>
+<body>
+  <main>
+    <h1>数学概念速查（合成 fixture）</h1>
+    <p>本页题目来自页内结构化数据，正文不做重复。</p>
+  </main>
+</body>
+</html>

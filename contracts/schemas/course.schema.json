@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Course",
+  "type": "object",
+  "required": ["id", "title", "term", "teacher", "source_refs", "archived_at", "created_at", "updated_at"],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "term": { "type": ["string", "null"], "description": "学期标识（如 2026-2027-1）；未知为 null。" },
+    "teacher": { "type": ["string", "null"], "description": "教师姓名；未知为 null。" },
+    "source_refs": {
+      "type": "array",
+      "items": { "$ref": "source-ref.schema.json" },
+      "description": "跨平台课程映射：同一课程可挂接多个平台的来源，人工确认后挂接（见 POST /courses/{id}/source-refs）。"
+    },
+    "archived_at": { "type": ["string", "null"], "format": "date-time", "description": "归档时间；归档课程默认不出现在列表中。" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false
+}

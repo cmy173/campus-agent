@@ -1,0 +1,10 @@
+{
+  "source_commit": "3a853560fcec1976ece2f72e0d90fc3b9e8307f0",
+  "source_zip": "zju-study-workbench-20261012-source.zip",
+  "zip_sha256": "17fad83c60d52b397fd88aefad2de6e2b631b05a28bfbe8c5980b49435a6cb76",
+  "manifest_entries_verified": 408,
+  "original_workspace": "D:\\AI\\campus-agent",
+  "implementation_root": "C:\\Users\\mingxiang\\.codex\\worktrees\\campus-agent-core\\campus-agent\\workbench",
+  "preservation_backup": "D:\\AI\\campus-agent-goal-backups\\20261013-082748",
+  "original_files_preserved": 55
+}

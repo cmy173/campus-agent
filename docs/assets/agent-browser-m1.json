@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "viewport": {
+    "composerBottom": 828.0000152587891,
+    "height": 844,
+    "redundantTrigger": 0,
+    "scrollWidth": 375,
+    "width": 390
+  },
+  "conversation_url": "http://127.0.0.1:15174/chat/conv_2c04a6083dc92eb28022db2074d31d24",
+  "checks": {
+    "query": true,
+    "second_turn": true,
+    "source_snapshot": true,
+    "draft_across_workspaces": true,
+    "refresh_recovery": true,
+    "calendar_empty": true,
+    "cancellation": true
+  },
+  "plan_write_loop": false
+}

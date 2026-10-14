@@ -1,0 +1,420 @@
+{
+  "verified_at": "2026-10-12T22:08:55.937808+08:00",
+  "verification_kind": "real credential-free public pages; synthetic profile and local owner",
+  "network_policy": "system",
+  "listing": "https://webplus.zju.edu.cn/_s597/qbtz/list.psp",
+  "synced_records": [
+    {
+      "id": "ckc:3212562",
+      "title": "浙江大学竺可桢学院2026-2027秋冬学期游泳通级测试规程",
+      "source": "https://webplus.zju.edu.cn/_s597/2026/1010/c78853a3212562/page.psp",
+      "published_at": "2026-10-10",
+      "body_characters": 759,
+      "attachments": [
+        "26-27学年秋冬学期竺院游泳通级测试检录表.pdf"
+      ]
+    },
+    {
+      "id": "ckc:3212634",
+      "title": "【评奖评优】竺可桢学院关于申请2025年深度科研训练奖学金的通知",
+      "source": "https://webplus.zju.edu.cn/_s597/2026/1010/c78853a3212634/page.psp",
+      "published_at": "2026-10-10",
+      "body_characters": 1016,
+      "attachments": [
+        "附件1-竺可桢学院深度科研训练奖学金申请表.docx",
+        "附件2-深度科研训练奖学金申请汇总表.xlsx"
+      ]
+    },
+    {
+      "id": "ckc:3211976",
+      "title": "竺可桢学院关于组织开展2026年秋冬学期推荐优秀团员作入党积极分子的通知",
+      "source": "https://webplus.zju.edu.cn/_s597/2026/1008/c78853a3211976/page.psp",
+      "published_at": "2026-10-08",
+      "body_characters": 2439,
+      "attachments": [
+        "附件1 关于进一步加强浙江大学推优入党工作的通知.docx",
+        "附件2 浙江大学团组织推优入党审核表.doc",
+        "附件3 浙江大学竺可桢学院2026年秋冬学期推荐优秀团员作入党积极分子名单汇总表.xls",
+        "附件4 浙江大学团组织推优入党审核表【含说明】.doc"
+      ]
+    },
+    {
+      "id": "ckc:3211675",
+      "title": "关于公示竺可桢学院2026-2027学年学生专项兼职辅导员与兼职团委副书记名单的通知",
+      "source": "https://webplus.zju.edu.cn/_s597/2026/1008/c78853a3211675/page.psp",
+      "published_at": "2026-10-08",
+      "body_characters": 407,
+      "attachments": []
+    },
+    {
+      "id": "ckc:3211068",
+      "title": "竺可桢学院2026年国庆假期值班安排表",
+      "source": "https://webplus.zju.edu.cn/_s597/2026/0930/c78853a3211068/page.psp",
+      "published_at": "2026-09-30",
+      "body_characters": 568,
+      "attachments": []
+    }
+  ],
+  "sync_error": null,
+  "matched_keyword": "游泳",
+  "status": "ok",
+  "notice": {
+    "id": "ckc:3212562",
+    "title": "浙江大学竺可桢学院2026-2027秋冬学期游泳通级测试规程",
+    "source": "https://webplus.zju.edu.cn/_s597/2026/1010/c78853a3212562/page.psp",
+    "published_at": "2026-10-10",
+    "college": "竺可桢学院",
+    "body_sha256": "6d84c9cacb9c94cbd5312aeb11f3de7fa2f9df5abe0799a5573db7bf21c38a71",
+    "body_characters": 759,
+    "paragraph_count": 26,
+    "attachments": [
+      {
+        "ref": "att_8e5004b0cce1e07f",
+        "name": "26-27学年秋冬学期竺院游泳通级测试检录表.pdf",
+        "url": "https://webplus.zju.edu.cn/_upload/article/files/a2/86/d56288cf4942940d5d20805fd9e9/059ec363-83db-42d5-b214-0e323357bc0a.pdf",
+        "parsed": false
+      }
+    ],
+    "has_unread_content": true,
+    "body": [
+      "通过游泳技能通级测试，促进竺可桢学院学生养成良好的锻炼习惯，使每位竺院学生学会游泳，掌握一项终身体育技能。现将游泳测试有关事项通知如下：",
+      "一、测试时间",
+      "2026年10月11日8:30-14:00。",
+      "二、测试地点",
+      "浙江大学紫金港游泳馆50米标准池（浅水区）",
+      "三、组织机构",
+      "主办单位：浙江大学竺可桢学院、浙江大学公共体育与艺术部",
+      "（二）竺可桢学院游泳通级测试工作小组由体艺部领导及工作人员组成",
+      "四、测试人员",
+      "未选游泳课的竺可桢学院2026级大一新生（包括未完成游泳通级测试的竺院学生）。",
+      "五、测试项目",
+      "50米蛙泳/自由泳/仰泳/蝶泳中的任意一种或两种以上泳姿（男女生均适用）",
+      "六、测试安排",
+      "1.热身环节：参与测试同学现场集合进行热身。",
+      "2.检录环节：",
+      "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+      "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+      "4.补测环节：因事假迟到或中途因抽筋等问题未完成测试同学，给予二次补测，二次补测在所有组别测试完之后进行。",
+      "七、考核标准",
+      "1.采用游泳四种姿势（蛙泳/自由泳/仰泳/蝶泳）中的任意一种或两种以上的技术，不借助于任何器械，不触碰池底及水道线，测试过程中不停歇，独立连续完成50米距离（不限速度）。",
+      "2.结合游泳项目竞赛规则，起点出发手扶池壁或水道线，每组测试学生等待裁判员统一指令集体出发，不可抢跳。到达终点时，仰泳、自由泳单手触壁即可，蝶泳、蛙泳需双手触壁。",
+      "八、测试考核要求",
+      "1.参与测试学生需随身携带学生证、身份证、实体校园卡之一进行检录。",
+      "2.佩戴泳帽、泳镜，穿着泳装。",
+      "九、测试秩序分组表见附件：26-27学年秋冬学期竺院游泳通级测试检录表.pdf"
+    ]
+  },
+  "model_input_budget": {
+    "max_chars": 24000,
+    "prompt_version": "notice-extract-v1",
+    "paragraph_refs": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+      "p7",
+      "p8",
+      "p9",
+      "p10",
+      "p11",
+      "p12",
+      "p13",
+      "p14",
+      "p15",
+      "p16",
+      "p17",
+      "p18",
+      "p19",
+      "p20",
+      "p21",
+      "p22",
+      "p23",
+      "p24",
+      "p25",
+      "p26"
+    ],
+    "paragraph_locators": [
+      "第 1 行",
+      "第 3 行",
+      "第 4 行",
+      "第 5 行",
+      "第 6 行",
+      "第 7 行",
+      "第 8 行",
+      "第 9 行",
+      "第 10 行",
+      "第 11 行",
+      "第 12 行",
+      "第 13 行",
+      "第 14 行",
+      "第 15 行",
+      "第 16 行",
+      "第 17 行",
+      "第 18 行",
+      "第 19 行",
+      "第 20 行",
+      "第 21 行",
+      "第 22 行",
+      "第 23 行",
+      "第 24 行",
+      "第 25 行",
+      "第 26 行",
+      "第 27 行"
+    ],
+    "coverage": "full"
+  },
+  "old_rule_extraction": [],
+  "new_rule_extraction": {
+    "coverage_note": "离线规则提取：按句子与关键词生成候选事项，不归并同一事件、不识别地点与适用对象。启用模型整理可得到事件摘要、分场次时间与地点。",
+    "open_questions": [
+      "附件《26-27学年秋冬学期竺院游泳通级测试检录表.pdf》未下载、未解析，可能包含时间、地点或名单"
+    ],
+    "candidates": []
+  },
+  "manual_checklist": [
+    {
+      "field": "registration_deadline",
+      "label": "报名/提交截止",
+      "candidate_source_lines": [
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "date-shape"
+        }
+      ],
+      "attachment_only_possible": false,
+      "human_verdict": null,
+      "human_note": ""
+    },
+    {
+      "field": "activity_time",
+      "label": "活动或测试起止时间",
+      "candidate_source_lines": [
+        {
+          "line": 2,
+          "text": "一、测试时间",
+          "matched": "keyword"
+        },
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "keyword+date"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "keyword+date"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "keyword+date"
+        },
+        {
+          "line": 25,
+          "text": "九、测试秩序分组表见附件：26-27学年秋冬学期竺院游泳通级测试检录表.pdf",
+          "matched": "keyword"
+        }
+      ],
+      "attachment_only_possible": true,
+      "human_verdict": null,
+      "human_note": ""
+    },
+    {
+      "field": "assembly",
+      "label": "集合/检录时间",
+      "candidate_source_lines": [
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 14,
+          "text": "1.热身环节：参与测试同学现场集合进行热身。",
+          "matched": "keyword"
+        },
+        {
+          "line": 15,
+          "text": "2.检录环节：",
+          "matched": "keyword"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "keyword+date"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 23,
+          "text": "1.参与测试学生需随身携带学生证、身份证、实体校园卡之一进行检录。",
+          "matched": "keyword"
+        },
+        {
+          "line": 25,
+          "text": "九、测试秩序分组表见附件：26-27学年秋冬学期竺院游泳通级测试检录表.pdf",
+          "matched": "keyword"
+        }
+      ],
+      "attachment_only_possible": true,
+      "human_verdict": null,
+      "human_note": ""
+    },
+    {
+      "field": "location",
+      "label": "地点",
+      "candidate_source_lines": [
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 4,
+          "text": "二、测试地点",
+          "matched": "keyword"
+        },
+        {
+          "line": 5,
+          "text": "浙江大学紫金港游泳馆50米标准池（浅水区）",
+          "matched": "keyword"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 20,
+          "text": "1.采用游泳四种姿势（蛙泳/自由泳/仰泳/蝶泳）中的任意一种或两种以上的技术，不借助于任何器械，不触碰池底及水道线，测试过程中不停歇，独立连续完成50米距离（不限速度）。",
+          "matched": "keyword"
+        },
+        {
+          "line": 21,
+          "text": "2.结合游泳项目竞赛规则，起点出发手扶池壁或水道线，每组测试学生等待裁判员统一指令集体出发，不可抢跳。到达终点时，仰泳、自由泳单手触壁即可，蝶泳、蛙泳需双手触壁。",
+          "matched": "keyword"
+        }
+      ],
+      "attachment_only_possible": true,
+      "human_verdict": null,
+      "human_note": ""
+    },
+    {
+      "field": "audience",
+      "label": "适用对象",
+      "candidate_source_lines": [
+        {
+          "line": 1,
+          "text": "通过游泳技能通级测试，促进竺可桢学院学生养成良好的锻炼习惯，使每位竺院学生学会游泳，掌握一项终身体育技能。现将游泳测试有关事项通知如下：",
+          "matched": "keyword"
+        },
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 10,
+          "text": "未选游泳课的竺可桢学院2026级大一新生（包括未完成游泳通级测试的竺院学生）。",
+          "matched": "keyword"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "keyword+date"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 21,
+          "text": "2.结合游泳项目竞赛规则，起点出发手扶池壁或水道线，每组测试学生等待裁判员统一指令集体出发，不可抢跳。到达终点时，仰泳、自由泳单手触壁即可，蝶泳、蛙泳需双手触壁。",
+          "matched": "keyword"
+        },
+        {
+          "line": 23,
+          "text": "1.参与测试学生需随身携带学生证、身份证、实体校园卡之一进行检录。",
+          "matched": "keyword"
+        }
+      ],
+      "attachment_only_possible": true,
+      "human_verdict": null,
+      "human_note": ""
+    },
+    {
+      "field": "attachment",
+      "label": "附件要求",
+      "candidate_source_lines": [
+        {
+          "line": 3,
+          "text": "2026年10月11日8:30-14:00。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 16,
+          "text": "8:20开始检录，请各位同学携带有效的实体证件（学生证、身份证、校园卡三证之一）进行检录，并自备泳衣、泳帽、干毛巾。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 17,
+          "text": "3.测试环节：8:30开始测试，设测试起点及测试终点。待一组同学测试完成起水后，第二组同学出发。",
+          "matched": "date-shape"
+        },
+        {
+          "line": 25,
+          "text": "九、测试秩序分组表见附件：26-27学年秋冬学期竺院游泳通级测试检录表.pdf",
+          "matched": "keyword"
+        }
+      ],
+      "attachment_only_possible": false,
+      "human_verdict": null,
+      "human_note": ""
+    }
+  ],
+  "model": {
+    "provider": "deepseek",
+    "provider_label": "DeepSeek",
+    "model": "deepseek-flash",
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "prompt_version": "notice-extract-v1",
+    "configured": false,
+    "sends": "通知标题、正文段落、发布日期、学院名称、平台记录 ID 与附件名称"
+  },
+  "model_call": {
+    "verified": false,
+    "error": "NOT_RUN",
+    "message": "未配置 DEEPSEEK_API_KEY，或未使用 --use-model；真实模型调用未验证。模拟模型响应已在自动化测试中覆盖。"
+  },
+  "not_verified": [
+    "attachment and image contents (never downloaded or parsed)",
+    "live campus login or profile refresh",
+    "other colleges",
+    "historical pagination beyond the first public page",
+    "deadline accuracy on a labelled real corpus",
+    "other network environments",
+    "a real provider call"
+  ]
+}

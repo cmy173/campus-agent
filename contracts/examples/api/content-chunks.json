@@ -1,0 +1,133 @@
+{
+  "items": [
+    {
+      "id": "chk_01a7c0",
+      "resource_id": "res_01a7",
+      "resource_version": 2,
+      "ordinal": 0,
+      "text": "线性表是由n个数据元素构成的有限序列，相邻元素之间存在序偶关系。表头无前驱，表尾无后继。",
+      "locator": { "kind": "slide", "slide": 3 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_01a7c1",
+      "resource_id": "res_01a7",
+      "resource_version": 2,
+      "ordinal": 1,
+      "text": "顺序存储结构用一段地址连续的存储单元依次存储线性表的数据元素，插入与删除平均移动约一半元素。",
+      "locator": { "kind": "slide", "slide": 14 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_01b2c0",
+      "resource_id": "res_01b2",
+      "resource_version": 1,
+      "ordinal": 0,
+      "text": "附录A：单链表的头插法与尾插法对比。头插法建表时间复杂度O(n)，但元素逆序；尾插法保持原序。",
+      "locator": { "kind": "page", "page": 1 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_01b2c1",
+      "resource_id": "res_01b2",
+      "resource_version": 1,
+      "ordinal": 1,
+      "text": "本次作业要求实现含头结点的单链表，完成插入、删除、查找与就地逆置四个函数。",
+      "locator": { "kind": "page", "page": 2 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_02e1c0",
+      "resource_id": "res_02e1",
+      "resource_version": 1,
+      "ordinal": 0,
+      "text": "二分查找要求序列有序；每次比较将搜索区间缩小一半，时间复杂度O(log n)，但对插入动态集合不友好。",
+      "locator": { "kind": "slide", "slide": 5 },
+      "provenance": {
+        "extractor": "pptx-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_02e1c1",
+      "resource_id": "res_02e1",
+      "resource_version": 1,
+      "ordinal": 1,
+      "text": "二叉搜索树的中序遍历有序；平衡树的查找、插入、删除均为O(log n)，红黑树以近似平衡换取更少的旋转。",
+      "locator": { "kind": "slide", "slide": 22 },
+      "provenance": {
+        "extractor": "pptx-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_03f1c0",
+      "resource_id": "res_03f1",
+      "resource_version": 1,
+      "ordinal": 0,
+      "text": "第一讲：数据结构基本概念——逻辑结构与存储结构的关系，抽象数据类型ADT的定义与表示方法。",
+      "locator": { "kind": "page", "page": 1 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "chk_03f1c1",
+      "resource_id": "res_03f1",
+      "resource_version": 1,
+      "ordinal": 1,
+      "text": "第二讲：算法分析——大O记号、渐进上界与下界，常见复杂度增长阶的对比（O(1)<O(log n)<O(n)<O(n log n)<O(n²)）。",
+      "locator": { "kind": "page", "page": 2 },
+      "provenance": {
+        "extractor": "pdf-text",
+        "extractor_version": "0.3.1",
+        "job_id": "job_8d2c1f",
+        "fact_source": "platform",
+        "observed_at": "2026-10-08T10:06:47+08:00"
+      },
+      "created_at": "2026-10-08T10:06:47+08:00"
+    }
+  ],
+  "next_cursor": null
+}

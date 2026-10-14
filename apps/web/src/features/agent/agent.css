@@ -1,0 +1,50 @@
+@import './agent-theme.css';
+
+.agent-page { display: flex; flex-direction: column; gap: var(--agent-space); height: calc(100dvh - 104px); min-height: 560px; max-width: var(--agent-content-width); margin: 0 auto; }
+.agent-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.agent-context-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.agent-transcript { flex: 1; overflow-y: auto; min-height: 140px; padding: 8px 6px; overscroll-behavior: contain; overflow-anchor: none; }
+.agent-welcome { padding: 28px 12px; max-width: 740px; }
+.agent-turn { display: flex; flex-direction: column; gap: 16px; margin: 16px 0 28px; }
+.agent-user-message { align-self: flex-end; max-width: 86%; padding: 12px 16px; border-radius: 16px 16px 4px 16px; background: var(--agent-user-surface); overflow-wrap: anywhere; }
+.agent-assistant-message { padding: 4px 8px; overflow-wrap: anywhere; }
+.agent-answer { white-space: pre-wrap; margin-top: 10px; font-size: var(--agent-text-size); line-height: var(--agent-line-height); }
+.agent-source-action { margin: 12px 0; }
+.agent-running { display: flex; gap: 12px; align-items: center; margin: 12px 0; color: #666; }
+.agent-tool-activities, .agent-child-tasks { margin: 12px 0; }
+.agent-child-tasks > div { margin: 8px 0; }
+.agent-tool-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; margin: 8px 0; font-size: 13px; }
+.agent-start { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #e1e6ec; border-radius: 12px; background: #fff; }
+.agent-start > .ant-btn { align-self: flex-start; }
+.agent-composer { background: var(--agent-surface); padding: 12px; border-radius: var(--agent-radius); border: 1px solid var(--agent-border); box-shadow: 0 3px 18px #172b4d08; }
+.agent-composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+.agent-fact, .agent-source-chunk, .agent-calendar-block { border-left: 3px solid var(--agent-accent-border); padding: 8px 12px; background: var(--agent-surface-subtle); overflow-wrap: anywhere; }
+.agent-note { color: var(--agent-note); font-size: 13px; }
+.agent-workspace .ant-drawer-body { overflow-wrap: anywhere; }
+.agent-attachments { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-attachments .ant-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.agent-file-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--agent-border); flex-wrap: wrap; }
+.agent-file-description { flex: 1; min-width: 140px; overflow-wrap: anywhere; }
+.agent-file-description > div { margin-top: 6px; }
+.agent-file-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 55dvh; overflow: auto; padding: 12px; background: var(--agent-surface-subtle); }
+.agent-file-image { display: block; max-width: 100%; max-height: 60dvh; object-fit: contain; margin-bottom: 12px; }
+.agent-pdf-preview { width: 100%; min-width: 0; margin-bottom: 12px; }
+.agent-pdf-controls { margin-bottom: 10px; }
+.agent-pdf-controls .ant-input-number { width: 64px; }
+.agent-pdf-pages { max-height: 60dvh; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--agent-border); background: var(--agent-surface-subtle); }
+.agent-pdf-pages canvas { display: block; background: #fff; }
+.agent-file-results { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; overflow-wrap: anywhere; }
+.agent-sheet-preview { max-height: 55dvh; overflow: auto; margin-bottom: 12px; }
+.agent-sheet-preview table { border-collapse: collapse; font-size: 13px; }
+.agent-sheet-preview td { min-width: 110px; max-width: 280px; padding: 7px 10px; border: 1px solid var(--agent-border); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-sheet-preview th { position: sticky; left: 0; min-width: 32px; padding: 7px; background: var(--agent-surface-subtle); color: var(--agent-note); border: 1px solid var(--agent-border); }
+@media (max-width: 600px) {
+  .agent-page { height: calc(100dvh - 88px); min-height: 600px; gap: 12px; }
+  .agent-toolbar .ant-btn { padding-inline: 10px; }
+  .agent-context-row > .ant-select { flex: 1; min-width: 140px !important; }
+  .agent-welcome { padding: 12px 0; }
+  .agent-welcome .ant-btn { height: auto; white-space: normal; text-align: left; }
+  .agent-user-message { max-width: 92%; }
+  .agent-composer-footer .ant-typography { font-size: 12px; }
+  .agent-source-action .ant-btn { max-width: 100%; height: auto; white-space: normal; }
+}

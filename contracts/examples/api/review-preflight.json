@@ -1,0 +1,94 @@
+{
+  "fingerprint": "sha256:558ccbada7569a59bcd34659913c800ceb5c695af4b81d91f78ffb892cf2d811",
+  "materials": {
+    "items": [
+      {
+        "kind": "resource_text",
+        "resource_id": "res_01a7",
+        "assignment_id": null,
+        "title": "第03讲-线性表.pdf",
+        "version": 2,
+        "content_hash": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+        "chunk_ids": ["chk_01a7c0", "chk_01a7c1"],
+        "locators": [
+          { "chunk_id": "chk_01a7c0", "locator": { "kind": "slide", "slide": 3 } },
+          { "chunk_id": "chk_01a7c1", "locator": { "kind": "slide", "slide": 14 } }
+        ],
+        "chars": 91,
+        "text": "线性表是由n个数据元素构成的有限序列，相邻元素之间存在序偶关系。表头无前驱，表尾无后继。\n顺序存储结构用一段地址连续的存储单元依次存储线性表的数据元素，插入与删除平均移动约一半元素。"
+      },
+      {
+        "kind": "assignment_text",
+        "resource_id": null,
+        "assignment_id": "asg_a102",
+        "title": "实验报告一：顺序表实现",
+        "version": null,
+        "content_hash": null,
+        "chunk_ids": [],
+        "locators": [],
+        "chars": 16,
+        "text": "实现顺序表并提交源码与实验报告。"
+      },
+      {
+        "kind": "attachment_text",
+        "resource_id": "res_01b2",
+        "assignment_id": "asg_a102",
+        "title": "讲义-附录A.pdf（作业附件）",
+        "version": 1,
+        "content_hash": "sha256:c1a8e37f02d96b4e85f3c1a96e207d54b3f8a1c647d05e92a6c3b8f15e94d270",
+        "chunk_ids": ["chk_01b2c0", "chk_01b2c1"],
+        "locators": [
+          { "chunk_id": "chk_01b2c0", "locator": { "kind": "page", "page": 1 } },
+          { "chunk_id": "chk_01b2c1", "locator": { "kind": "page", "page": 2 } }
+        ],
+        "chars": 85,
+        "text": "附录A：单链表的头插法与尾插法对比。头插法建表时间复杂度O(n)，但元素逆序；尾插法保持原序。\n本次作业要求实现含头结点的单链表，完成插入、删除、查找与就地逆置四个函数。"
+      }
+    ],
+    "missing": [
+      {
+        "kind": "resource",
+        "resource_id": "res_01d4",
+        "assignment_id": null,
+        "title": "实验指导书(受限).pdf",
+        "reason": "not_accessible",
+        "message": "平台仅预览、无下载权限，无法获取正文；可在平台内查看或手动上传可读版本。"
+      }
+    ],
+    "notes": {
+      "text": "重点考察边界条件，增加一道综合计算题，答案单独显示。\n第二章链表部分也要覆盖，出一道头插法相关的题。",
+      "sha256": "sha256:f55a63f4a5b3303ff1b65f34ed980b6d4a15d9d52d6e1d5d8145b98998aa28da",
+      "chars": 50
+    },
+    "total_chars": 192
+  },
+  "provider": {
+    "config_id": "prv_cloud02",
+    "name": "示例兼容网关",
+    "protocol": "openai_chat_completions",
+    "base_url": "https://api.example.com/v1",
+    "host": "api.example.com",
+    "model": "example-chat-1",
+    "has_api_key": true
+  },
+  "limits": {
+    "notes_chars": 50,
+    "notes_max_chars": 20000,
+    "material_chars": 192,
+    "material_max_chars": 200000,
+    "question_count_total": 8,
+    "question_count_max": 100
+  },
+  "bank": {
+    "mode": "ai",
+    "usable": false,
+    "configured_sources": 0,
+    "message": "当前为 AI 模式，不使用题库检索。"
+  },
+  "warnings": [
+    {
+      "code": "MATERIAL_GAP",
+      "message": "1 项所选材料无可用正文：实验指导书(受限).pdf（not_accessible，未纳入发送内容）。"
+    }
+  ]
+}
