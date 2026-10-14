@@ -43,7 +43,7 @@ Goal：按 V2 合同持续完成 V2.0–V2.4。实施中，全部验收尚未满
 | --- | --- | --- |
 | 1 唯一源码与安装启动 | 进行中 | 主目录独立安装/构建/启动已验证；旧服务器删除后唯一入口 `tools/dev.py` 仍通过 `--check`/`--smoke-test`；最终干净重建仍待验收 |
 | 2 迁移与旧代码删除 | 已验证（合成范围） | 旧 `campus_agent` 应用整体删除（服务器/静态UI/旧模型转发/旧抽取管线/旧Store/旧调度/旧本地账号）；校园协议单份位于 `connectors/campus`；保留断言改挂到迁移实现（191项+80subtests）；旧库只读导入仍可用；真实校园账号试用与真实旧库导入仍缺 |
-| 3 全部 C 档能力 | 进行中 | 文件/代码/Skills/MCP/文档/双子任务/持久目标/本机调度均已实际执行；**实测每轮下发 83 个工具 schema / 约 63KB**，按需发现（上游 `tool-presentation` ptc）仍未启用；真实搜索/模型仍缺 |
+| 3 全部 C 档能力 | 进行中 | 文件/代码/Skills/MCP/文档/双子任务/持久目标/本机调度均已实际执行；按需发现的分组掩码已验证有效（83项/63KB → 45项/34KB），但**尚未安全接线**；真实搜索/模型仍缺 |
 | 4 真实官方模型三场景 | 未开始 | 待 provider 与本地账号配置/预算 |
 | 5 浏览器/下载/表单 | 进行中 | 应用自有持久Edge，真实MCP与API/Harness闭环、受控表单一次确认防重、字段变化拒绝、真实下载及UI恢复通过；真实校方登录态试用仍待完成 |
 | 6 子 Agent/持续任务/调度 | 进行中 | 双子任务独立停止、持久目标冷启动恢复、本机调度真实线程+跨进程断点防重通过；跨轮子任务与独立浏览器归属仍待验收 |
@@ -169,3 +169,11 @@ Goal继续实施：文件夹/文件恢复、持久浏览器、后台目标与调
 - 实测记录“改造前”对照当前不可得：首轮未留下可比时间数字，旧应用已退役；保留的首轮 workbench 虽带 venv 与 node_modules，但在该路径下 `tempfile.mkdtemp` 超过 120 秒不返回（进程持续占用 CPU、无输出），判定为该目录环境问题并已终止自有进程。最小解锁条件与复测命令写入 `docs/agent-v2-performance.md`。
 - 新增文档 `docs/agent-v2-performance.md`（方法、两次数字、解释、未完成项与解锁条件）。
 - 追加实测工具 schema 成本：受控模型**每次请求**收到 **83 个 schema、63406 字节**（第三次运行，`var/v2-bench-ajqrxmpv`）。这把条件 3 的“按需发现”缺口量化成可复测的数字，而不是主观判断；上游 `0.2.0-rc.2` 的按需形态是 agent preset `tool-presentation` 的 `ptc` 模式（原生 schema 不下发，改为生成 SDK + `run_code`），当前 profile 未挂该行，仍按 `native` 全量下发。
+
+## 2026-10-14 增量：按需工具发现的分组掩码（已验证有效，尚未接线）
+
+- 实现 `apps/agent-runtime/campus-tool-groups.mjs`：按前缀把 36 项实测可延后工具分为 browser(26)/mcp(3)/team(5)/jobs(4)/planning(1)；黑名单式判定，未分类工具保持可用（失败开放）；`load_tools` 加载工具带强制 `output.schema`，调用后返回实际可见工具名。
+- 新增 `tools/verify_tool_discovery.py`：真实 API/Harness/工具执行，受控模型直接在**线缆上**断言默认请求缺少延后分组、加载后出现、其余仍隐藏；未接线时以 exit 2 + 明确原因报告（实测输出该诊断），不伪装成功。
+- 实测：preset 作用域的 `restrict` 对会话 agent 请求无效（84项/64644B）；改到 agent 作用域 `setup` 后同一受控任务降到 **45 项 / 33887 B（−47%）**，3 个工具调用全部成功、额外确认 0（`var/v2-bench-obj8a_o_`、`var/v2-bench-dlaoug8l`）。
+- 实测发现并回退：包装 SDK `agents.create/resume` 注入 `setup` 会破坏工具派发（每次调用只写 `tool/call` 后在 `tools/pre-execute` 前停滞，API 无 `tool-lease` 请求；连普通 `pwsh` 同样复现，关闭特性后仍复现=包装本身问题）。已回退 `campus-sdk.mjs` 与 `campus-plugin.mjs`，**运行时保持已验收原状**（探针任务实测 83 项、`pwsh` 正常）。
+- 因此条件 3 的按需发现记为“掩码验证有效、接线未完成”，下一增量的问题与候选安装点写入 `docs/agent-v2-performance.md`。

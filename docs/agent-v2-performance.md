@@ -48,6 +48,35 @@ python tools/benchmark_local_overhead.py --label current --runs 2
 再注册一个作用域内的加载工具按需放开其余分组；不需要第二套主循环，也不必启用 PTC。
 下一增量按此实现并用真实运行时验收（含现有受控集成回归不被削弱）。
 
+### 本轮实现进度与实测发现（未完成，运行时保持原状）
+
+已落地但**尚未接线**：
+
+- `apps/agent-runtime/campus-tool-groups.mjs`：分组定义（browser 26 / mcp 3 / team 5 / jobs 4 /
+  planning 1，共 36 项实测可延后）、纯函数 `deferredNames`（按**黑名单**工作，未分类的新工具保持
+  可用=失败开放）、以及 `load_tools` 加载工具的完整定义（含强制 `output.schema`）。
+- `tools/verify_tool_discovery.py`：真实 API+Harness+受控模型，直接在**线缆上**断言默认请求缺少
+  这些分组、加载后出现、且仍隐藏其余分组；工具未接线时以 exit 2 与明确原因报告，不伪装成功。
+
+实测确认与实测发现：
+
+1. **掩码机制有效，但必须在 agent 作用域安装**。在插件 `apply(ctx)`（preset 作用域）调用
+   `restrict` 对会话 agent 的请求**无影响**（实测仍 84 项 / 64644 B）；改到 SDK `create` 的
+   `setup(agentCtx)` 后，实测同一受控任务从 **83 项 / 63406 B 降到 45 项 / 33887 B
+   （−47%，约 29.5 KB）**，且 3 个工具调用全部成功、额外确认 0。证据
+   `var/v2-bench-obj8a_o_/benchmark-ondemand.json`、`var/v2-bench-dlaoug8l/benchmark-ondemand2.json`。
+2. **包装 SDK 的 `create/resume` 注入 `setup` 会破坏工具派发**：实测每次工具调用只写入
+   `tool/call` 事件，随后在 `tools/pre-execute` 之前停滞（API 日志无 `tool-lease` 请求），
+   连普通 `pwsh` 也一样；关闭整个特性后仍复现，证明是包装本身而非掩码逻辑。已**回退**
+   `campus-sdk.mjs`，运行时恢复原状（实测同一探针任务 83 项工具、`pwsh` 正常返回）。
+3. 掩码实现需避免重入：`restrict` 会触发 `tools/change`，再同步 `restrict` 会递归；现改为
+   `applying` 守卫 + `setTimeout(0)` 延后，且在工具派发之外更新。
+
+**下一增量的精确问题**：为会话 agent 找一个不改写 `agents.create/resume` 选项的安装点
+（候选：agent 创建后的公开句柄 `handle.agent.ctx`、agent-loop 的首轮前钩子、或在 agent 作用域内
+由 `campusReady` 服务发起的注册），把 `installOnDemandTools(agentCtx)` 装上去，然后用
+`tools/verify_tool_discovery.py` 验收；在那之前本文件与台账都按“条件 3 未完成”记录。
+
 结论：同环境重复运行差异在 ±12% 内，且方向为持平或略好；**没有出现可重复的明显回退**。
 `pwsh` 是本机进程启动开销（约 0.6 秒）主导，`write`/`read` 约 50 ms 级别；普通本地任务不产生额外确认。
 
