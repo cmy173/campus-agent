@@ -105,10 +105,11 @@ class Runtime:
                 if handle.get('controls'):
                     self.control_addresses[tid] = handle['controls']
                 handle['last_used'] = time.monotonic()
+            # Any turn is a chance to collect other conversations' idle processes.
+            self._reap_runners()
             return handle, False
         if handle is not None:
             self._discard_runner(cid, handle['proc'])
-        self._reap_runners()
         capture = self._runner_stderr(tid)
         process = spawn_owned([shutil.which("node"), str(self.runtime_dir / "runner.mjs")],
                               cwd=self.runtime_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -118,6 +119,8 @@ class Runtime:
                    'capture': capture, 'controls': None, 'turns': 0, 'last_used': time.monotonic()}
         with self.lock:
             self.runners[cid] = freshly
+        # Enforce the live cap after registering this one, so the cap counts it.
+        self._reap_runners()
         return freshly, True
 
     def _retain_runner(self, cid: str, process):
@@ -161,9 +164,9 @@ class Runtime:
         with self.lock:
             handles = list(self.runners.items())
             excess = max(0, len(handles) - RUNNER_MAX_LIVE)
-            oldest = sorted(handles, key=lambda item: item[1]['last_used'])[:excess]
+            doomed = {cid for cid, _ in sorted(handles, key=lambda item: item[1]['last_used'])[:excess]}
         for cid, handle in handles:
-            if moment - handle['last_used'] > RUNNER_IDLE_SECONDS or (cid, handle) in oldest:
+            if moment - handle['last_used'] > RUNNER_IDLE_SECONDS or cid in doomed:
                 self._discard_runner(cid, handle['proc'])
 
     def _run(self, turn: dict, token: str):
