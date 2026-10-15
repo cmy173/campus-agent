@@ -1,0 +1,25 @@
+{
+  "checks": {
+    "runtime_integration": true,
+    "clean_integration": true,
+    "clean_source_identical": true,
+    "browser": true,
+    "preservation": true,
+    "package": true,
+    "schemas": true,
+    "required_artifacts": true
+  },
+  "api_tests": {
+    "passed": 272,
+    "seconds": 36.73,
+    "session_id": 13102
+  },
+  "web_tests": {
+    "passed": 125,
+    "files": 19,
+    "seconds": 28.9,
+    "session_id": 72102
+  },
+  "final_build_session": 79244,
+  "clean_integration_session": 87575
+}

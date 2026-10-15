@@ -1,0 +1,33 @@
+{
+  "name": "cross_midnight",
+  "description": "跨日窗口：周一 22:00 至次日 01:00 的窗口，150 分钟任务按块上限 60 分钟拆为 3×50 分钟连续排入，第三块跨午夜（23:40→次日 00:30），块跨越自然日但仍在一个窗口内。",
+  "tasks": [
+    {
+      "id": "t_midnight",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：跨午夜任务",
+      "estimated_minutes": 150
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "22:00", "end": "01:00"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-14T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": ["t_midnight"],
+    "unassigned": {}
+  }
+}

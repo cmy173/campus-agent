@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "conversation_url": "http://127.0.0.1:15174/chat/conv_96928360a94ad0c0da0edc0af5ec5515",
+  "checks": {
+    "same_chat_assignments_and_source": true,
+    "weekly_wednesday_evening": true,
+    "desktop_apply_calendar_titles": true,
+    "job_queued_then_cancelled": true,
+    "narrow_feedback": true,
+    "narrow_revoke_after_feedback": true,
+    "refresh_restores_turns": true
+  },
+  "runtime_evidence": "var/agent-integration-qbk_diui/evidence.json"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "campus-agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test:runtime": "node smoke.mjs",
+    "test:audit": "node --test --test-isolation=none tool-groups.test.mjs mcp-config.test.mjs mcp-results.test.mjs mcp-verification-case.test.mjs sdk.test.mjs tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sdk-client": "0.2.0-rc.2",
+    "@modelcontextprotocol/client": "2.2.0",
+    "@modelcontextprotocol/server": "2.2.0",
+    "@playwright/mcp": "0.0.83",
+    "playwright": "1.64.0-alpha-1790635538000"
+  },
+  "overrides": {
+    "@modelcontextprotocol/client": "2.2.0",
+    "fflate": "0.8.3"
+  }
+}

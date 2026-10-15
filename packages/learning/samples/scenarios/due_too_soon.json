@@ -1,0 +1,37 @@
+{
+  "name": "due_too_soon",
+  "description": "截止前窗口不足：周一仅 60 分钟可用，任务需要 120 分钟且截止为周二当天。预期：未安排，原因为“截止前窗口不足”，附带可用分钟数 60。",
+  "tasks": [
+    {
+      "id": "t_soon",
+      "course_id": "crs_demo",
+      "type": "assignment",
+      "title": "示例作业：窗口不足",
+      "estimated_minutes": 120,
+      "due_at": "2026-10-13T00:00+08:00",
+      "due_precision": "date"
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "20:00"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": [],
+    "unassigned": {
+      "t_soon": "INSUFFICIENT_WINDOW_BEFORE_DUE"
+    }
+  }
+}

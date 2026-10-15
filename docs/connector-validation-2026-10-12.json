@@ -1,0 +1,28 @@
+{
+  "verified_at": "2026-10-12T11:14:50.620285+08:00",
+  "network_policy": "direct",
+  "verification_kind": "real public read; synthetic local owner; no campus authentication",
+  "capability": "notices",
+  "platform": "zdbk_public",
+  "record_count": 6,
+  "fetched_at": "2026-10-12T11:14:50.310387+08:00",
+  "completeness": "partial",
+  "error": null,
+  "offline_query_preserved": true,
+  "disconnect_preserved": true,
+  "restart_preserved": true,
+  "sources": [
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=593B769FC1E74784E06329B3CA0A6BEB&doType=save",
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=593B4B7D94DC6127E0632AB3CA0A941E&doType=save",
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=593B769FC1DE4784E06329B3CA0A6BEB&doType=save",
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=5ADCDCE300FB9DBBE06329B3CA0A2097&doType=save",
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=593B769FC1E44784E06329B3CA0A6BEB&doType=save",
+    "https://zdbk.zju.edu.cn/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=4F9F1F32F7D28E8BE06329B3CA0A7D51&doType=save"
+  ],
+  "not_verified": [
+    "campus account login after migration",
+    "notice bodies and history",
+    "personal notices",
+    "other networks or policies"
+  ]
+}

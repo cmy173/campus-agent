@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "resource_id": "res_01a7",
+      "version": 2,
+      "content_hash": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+      "mime_type": "application/pdf",
+      "size_bytes": 1893000,
+      "file_id": "fil_01a7v2",
+      "extent_value": 46,
+      "extent_unit": "slide",
+      "fetched_at": "2026-10-08T10:00:31+08:00",
+      "parse_status": "ready",
+      "source_updated_at": "2026-10-07T16:40:00+08:00",
+      "created_at": "2026-10-08T10:00:31+08:00"
+    },
+    {
+      "resource_id": "res_01a7",
+      "version": 1,
+      "content_hash": "sha256:3b91d04f6a2e58c17d90b3f84e21a706d5c8f39b2e6041a7d8f3c25b907e41d0",
+      "mime_type": "application/pdf",
+      "size_bytes": 1722000,
+      "file_id": "fil_01a7v1",
+      "extent_value": 42,
+      "extent_unit": "slide",
+      "fetched_at": "2026-09-30T11:30:00+08:00",
+      "parse_status": "ready",
+      "source_updated_at": "2026-09-29T15:10:00+08:00",
+      "created_at": "2026-09-30T11:30:00+08:00"
+    }
+  ],
+  "next_cursor": null
+}

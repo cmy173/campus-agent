@@ -1,5 +1,14 @@
 fastapi==0.142.4
 uvicorn==0.54.0
+cryptography==50.0.2
 pypdf==6.10.0
 python-docx==1.2.0
 python-pptx==1.0.2
+pypdfium2==5.14.0
+Pillow==12.3.0
+winrt-Windows.Media.Ocr==3.2.1; sys_platform == 'win32'
+winrt-Windows.Graphics.Imaging==3.2.1; sys_platform == 'win32'
+winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'
+winrt-Windows.Globalization==3.2.1; sys_platform == 'win32'
+winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'
+winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'

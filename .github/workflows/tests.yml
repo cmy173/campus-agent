@@ -1,0 +1,86 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      # API settings diagnostics launch the real Node runtime for local MCP/search
+      # fixtures. Jobs have separate filesystems, so runtime-job installs do not
+      # satisfy these API tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/agent-runtime/package-lock.json
+      - name: Install runtime dependencies for API diagnostics
+        working-directory: apps/agent-runtime
+        run: npm ci
+      - name: Install API and connector dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r ../../connectors/requirements.txt
+      - name: API suite
+        working-directory: apps/api
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = '1'
+          $env:STUDY_DATABASE_URL = 'sqlite:///' + (Join-Path $PWD '.ci\api.db')
+          $env:STUDY_FILES_DIR = Join-Path $PWD '.ci\files'
+          $env:STUDY_SECRETS_DIR = Join-Path $PWD '.ci\secrets'
+          $env:CAMPUS_AGENT_HOME = Join-Path $PWD '.ci\home'
+          New-Item -ItemType Directory -Force -Path .ci | Out-Null
+          python -m pytest -q
+      - name: Migrated connector regression (root tests)
+        run: python -m pytest tests connectors/tests -q
+      - name: Launcher and venv/npm environment tests
+        run: python -m pytest tools/test_launcher.py -q
+      - name: Contract export matches the implemented Agent API
+        run: python tools/export_agent_contract.py --check
+  runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/agent-runtime/package-lock.json
+      - run: npm ci
+        working-directory: apps/agent-runtime
+      - name: Runtime boundary and model bridge recovery regressions
+        working-directory: apps/agent-runtime
+        run: |
+          npm run test:audit
+          node verify-transition-recovery.mjs
+      # Both scripts drive the real upstream runtime against local fixtures only: no
+      # provider key, no network, no cost. They cover the deferred tool groups and the
+      # actual child-agent lifecycle with selective cancellation.
+      - name: Deferred tool groups
+        run: node apps/agent-runtime/verify-tool-groups.mjs
+      - name: Subagent lifecycle and selective control
+        run: node apps/agent-runtime/verify-subagent-controls.mjs
+  web:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+      - run: npm test -- --maxWorkers=2
+        working-directory: apps/web

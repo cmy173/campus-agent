@@ -1,0 +1,39 @@
+{
+  "recording_id": "rec_cs261_lec04",
+  "language": "zh-CN",
+  "provenance": "platform",
+  "resource_version": 1,
+  "segments": [
+    {
+      "start_seconds": 15,
+      "end_seconds": 19,
+      "text": "上一讲我们介绍了图的广度优先遍历"
+    },
+    {
+      "start_seconds": 19,
+      "end_seconds": 26,
+      "text": "这一讲来看深度优先遍历的实现与复杂度",
+      "translated_text": "In this lecture we look at the implementation and complexity of depth-first traversal"
+    },
+    {
+      "start_seconds": 26,
+      "end_seconds": 33,
+      "text": "先回顾一下邻接表的存储结构"
+    },
+    {
+      "start_seconds": 200,
+      "end_seconds": 260,
+      "text": "深度优先遍历可以用递归实现，也可以借助显式栈"
+    },
+    {
+      "start_seconds": 260,
+      "end_seconds": 320,
+      "text": "下面分析复杂度：邻接表存储时，时间是 V 加 E 量级"
+    },
+    {
+      "start_seconds": 320,
+      "end_seconds": 380,
+      "text": "对稠密图，邻接矩阵表示的代价会更高"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "sources": [
+    {
+      "id": "src_http_search",
+      "name": "自建检索服务（HTTP）",
+      "kind": "search_service",
+      "configured": false,
+      "requires_config": true,
+      "searchable": true,
+      "fetchable": true,
+      "answer_available": false,
+      "formula_support": "unknown",
+      "notes": "未配置服务地址前不可用；配置后仅发送提炼检索词，不上传课件/作业/备注原文。"
+    },
+    {
+      "id": "src_questionbank_api",
+      "name": "示例题库 API",
+      "kind": "questionbank_api",
+      "configured": false,
+      "requires_config": true,
+      "searchable": true,
+      "fetchable": true,
+      "answer_available": true,
+      "formula_support": "text",
+      "notes": "按上游 API 文档转换字段；许可与使用限制以来源页声明为准。"
+    },
+    {
+      "id": "src_user_url",
+      "name": "用户提供链接导入",
+      "kind": "user_url",
+      "configured": true,
+      "requires_config": false,
+      "searchable": false,
+      "fetchable": true,
+      "answer_available": false,
+      "formula_support": "unknown",
+      "notes": "单页/文档导入；不自动扫站、不绕过登录与验证码。"
+    }
+  ]
+}

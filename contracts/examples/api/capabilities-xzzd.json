@@ -1,0 +1,27 @@
+{
+  "platform": "xzzd",
+  "connection_id": "conn_2a9f",
+  "connector_version": "0.1.0-draft",
+  "auth": {
+    "mode": "user_session",
+    "sso": "zjuam-cas",
+    "recovery_hint": "在浏览器中重新登录学在浙大后重试"
+  },
+  "features": {
+    "course_list": { "status": "unknown", "note": "未登录可浏览公开课程目录；个人课程列表待验证" },
+    "course_meta": { "status": "unknown", "note": null },
+    "attachments_meta": { "status": "unknown", "note": null },
+    "attachment_download": { "status": "unknown", "note": "已观察到 /oss/download?token= 形式；token 有效期未验证" },
+    "assignments": { "status": "unknown", "note": "官方确认「作业与测试」功能存在；字段形态待验证" },
+    "recordings": { "status": "unknown", "note": "官方确认「课程回放」功能存在" },
+    "subtitles": { "status": "unknown", "note": null },
+    "playback_seek": { "status": "unknown", "note": null },
+    "deletion_signal": { "status": "unknown", "note": null }
+  },
+  "limits": {
+    "page_size_max": null,
+    "rate_limit_note": null,
+    "campus_network_required": "unknown"
+  },
+  "checked_at": "2026-10-09T18:50:00+08:00"
+}

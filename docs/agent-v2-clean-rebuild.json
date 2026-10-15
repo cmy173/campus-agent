@@ -1,0 +1,61 @@
+{
+  "kind": "clean_rebuild_from_tracked_files",
+  "date": "2026-10-14",
+  "source": "git archive HEAD (tracked files only; no .git, .venv, node_modules, var, data)",
+  "clean_directory": "D:/AI/campus-agent/.test-tmp/v2-round/rebuild-v3",
+  "files_extracted": 679,
+  "invoked_with": "another project's venv interpreter (D:/AI/campus-agent/apps/api/.venv/Scripts/python.exe)",
+  "setup": {
+    "command": "python tools/dev.py --setup",
+    "exit_code": 0,
+    "notes": [
+      "venv created from the base interpreter, not the borrowed venv",
+      "53 pinned wheels installed with --require-hashes",
+      "packages/learning built editable; pip check reported no broken requirements",
+      "apps/web: 180 packages, 0 vulnerabilities",
+      "apps/agent-runtime: 540 packages, 0 vulnerabilities"
+    ]
+  },
+  "check": {"command": "python tools/dev.py --check", "exit_code": 0},
+  "web_build": {"command": "npx vite build (apps/web)", "exit_code": 0, "seconds": 1.47},
+  "runtime_integration": {
+    "command": "python tools/verify_agent_runtime.py",
+    "exit_code": 0,
+    "ok": true,
+    "model_calls": 77,
+    "evidence": "D:/AI/campus-agent/var/agent-integration-cleanrebuild/evidence.json (copied out of the scratch rebuild tree before reclaiming it)",
+    "notes": "Real API + real Harness SDK + real tools; the model provider is a controlled local fixture, so this is controlled-model evidence, not a real DeepSeek-service trial."
+  },
+  "defects_found_and_fixed_by_this_rebuild": [
+    {
+      "id": "venv-from-borrowed-venv",
+      "symptom": "python -m venv failed with WinError 5 when tools/dev.py was started by another project's venv interpreter",
+      "cause": "dev.py used sys.executable, which may be a different project's venv interpreter",
+      "fix": "base_python() resolves the base interpreter the running one was created from",
+      "test": "tools/test_launcher.py::test_base_python_avoids_building_a_venv_from_another_venv"
+    },
+    {
+      "id": "venv-nonzero-exit-on-usable-env",
+      "symptom": "python -m venv exited 1 with 'Permission denied: pyvenv.cfg' while python.exe, pip and pyvenv.cfg were all present and usable",
+      "cause": "transient file lock (Windows antivirus real-time scan) on a freshly extracted tree; reproduced outside dev.py",
+      "fix": "ensure_project_venv() validates interpreter usability instead of the creator's exit code, with a bounded retry and a clear failure message",
+      "test": "tools/test_launcher.py::test_venv_is_accepted_when_usable_despite_a_nonzero_creator_exit, ::test_venv_creation_failure_is_reported_after_bounded_retries"
+    },
+    {
+      "id": "leaked-npm-allow-scripts",
+      "symptom": "npm ci failed with EALLOWSCRIPTS: '--allow-scripts is not allowed in project-scoped installs'",
+      "cause": "the launcher forwarded the caller's environment, including NPM_CONFIG_ALLOW_SCRIPTS injected by an outer npm exec wrapper",
+      "fix": "npm_environment() removes npm's own lifecycle/invocation markers case-insensitively (Windows upper-cases env names) while keeping real npm config such as registry and cache",
+      "test": "tools/test_launcher.py::test_npm_environment_drops_outer_npm_markers_but_keeps_real_config, ::test_npm_environment_matches_the_real_process_environment, ::test_npm_install_passes_the_sanitized_environment"
+    }
+  ],
+  "observations": [
+    "npm reported 'allow-scripts' for 5 packages (dsh-subprocess-local, koffi, node-pty, protobufjs, @google/genai) whose install scripts are not covered by allowScripts. npm ci still exited 0 and the real Harness integration passed all 77 controlled model calls in this tree, so no required native module was left unusable by this path. Recorded as an observation with evidence rather than silently ignored.",
+    "The integration run's fixture HTTP server logs a WinError 10054 ConnectionResetError while shutting down a real connection; the run still exits 0 with ok=true. This is the documented fixture-teardown diagnostic."
+  ],
+  "not_verified_here": [
+    "real DeepSeek official model and search (needs a local key and an explicit budget)",
+    "real ZJU account login-state trial (needs the user to complete login in the browser)",
+    "npm approve-scripts behaviour on a machine whose npm does not gate install scripts"
+  ]
+}

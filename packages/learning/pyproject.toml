@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zju-learning"
+version = "0.1.0.dev0"
+description = "浙大学习工作台：内容处理与学习计划引擎（智能体 D，packages/learning）"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+parse = ["pypdf>=5"]
+test = ["pytest>=8", "tzdata; sys_platform == 'win32'", "pypdf>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

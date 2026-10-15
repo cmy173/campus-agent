@@ -1,0 +1,816 @@
+{
+  "resources": [
+    {
+      "id": "res_r10a001",
+      "course_id": "crs_5a1b01",
+      "kind": "other",
+      "title": "课程资料-A-01-01.mp4",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00101",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 495047861,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:58:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a002",
+      "course_id": "crs_5a1b01",
+      "kind": "other",
+      "title": "课程资料-A-01-02.mp4",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00102",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 411827661,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:58:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a003",
+      "course_id": "crs_5a1b01",
+      "kind": "other",
+      "title": "课程资料-A-01-03.mp4",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00103",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 472473775,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:58:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a004",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-03-01.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00301",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 1144195,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:32.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a005",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-03-02.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00302",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 1100384,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:32.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a006",
+      "course_id": "crs_5a1b01",
+      "kind": "other",
+      "title": "课程资料-A-04-01.mp4",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00401",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 867519546,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:56:09.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a007",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-01.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00601",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 1011796,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a008",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-02.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00602",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 1101594,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a009",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-03.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00603",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 215552,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a010",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-04.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00604",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 35328,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a011",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-05.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00605",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 222208,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a012",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-06.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00606",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 4376064,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a013",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-07.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00607",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 4376064,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a014",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-08.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00608",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 619008,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a015",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-09.docx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00609",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 77214,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a016",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-06-10.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00610",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 216576,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:57:06.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a017",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-07-01.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00701",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 121344,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:36:30.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a018",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-07-02.doc",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a00702",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 206848,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:36:30.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a019",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-11-01.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a01101",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 42879434,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:56:40.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a020",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-11-02.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a01102",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 3329419,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:56:40.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10a021",
+      "course_id": "crs_5a1b01",
+      "kind": "document",
+      "title": "课程资料-A-11-03.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10a01103",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 3433720,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-16T11:56:40.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b001",
+      "course_id": "crs_5a1b02",
+      "kind": "document",
+      "title": "课程资料-B-01-01.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00101",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 128119,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-23T08:21:46.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b002",
+      "course_id": "crs_5a1b02",
+      "kind": "slides",
+      "title": "课程资料-B-07-01.pptx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00701",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 2326695,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-09-08T00:28:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b003",
+      "course_id": "crs_5a1b02",
+      "kind": "slides",
+      "title": "课程资料-B-07-02.pptx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00702",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 3524986,
+      "access_level": "preview_only",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-09-08T00:28:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b004",
+      "course_id": "crs_5a1b02",
+      "kind": "document",
+      "title": "课程资料-B-07-03.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00703",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 501197,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-09-08T00:28:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b005",
+      "course_id": "crs_5a1b02",
+      "kind": "document",
+      "title": "课程资料-B-07-04.pdf",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00704",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 407347,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-09-08T00:28:55.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b006",
+      "course_id": "crs_5a1b02",
+      "kind": "document",
+      "title": "课程资料-B-08-01.docx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00801",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 17412,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-17T08:43:59.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    },
+    {
+      "id": "res_r10b007",
+      "course_id": "crs_5a1b02",
+      "kind": "document",
+      "title": "课程资料-B-08-02.docx",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-r10b00802",
+          "canonical_url": null,
+          "observed_at": "2026-10-10T05:03:03.737Z"
+        }
+      ],
+      "version": 1,
+      "content_hash": null,
+      "parse_status": "pending",
+      "mime_type": null,
+      "size_bytes": 15743,
+      "access_level": "full",
+      "file_id": null,
+      "extent_value": null,
+      "extent_unit": null,
+      "chunk_count": null,
+      "fetched_at": null,
+      "source_updated_at": "2026-08-17T08:43:59.000Z",
+      "archived_at": null,
+      "created_at": "2026-10-10T05:03:03.737Z",
+      "updated_at": "2026-10-10T05:03:03.737Z"
+    }
+  ]
+}

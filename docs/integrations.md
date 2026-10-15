@@ -1,4 +1,22 @@
+2026-10-12 新增：`ckc_public/college_notices` 按服务端账号学院匹配竺可桢学院官方 WebPlus 办公网，已真实读取 3 条通知正文和 7 个附件链接。界面支持保存至原资料/待办流程；其他院系、附件内容及完整历史尚未接入。协议依据、网络条件和验证边界见 [学院通知](college-notices.md)。
+
+2026-10-12 新增：通知整理接入可选的 DeepSeek 提取适配器（`POST https://api.deepseek.com/chat/completions` + `response_format=json_object`），与校园平台适配器完全分离，密钥只来自服务端环境变量，接口地址为代码常量。发送内容限于通知标题、正文段落、发布日期、学院名称、平台记录 ID 与附件名称；不发送校园凭据或个人档案，附件不下载、不解析。真实成功补全尚未验证（本机无有效密钥），已用真实端点验证连通性与 401 错误分类。契约、边界与验证记录见 [通知整理](notice-extraction.md)。
+
+2026-10-12 当前状态：教务与 ETA 协议已迁移至独立适配器，保留原登录、缓存及展示；新接入 `zdbk_public/notices`，无校园 Cookie 获取 6 条真实近期/置顶通知摘要，并验证 SQLite、离线查询和重启恢复。统一调用和开发指南见 [connectors.md](connectors.md)，真实与模拟验证分别记录。教务/ETA 本轮没有重新提交真实凭据；以下保留历史调研。
+
+## 本轮新能力：公开教务通知摘要
+
+来源为学校本科教务系统的公开 [登录页面](https://zdbk.zju.edu.cn/jwglxt/xtgl/login_slogin.html) 及 [通知片段](https://zdbk.zju.edu.cn/jwglxt/xtgl/login_cxLoginNews.html?mxb_id=newsnotice)。本机用无 Cookie、空表单 POST 固定片段获得 HTTP 200，HTML `ul.log-list > li` 内包含详情链接、通知标题和方括号发布时间。详情依据为固定 `/jwglxt/xtgl/xwck_ckLoginNews.html?xwbh=<32位业务ID>&doType=save`；程序只返回验证后的链接，不请求正文。条数最多 6，标题可能截断、含置顶标签；不声明开放 API、全量通知或个人权限。
+
+使用步骤：设置校园网络策略并启动服务 → 本地资料账号认证 → POST `/api/campus/sync/notices`，JSON `{"query":{}}`，携带既有 CSRF/同源请求头 → GET `/api/campus/notices` 离线读取。校园 CAS 不是此能力的条件。自动化仅用合成 HTML；真实验证记录见 [2026-10-12 证据](connector-validation-2026-10-12.json)。获取条件限于当前网络可访问该公开端点及结构仍相符；协议改变将返回标准错误并保留缓存。
+
+课程作业、活动和智云在本轮未取得新的可复现只读协议证据，未注册连接器；扩大能力需要本人权限/平台文档、真实字段及分页范围、网络条件，若面向正式学校应用还需平台审批。没有把存在网页入口解释为已经具备 API。
+
+2026-10-09 增量：已实现用户授权的本机 ETA 本人基本信息适配，读取学院、专业、班级及年级并保留来源；公开协议与合成流程已验证，真实账号尚未联调。见 [ETA 适配说明](eta-profile.md)。这不代表正式开放 API 或校方合作接入。
+
 # 平台调研与可行性
+
+2026-10-09 增量：参考 Celechron、login-ZJU 与本机 zjuhelper，加入用户启用的本机 CAS / 本科教务只读适配。公开登录表单和验证码可访问，合成测试及浏览器流程通过；真实学生端点尚未联调，不表示已取得校方应用接入资格。以下保留原调研口径，新增实现与参考提交见 [校园登录说明](campus-login.md)。
 
 调研日期：2026-10-08。仅检索公开页面，未登录、调用私有 API 或使用校园凭据。
 

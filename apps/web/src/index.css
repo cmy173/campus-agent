@@ -1,0 +1,384 @@
+:root {
+  color-scheme: light;
+  --color-paper: #f4f3ed;
+  --color-surface: #fffefa;
+  --color-surface-raised: #ffffff;
+  --color-surface-soft: #efeee7;
+  --color-ink: #25332d;
+  --color-ink-soft: #4b5a52;
+  --color-muted: #737d75;
+  --color-line: #dfe1d8;
+  --color-line-strong: #c8cec3;
+  --color-pine: #315f50;
+  --color-pine-dark: #24493d;
+  --color-pine-soft: #e7efe9;
+  --color-ochre: #aa762f;
+  --color-ochre-soft: #f4eddf;
+  --color-success: #47775a;
+  --color-warning: #a87127;
+  --color-danger: #ad5144;
+  --color-info: #456b78;
+  --font-ui: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --text-2xs: 10px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 25px;
+  --weight-normal: 400;
+  --weight-medium: 550;
+  --weight-semibold: 650;
+  --line-tight: 1.25;
+  --line-normal: 1.55;
+  --line-reading: 1.75;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --control-height: 40px;
+  --control-height-compact: 32px;
+  --radius-control: 8px;
+  --radius-panel: 11px;
+  --shadow-header: 0 1px 0 rgba(36, 56, 45, 0.025);
+  /* 3px shell border + 52px header + 1px header rule: the chat viewport starts here. */
+  --app-shell-header: 56px;
+  font-family: var(--font-ui);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html {
+  background: var(--color-paper);
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  color: var(--color-pine-dark);
+  background: #dce9df;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-pine) 34%, transparent);
+  outline-offset: 2px;
+}
+
+.app-shell {
+  min-width: 0;
+  min-height: 100dvh;
+  border-top: 3px solid var(--color-pine);
+}
+
+.app-header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px clamp(14px, 3vw, 40px);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+  box-shadow: var(--shadow-header);
+}
+
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.app-brand:hover {
+  color: var(--color-pine-dark);
+}
+
+.app-brand-mark {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--color-surface);
+  background: var(--color-pine);
+  border-radius: 6px 6px 6px 2px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.08em;
+}
+
+.app-tagline {
+  flex: 1;
+  color: var(--color-muted) !important;
+  font-size: 12px;
+  letter-spacing: 0.015em;
+}
+
+.app-header .ant-tag {
+  margin-inline-end: 0;
+}
+
+.page-content {
+  width: 100%;
+  min-width: 0;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 20px clamp(16px, 3vw, 40px) 24px;
+}
+
+/* Shared Ant Design surface language: crisp borders, quiet fills, no decorative glow. */
+.ant-typography {
+  color: var(--color-ink);
+}
+
+.ant-typography-secondary,
+.ant-typography.ant-typography-secondary {
+  color: var(--color-muted) !important;
+}
+
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+.ant-typography h4,
+h1.ant-typography,
+h2.ant-typography,
+h3.ant-typography,
+h4.ant-typography {
+  color: var(--color-ink);
+  letter-spacing: -0.035em;
+}
+
+.ant-btn {
+  font-weight: 550;
+  box-shadow: none;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.ant-btn-default {
+  color: var(--color-ink-soft);
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-raised);
+}
+
+.ant-btn-default:not(:disabled):hover {
+  color: var(--color-pine-dark);
+  border-color: #91ad9c;
+  background: #f8faf6;
+}
+
+.ant-btn-primary {
+  font-weight: 600;
+}
+
+.ant-btn-primary:not(:disabled):hover {
+  background: var(--color-pine-dark);
+}
+
+.ant-btn-link {
+  font-weight: 600;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector,
+.ant-picker,
+.ant-radio-button-wrapper,
+.ant-segmented {
+  border-radius: var(--radius-control) !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker,
+.ant-select-selector {
+  border-color: var(--color-line-strong) !important;
+  background: var(--color-surface-raised) !important;
+}
+
+.ant-input::placeholder,
+.ant-select-selection-placeholder {
+  color: #929990 !important;
+}
+
+.ant-card {
+  overflow: hidden;
+  border-color: var(--color-line) !important;
+  border-radius: var(--radius-panel) !important;
+  background: var(--color-surface) !important;
+  box-shadow: none !important;
+}
+
+.ant-card-head {
+  min-height: 48px;
+  border-bottom-color: var(--color-line) !important;
+}
+
+.ant-card-head-title {
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.ant-card-small > .ant-card-head {
+  min-height: 42px;
+}
+
+.ant-table-wrapper .ant-table {
+  color: var(--color-ink);
+  background: transparent;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  color: var(--color-ink-soft);
+  background: var(--color-surface-soft) !important;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ant-table-wrapper .ant-table-cell,
+.ant-list .ant-list-item {
+  border-color: var(--color-line) !important;
+}
+
+.ant-tabs .ant-tabs-tab {
+  font-weight: 550;
+}
+
+.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--color-pine-dark);
+  font-weight: 650;
+}
+
+.ant-tabs .ant-tabs-ink-bar {
+  background: var(--color-pine);
+}
+
+.ant-alert {
+  border-radius: 9px;
+}
+
+.ant-tag {
+  border-radius: 5px;
+  font-weight: 550;
+}
+
+.ant-modal .ant-modal-content,
+.ant-popover .ant-popover-inner,
+.ant-dropdown .ant-dropdown-menu {
+  border: 1px solid var(--color-line);
+  border-radius: 11px;
+  box-shadow: 0 12px 34px rgba(37, 51, 45, 0.12);
+}
+
+.ant-drawer .ant-drawer-content {
+  background: var(--color-paper);
+}
+
+.ant-drawer .ant-drawer-header {
+  min-height: 60px;
+  padding: 16px 24px;
+  border-bottom-color: var(--color-line);
+  background: var(--color-surface);
+}
+
+.ant-drawer .ant-drawer-title {
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.ant-drawer .ant-drawer-body {
+  background: var(--color-paper);
+}
+
+.ant-empty .ant-empty-description {
+  color: var(--color-muted);
+}
+
+@media (max-width: 700px) {
+  .app-tagline {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-header {
+    min-height: 52px;
+    gap: 10px;
+    padding: 6px 12px;
+  }
+
+  .app-brand {
+    font-size: 13px;
+  }
+
+  .app-brand-mark {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+
+  .app-header .ant-tag {
+    margin-left: auto;
+    font-size: 10px;
+  }
+
+  .page-content {
+    padding: 10px 12px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The chat owns its viewport and navigation, while legacy pages keep their shell. */
+.page-content:has(> .agent-workbench) { max-width: none; padding: 0; }
+@media (max-width: 767px) {
+  .app-header { min-height: 52px; padding: 6px 12px; }
+  .app-header .app-tagline { display: none; }
+}

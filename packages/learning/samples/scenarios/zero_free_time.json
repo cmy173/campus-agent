@@ -1,0 +1,43 @@
+{
+  "name": "zero_free_time",
+  "description": "零空闲时间：没有任何可用窗口。预期：全部任务进入未安排清单；有截止的三项归为“截止前窗口不足”，无截止的归为“总时间不足”。",
+  "tasks": [
+    {
+      "id": "t_zero_a",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例阅读 A",
+      "estimated_minutes": 45
+    },
+    {
+      "id": "t_zero_b",
+      "course_id": "crs_demo",
+      "type": "assignment",
+      "title": "示例作业 B",
+      "estimated_minutes": 60,
+      "due_at": "2026-10-16T00:00+08:00",
+      "due_precision": "date"
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": ["EMPTY_HORIZON"],
+    "allowed_violations": [],
+    "scheduled_tasks": [],
+    "unassigned": {
+      "t_zero_a": "INSUFFICIENT_TOTAL_TIME",
+      "t_zero_b": "INSUFFICIENT_WINDOW_BEFORE_DUE"
+    }
+  }
+}

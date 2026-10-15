@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-14",
+  "goal_status": "active",
+  "contract": "docs/agent-design/goal-v2-personal-assistant.md",
+  "controlled_model_calls": 64,
+  "api_related_tests": 16,
+  "web_tests": 140,
+  "web_test_files": 23,
+  "python_wheels": 50,
+  "production_build": true,
+  "production_browser_pdf": true,
+  "evidence": {
+    "sdk": "var/agent-integration-7tu0pepb/evidence.json",
+    "browser": "var/agent-integration-pbg09978/browser-document-evidence.json",
+    "downloads": "var/agent-integration-pbg09978/browser-download-evidence.json",
+    "pdf_pagination": "var/v2-document-visual-check",
+    "xlsx_independent_render": "var/v2-document-render/workbook-final-bordered-preview.png"
+  },
+  "unverified": [
+    "real_official_model_and_search",
+    "persistent_browser",
+    "durable_goals_and_scheduling",
+    "folder_selection_and_edit_recovery",
+    "campus_migration_and_old_code_retirement",
+    "full_desktop_visual_capture",
+    "layout_replacement",
+    "performance_baseline",
+    "clean_final_install"
+  ]
+}

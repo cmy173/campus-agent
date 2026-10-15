@@ -1,0 +1,48 @@
+{
+  "name": "tight_daily_limit",
+  "description": "紧每日上限：每日上限 60 分钟、窗口 4 小时。90 分钟可拆任务拆为 45+45 跨两天安排；90 分钟不可拆任务因单日上限无法容纳，归为“任务太长不可拆分”。",
+  "tasks": [
+    {
+      "id": "t_limit_indiv",
+      "course_id": "crs_demo",
+      "type": "assignment",
+      "title": "示例：不可拆 90 分钟",
+      "estimated_minutes": 90,
+      "splittable": false
+    },
+    {
+      "id": "t_limit_split",
+      "course_id": "crs_demo",
+      "type": "practice",
+      "title": "示例：可拆 90 分钟",
+      "estimated_minutes": 90,
+      "splittable": true
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "23:00"},
+      {"weekday": 1, "start": "19:00", "end": "23:00"},
+      {"weekday": 2, "start": "19:00", "end": "23:00"},
+      {"weekday": 3, "start": "19:00", "end": "23:00"},
+      {"weekday": 4, "start": "19:00", "end": "23:00"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": 60
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": ["t_limit_split"],
+    "unassigned": {
+      "t_limit_indiv": "TASK_TOO_LONG_INDIVISIBLE"
+    }
+  }
+}

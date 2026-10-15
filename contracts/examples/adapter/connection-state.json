@@ -1,0 +1,29 @@
+{
+  "examples": [
+    {
+      "platform": "xzzd",
+      "state": "ok",
+      "checked_at": "2026-10-09T18:50:00+08:00",
+      "action": null,
+      "detail": null
+    },
+    {
+      "platform": "zykt",
+      "state": "auth_required",
+      "checked_at": "2026-10-09T18:50:00+08:00",
+      "action": {
+        "type": "user_login",
+        "entry_url": "https://classroom.zju.edu.cn/",
+        "message": "登录已失效，请在浏览器中重新登录智云课堂"
+      },
+      "detail": "请求被重定向至统一身份认证"
+    },
+    {
+      "platform": "zykt",
+      "state": "network_error",
+      "checked_at": "2026-10-09T19:02:00+08:00",
+      "action": null,
+      "detail": "连接超时（有界退避重试中）"
+    }
+  ]
+}

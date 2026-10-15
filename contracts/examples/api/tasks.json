@@ -1,0 +1,191 @@
+{
+  "items": [
+    {
+      "id": "tsk_0f3a91",
+      "match_key": "t:crs_3f8a21:reading:第03讲-线性表",
+      "course_id": "crs_3f8a21",
+      "type": "reading",
+      "title": "第03讲 线性表（课件）",
+      "estimated_minutes": 92,
+      "due_at": null,
+      "due_precision": "unknown",
+      "prerequisite_ids": [],
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33001",
+          "canonical_url": "https://course.zju.edu.cn/file/33001",
+          "observed_at": "2026-10-08T09:30:00+08:00"
+        }
+      ],
+      "status": "pending",
+      "fact_source": "inferred",
+      "revision": 2,
+      "archived_at": null,
+      "created_at": "2026-10-08T21:00:00+08:00",
+      "updated_at": "2026-10-08T21:00:00+08:00"
+    },
+    {
+      "id": "tsk_1b7c02",
+      "match_key": "t:crs_9b6c40:watching:zykt-rec-40021",
+      "course_id": "crs_9b6c40",
+      "type": "watching",
+      "title": "第04讲 图与搜索（回放）",
+      "estimated_minutes": 90,
+      "due_at": null,
+      "due_precision": "unknown",
+      "prerequisite_ids": ["tsk_8g3c58"],
+      "source_refs": [
+        {
+          "platform": "zykt",
+          "external_id": "zykt-rec-40021",
+          "canonical_url": "https://classroom.zju.edu.cn/course/20011/playback/40021",
+          "observed_at": "2026-10-08T09:50:00+08:00"
+        }
+      ],
+      "status": "pending",
+      "fact_source": "inferred",
+      "revision": 1,
+      "archived_at": null,
+      "created_at": "2026-10-08T21:00:00+08:00",
+      "updated_at": "2026-10-08T21:00:00+08:00"
+    },
+    {
+      "id": "tsk_2c8d13",
+      "match_key": "t:crs_3f8a21:assignment:xzzd-assign-55001",
+      "course_id": "crs_3f8a21",
+      "type": "assignment",
+      "title": "作业3：树与二叉树",
+      "estimated_minutes": 90,
+      "due_at": "2026-10-01T23:59:00+08:00",
+      "due_precision": "datetime",
+      "prerequisite_ids": [],
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-assign-55001",
+          "canonical_url": "https://course.zju.edu.cn/assignment/55001",
+          "observed_at": "2026-10-08T09:35:00+08:00"
+        }
+      ],
+      "status": "pending",
+      "fact_source": "inferred",
+      "revision": 1,
+      "archived_at": null,
+      "created_at": "2026-10-08T21:00:00+08:00",
+      "updated_at": "2026-10-08T21:00:00+08:00"
+    },
+    {
+      "id": "tsk_3d9e24",
+      "match_key": "t:crs_51c9d0:practice:xzzd-assign-55102",
+      "course_id": "crs_51c9d0",
+      "type": "practice",
+      "title": "随堂练习二",
+      "estimated_minutes": 30,
+      "due_at": "2026-10-25T23:59:00+08:00",
+      "due_precision": "datetime",
+      "prerequisite_ids": [],
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-assign-55102",
+          "canonical_url": "https://course.zju.edu.cn/assignment/55102",
+          "observed_at": "2026-10-08T09:43:00+08:00"
+        }
+      ],
+      "status": "pending",
+      "fact_source": "inferred",
+      "revision": 1,
+      "archived_at": null,
+      "created_at": "2026-10-08T21:00:00+08:00",
+      "updated_at": "2026-10-08T21:00:00+08:00"
+    },
+    {
+      "id": "tsk_4e0f35",
+      "match_key": null,
+      "course_id": "crs_9b6c40",
+      "type": "review",
+      "title": "数据结构：阶段复习",
+      "estimated_minutes": 45,
+      "due_at": null,
+      "due_precision": "unknown",
+      "prerequisite_ids": [],
+      "source_refs": [],
+      "status": "completed",
+      "fact_source": "user",
+      "revision": 3,
+      "archived_at": null,
+      "created_at": "2026-10-05T20:00:00+08:00",
+      "updated_at": "2026-10-08T22:30:00+08:00"
+    },
+    {
+      "id": "tsk_5a2b63",
+      "match_key": "t:crs_51c9d0:reading:旧讲义",
+      "course_id": "crs_51c9d0",
+      "type": "reading",
+      "title": "旧讲义（已放弃）",
+      "estimated_minutes": 60,
+      "due_at": null,
+      "due_precision": "unknown",
+      "prerequisite_ids": [],
+      "source_refs": [],
+      "status": "cancelled",
+      "fact_source": "user",
+      "revision": 2,
+      "archived_at": "2026-10-08T12:00:00+08:00",
+      "created_at": "2026-10-03T10:00:00+08:00",
+      "updated_at": "2026-10-08T12:00:00+08:00"
+    },
+    {
+      "id": "tsk_6f2b47",
+      "match_key": "t:crs_51c9d0:assignment:xzzd-assign-55101",
+      "course_id": "crs_51c9d0",
+      "type": "assignment",
+      "title": "论文阅读报告",
+      "estimated_minutes": 120,
+      "due_at": "2026-10-20T12:00:00+08:00",
+      "due_precision": "datetime",
+      "prerequisite_ids": [],
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-assign-55101",
+          "canonical_url": "https://course.zju.edu.cn/assignment/55101",
+          "observed_at": "2026-10-08T09:42:00+08:00"
+        }
+      ],
+      "status": "completed",
+      "fact_source": "inferred",
+      "revision": 2,
+      "archived_at": null,
+      "created_at": "2026-10-06T17:55:00+08:00",
+      "updated_at": "2026-10-09T15:00:00+08:00"
+    },
+    {
+      "id": "tsk_8g3c58",
+      "match_key": "t:crs_9b6c40:watching:zykt-rec-40011",
+      "course_id": "crs_9b6c40",
+      "type": "watching",
+      "title": "第03讲 树与遍历（回放）",
+      "estimated_minutes": 90,
+      "due_at": null,
+      "due_precision": "unknown",
+      "prerequisite_ids": [],
+      "source_refs": [
+        {
+          "platform": "zykt",
+          "external_id": "zykt-rec-40011",
+          "canonical_url": "https://classroom.zju.edu.cn/course/20011/playback/40011",
+          "observed_at": "2026-10-08T09:51:00+08:00"
+        }
+      ],
+      "status": "pending",
+      "fact_source": "inferred",
+      "revision": 1,
+      "archived_at": null,
+      "created_at": "2026-10-08T21:00:00+08:00",
+      "updated_at": "2026-10-08T21:00:00+08:00"
+    }
+  ],
+  "next_cursor": null
+}

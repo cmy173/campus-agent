@@ -1,0 +1,29 @@
+{
+  "recording_id": "rec_r102",
+  "resource_version": 1,
+  "language": "zh-CN",
+  "provenance": "platform",
+  "segments": [
+    {
+      "start_seconds": 15,
+      "end_seconds": 19,
+      "text": "上一讲我们介绍了图的广度优先遍历"
+    },
+    {
+      "start_seconds": 19,
+      "end_seconds": 26,
+      "text": "这一讲来看深度优先遍历的实现与复杂度",
+      "translated_text": "In this lecture we look at the implementation and complexity of depth-first traversal"
+    },
+    {
+      "start_seconds": 26,
+      "end_seconds": 33,
+      "text": "先回顾一下邻接表的存储结构"
+    }
+  ],
+  "locator_example": {
+    "type": "time_range",
+    "start_seconds": 19,
+    "end_seconds": 26
+  }
+}

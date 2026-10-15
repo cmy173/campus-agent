@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MappingCandidate",
+  "description": "跨平台课程映射候选（A3 §6 冻结版结构）。两个内部课程被判定可能为同一门课；低置信度需用户确认。v0.1 仅冻结结构，确认/合并端点在 v0.2 提供。",
+  "type": "object",
+  "required": ["left_course_id", "right_course_id", "evidence", "confidence", "requires_user_confirmation"],
+  "properties": {
+    "left_course_id": { "$ref": "common.schema.json#/$defs/id", "description": "候选课程 A 的内部 ID（A3 原字段 a_course_id，冻结时更名为 left/right，避免与“智能体 A/B”混淆）。" },
+    "right_course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "evidence": {
+      "type": "object",
+      "required": ["same_title", "same_teacher", "term_overlap"],
+      "properties": {
+        "same_title": { "type": ["boolean", "null"] },
+        "same_teacher": { "type": ["boolean", "null"] },
+        "term_overlap": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "confidence": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/confidence" },
+        { "type": "null" }
+      ]
+    },
+    "requires_user_confirmation": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

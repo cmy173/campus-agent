@@ -1,0 +1,14 @@
+{
+  "package": "@deepseek-ai/dsh",
+  "version": "0.2.0-rc.2",
+  "resolved": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.0-rc.2.tgz",
+  "integrity": "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA==",
+  "license": "MIT",
+  "runtime_test": "apps/agent-runtime/smoke.mjs",
+  "evidence": "var/runtime-smoke-M8Z3f1/runtime-evidence.json",
+  "python_integration_test": "tools/verify_agent_runtime.py",
+  "python_integration_evidence": "var/agent-integration-qbk_diui/evidence.json",
+  "cold_resume_adapter": "apps/agent-runtime/campus-sdk.mjs",
+  "cold_resume_api": "Official Cordis context.extend + sessionPersistence.stat + agents.resume; official SDK server apply unchanged",
+  "model_visible_tool_count": 16
+}

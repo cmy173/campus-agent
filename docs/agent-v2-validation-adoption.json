@@ -1,0 +1,15 @@
+{
+  "kind": "v2_source_adoption_and_first_ui_separation",
+  "implementation_directory": "D:/AI/campus-agent",
+  "branch": "codex/personal-assistant-v2",
+  "snapshot": "D:/AI/campus-agent-goal-backups/20261013-v2-start",
+  "installation": {"session": 80250, "exit_code": 0, "pip_check": "No broken requirements found", "runtime_versions_changed": false},
+  "api_tests": {"session": 48862, "exit_code": 0, "passed": 272, "seconds": 42.62, "database": "var/v2-adoption-regression.db"},
+  "web_tests": {"session": 54034, "exit_code": 0, "files_passed": 19, "passed": 125, "seconds": 27.37},
+  "web_build": {"session": 10833, "exit_code": 0},
+  "startup": {"session": 66019, "exit_code": 0, "entry": "launch.py -> tools/dev.py", "database": "var/v2-launch-smoke.db", "api_port": 18101, "web_port": 15177},
+  "harness_integration": {"session": 50902, "exit_code": 0, "evidence": "var/agent-integration-jvp5x4ct/evidence.json", "model_calls": 41, "model": "controlled fixture", "paid_provider_verified": false},
+  "ui_change": ["features/agent/useConversationController.ts", "features/agent/AgentPage.tsx", "features/agent/agent-theme.css"],
+  "known_pending": ["C-tier runtime capabilities", "old capability migration and retirement", "true official model and campus verification", "final clean rebuild", "general artifact UI and layout preview", "before/after performance benchmark"],
+  "goal_complete": false
+}

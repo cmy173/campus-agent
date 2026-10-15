@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ErrorResponse",
+  "description": "统一错误响应体。所有非 2xx 响应均为此结构。",
+  "type": "object",
+  "required": ["error"],
+  "properties": {
+    "error": { "$ref": "#/$defs/Error" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ErrorInfo": {
+      "type": "object",
+      "description": "错误信息（不含 request_id，用于嵌套在 Job.errors 等内部结构）。",
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "机器可读错误码，见 contracts/README.md 错误码表。",
+          "examples": ["VALIDATION_FAILED", "PLAN_STALE", "AUTH_EXPIRED"]
+        },
+        "message": { "type": "string", "minLength": 1, "description": "面向开发者的可读说明。" },
+        "retryable": { "type": "boolean", "description": "重试是否可能成功（客户端需配合退避）。" },
+        "details": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "结构化细节（如字段级校验失败、冲突对象 ID）。"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "details", "request_id"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "details": { "type": ["object", "null"], "additionalProperties": true },
+        "request_id": { "type": "string", "minLength": 1, "description": "服务端请求/诊断 ID，日志可用其检索。" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

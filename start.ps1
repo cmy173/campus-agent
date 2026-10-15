@@ -1,11 +1,12 @@
 param([int]$Port = 8765)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
-$venvPython = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
-if (-not (Test-Path -LiteralPath $venvPython)) {
-    Write-Host 'Please run the setup commands in README.md first.'
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    & py -3 launch.py --port $Port
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    & python launch.py --port $Port
+} else {
+    Write-Host 'Install Python 3.12 from https://www.python.org/downloads/ and enable Add Python to PATH.'
     exit 1
 }
-Write-Host "Campus Agent: http://127.0.0.1:$Port (Ctrl+C to stop)"
-& $venvPython -m campus_agent.server --port $Port
 exit $LASTEXITCODE

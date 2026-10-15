@@ -1,0 +1,28 @@
+# 运行依赖
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+reportlab==5.0.1
+openpyxl==3.1.5
+sqlalchemy>=2.0
+alembic>=1.13
+
+# 计划引擎与解析（智能体 D 交付，packages/learning；editable 安装，路径相对本文件）
+# [parse] 安装文本型 PDF 解析依赖（pypdf）；PPTX/DOCX 解析为纯标准库，无需额外依赖
+-e ../../packages/learning[parse]
+# Windows 精简环境缺少 IANA 时区数据（ZoneInfo 依赖）时补充
+tzdata; sys_platform == "win32"
+
+# 开发/测试依赖
+pytest>=8.0
+httpx>=0.27
+# 测试中按 contracts/schemas 校验响应体（draft 2020-12；referencing 为其硬依赖）
+jsonschema>=4.20
+# 测试中解析 contracts/openapi/openapi.yaml 做路由集合双向对账（test_contract_conformance）
+PyYAML>=6.0
+# 跨模块（connectors 套件与真实联调；声明源头 ../../connectors/requirements.txt）：
+# connectors/tests/test_transport.py 模块级导入 requests，缺则套件收集期整体中断
+requests>=2.31
+
+# Migrated ZJU CAS/ETA/WebVPN wire protocols.
+cryptography==50.0.2

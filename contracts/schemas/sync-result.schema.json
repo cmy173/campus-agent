@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SyncResult",
+  "description": "适配器一次课程同步的信封（A3 §3.4 冻结版）。B 在此基础上实现持久化与幂等。语义保证：(1) 空响应、失败、限流一律不产生 deletions，仅 reason=explicit_delete_signal 是删除事件；(2) 单项失败隔离，有效结果照常提交；(3) 游标失效以 mode=resync 全量对照；(4) 重复同步不产生重复业务数据（幂等键建议 (platform, course_id, cursor.previous)）。",
+  "type": "object",
+  "required": ["platform", "connection_id", "course_id", "mode", "cursor", "upserts", "deletions", "errors", "stats", "observed_at"],
+  "properties": {
+    "platform": { "type": "string", "minLength": 1, "examples": ["xzzd", "zykt"] },
+    "connection_id": { "$ref": "common.schema.json#/$defs/id" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id", "description": "内部课程 ID（B 触发同步时提供，适配器回显）。" },
+    "mode": {
+      "type": "string",
+      "enum": ["incremental", "resync"],
+      "description": "incremental=按游标增量；resync=游标失效后的全量对照，明确标注避免“静默全量”。"
+    },
+    "cursor": {
+      "type": "object",
+      "required": ["previous", "next"],
+      "properties": {
+        "previous": { "type": ["string", "null"], "description": "本次同步使用的游标（首次为 null）。" },
+        "next": { "type": ["string", "null"], "description": "下次同步应使用的游标；不得解析其结构。" }
+      },
+      "additionalProperties": false
+    },
+    "upserts": {
+      "type": "object",
+      "required": ["resources", "assignments", "recordings"],
+      "properties": {
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/ResourceUpsert" } },
+        "assignments": { "type": "array", "items": { "$ref": "#/$defs/AssignmentUpsert" } },
+        "recordings": { "type": "array", "items": { "$ref": "#/$defs/RecordingUpsert" } }
+      },
+      "additionalProperties": false
+    },
+    "deletions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Deletion" },
+      "description": "仅显式删除信号产生；空响应/失败/限流/权限变化绝不产生删除。"
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "error.schema.json#/$defs/Error" },
+      "description": "单项失败（隔离，不中断整页/整课）。"
+    },
+    "stats": {
+      "type": "object",
+      "required": ["scanned", "upserted", "deleted", "failed"],
+      "properties": {
+        "scanned": { "type": "integer", "minimum": 0 },
+        "upserted": { "type": "integer", "minimum": 0 },
+        "deleted": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ResourceUpsert": {
+      "type": "object",
+      "description": "资源元数据 upsert 项。不含 parse_status/file_id 等 B/D 侧字段（入库后由 B 置 pending）。",
+      "required": ["kind", "title", "source_ref", "content_hash"],
+      "properties": {
+        "id": { "type": "string", "description": "已存在资源的内部 ID 回显（可选；B 始终以 (platform, external_id) 解析为准）。" },
+        "kind": { "type": "string", "enum": ["slides", "handout", "syllabus", "scan", "document", "link", "other"] },
+        "title": { "type": "string", "minLength": 1 },
+        "source_ref": { "$ref": "source-ref.schema.json" },
+        "version": { "type": "integer", "minimum": 1, "description": "适配器观测到的版本号（可选）；版本递增由 B 决定。" },
+        "content_hash": { "$ref": "common.schema.json#/$defs/content_hash", "description": "可计算时提供；未获取为 null（不猜测）。" },
+        "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "mime_type": { "type": ["string", "null"] },
+        "access_level": { "type": "string", "enum": ["full", "preview_only", "restricted"] },
+        "source_updated_at": { "type": ["string", "null"], "format": "date-time", "description": "平台侧最后更新时间（若有）。" },
+        "extent_value": { "type": ["integer", "null"], "minimum": 0, "description": "可选：平台可观测到的篇幅量（如页数），用于学习时长估算；不可得则省略或 null。" },
+        "extent_unit": {
+          "oneOf": [
+            { "type": "string", "enum": ["page", "slide"] },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "AssignmentUpsert": {
+      "type": "object",
+      "required": ["title", "instructions", "due_at", "due_precision", "submission_status", "source_ref"],
+      "properties": {
+        "id": { "type": "string", "description": "已存在作业的内部 ID 回显（可选）。" },
+        "title": { "type": "string", "minLength": 1 },
+        "instructions": { "type": ["string", "null"] },
+        "due_at": { "type": ["string", "null"], "format": "date-time" },
+        "due_precision": { "$ref": "common.schema.json#/$defs/due_precision" },
+        "submission_status": { "type": "string", "enum": ["unknown", "not_submitted", "submitted", "graded"] },
+        "source_ref": { "$ref": "source-ref.schema.json" }
+      },
+      "additionalProperties": false
+    },
+    "RecordingUpsert": {
+      "type": "object",
+      "required": ["title", "started_at", "duration_seconds", "canonical_url", "transcript_status", "subtitle_languages", "transcript_next_check_at", "source_ref"],
+      "properties": {
+        "id": { "type": "string", "description": "已存在回放的内部 ID 回显（可选）。" },
+        "title": { "type": "string", "minLength": 1 },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "duration_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "canonical_url": { "type": ["string", "null"], "format": "uri" },
+        "transcript_status": { "type": "string", "enum": ["pending", "processing", "ready", "unavailable", "unknown", "failed"] },
+        "subtitle_languages": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string", "minLength": 2 } },
+            { "type": "null" }
+          ]
+        },
+        "transcript_next_check_at": { "type": ["string", "null"], "format": "date-time" },
+        "source_ref": { "$ref": "source-ref.schema.json" }
+      },
+      "additionalProperties": false
+    },
+    "Deletion": {
+      "type": "object",
+      "required": ["kind", "external_id", "reason", "observed_at"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["resource", "assignment", "recording"] },
+        "external_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "enum": ["explicit_delete_signal"], "description": "首版仅显式删除信号；其他情形不得产生删除。" },
+        "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

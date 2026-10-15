@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LearningTask",
+  "description": "本地学习任务。status 为学习进度，与 Assignment.submission_status（平台提交状态）互不影响。",
+  "type": "object",
+  "required": [
+    "id", "match_key", "course_id", "type", "title", "estimated_minutes", "due_at",
+    "due_precision", "prerequisite_ids", "source_refs", "status",
+    "fact_source", "revision", "archived_at", "created_at", "updated_at"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "match_key": {
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+      "description": "稳定匹配键（生成器定义，如 t:{course}:{type}:{key}）。重复解析/重复生成时按此对齐既有任务；不是 API 主键（主键为不透明 id）。用户手工任务为 null。"
+    },
+    "course_id": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }],
+      "description": "所属课程；个人任务可为 null。"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["study", "reading", "watching", "assignment", "practice", "review", "other"]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "estimated_minutes": { "$ref": "common.schema.json#/$defs/minutes" },
+    "due_at": { "type": ["string", "null"], "format": "date-time" },
+    "due_precision": { "$ref": "common.schema.json#/$defs/due_precision" },
+    "prerequisite_ids": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/id" },
+      "description": "前置任务 ID；排程时须先于本任务安排。"
+    },
+    "source_refs": {
+      "type": "array",
+      "items": { "$ref": "source-ref.schema.json" },
+      "description": "关联的平台对象（如作业、回放）；用户手工创建的任务可为空数组。"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "completed", "cancelled"],
+      "description": "学习进度。completed 表示学生已完成学习，不代表学校平台已提交。"
+    },
+    "fact_source": { "$ref": "common.schema.json#/$defs/fact_source" },
+    "revision": { "type": "integer", "minimum": 1, "description": "变更版本号，用于 PATCH 的 If-Match 并发控制。" },
+    "archived_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "软归档时间。归档任务不再进入计划排程，但保留历史记录。"
+    },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false
+}

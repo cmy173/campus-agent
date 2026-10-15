@@ -1,0 +1,58 @@
+{
+  "platforms": [
+    {
+      "platform": "xzzd",
+      "connector_version": "0.2.0-xzzd",
+      "auth": {
+        "mode": "user_session",
+        "sso": "zjuam-cas",
+        "recovery_hint": "登录已失效，请在连接器窗口完成登录后重试"
+      },
+      "features": {
+        "session": {"status": "supported", "note": "受控浏览器会话建立/维持（A17 实测 2026-10-10）：独立持久化 profile + 可见窗口、用户在官方登录页自行登录（凭据不经我方代码）、cookie 仅键名读取（值不落盘）、只读重放 200（页面内与 requests 链双证）、跨浏览器重启可复用；失效形态＝302 重定向链至登录页（auth_required）；A20 已接入同步编排（serve/bridge）；证据与命令见 docs/A6"},
+        "course_list": {"status": "supported", "note": "登录态实测：POST /api/my-courses，page 参数服务端分页（默认 10 条/页）；学年/学期/院系等筛选可用"},
+        "course_meta": {"status": "supported", "note": "实测：GET /api/courses/{id}（字段可选）、/modules 章节、/activities 活动列表"},
+        "attachments_meta": {"status": "supported", "note": "实测：activities/coursewares 的 uploads[] 含 name/size/type/source/key/allow_download/origin_allow_download/deleted（A5b）；coursewares 支持 page_size"},
+        "attachment_download": {"status": "supported", "note": "A22 实测（2026-10-10）升级：full 资源真实下载成功（3/3，2.4–3.7MB）——发签 /api/uploads/{id}/download-url-for-ai → tcmedia 媒体链流式下载 → sha256 暂存件（handle=local_file）；每次获取重新发签（临时链接过期重取，不作为资源标识）；护栏 PD-1 单文件 64MB（超限拒绝，denial+message 明示）；发签/下载 403 门控与受限/仅预览分支未遇真实样本（合成测试覆盖）"},
+        "assignments": {"status": "supported", "note": "实测：/courses/{id}/homework-activities（deadline、data.description、data.homework_type=file_upload）；提交状态为 submitted(bool) + submitted_status(字符串，可空)（A5b 校正：不存在 status_code 字段）"},
+        "recordings": {"status": "unknown", "note": "录播教材页签走 coursewares?category=lesson；所观察课程为空；课堂直录播功能外链至智云课堂（zykt 采集）"},
+        "subtitles": {"status": "unknown", "note": "未观察到字幕/转写入口"},
+        "playback_seek": {"status": "unknown", "note": "online_video.data.allow_forward_seeking 字段存在（教师可控）；行为未实测"},
+        "deletion_signal": {"status": "unknown", "note": "uploads[].deleted 字段实测存在（A5b/A21 三课样本均未置位；置位形态未采集——显式删除信号同时失效获取缓存的逻辑为合成测试覆盖）"}
+      },
+      "limits": {
+        "page_size_max": null,
+        "rate_limit_note": "coursewares 实测 page_size=20 生效；my-courses 默认 10 条/页；A5b 实测 0.5–0.8 rps 持续约 40s 无 429/Retry-After；阈值上限未探（不压测）；page 越界被钳制到末页、page_size 未校验（-1/1000 均 200）",
+        "campus_network_required": "unknown"
+      },
+      "checked_at": "2026-10-10T22:40:00+08:00"
+    },
+    {
+      "platform": "zykt",
+      "connector_version": "0.1.0-draft",
+      "auth": {
+        "mode": "user_session",
+        "sso": "zjuam-oauth2",
+        "recovery_hint": "登录已失效，请在连接器窗口完成登录后重试"
+      },
+      "features": {
+        "session": {"status": "unknown", "note": "受控浏览器登录验证仅在学在浙大执行（A17，2026-10-10）；zykt 受控会话未实测；收官轮 A23（zykt 真实化）按任务书 P3 裁剪，未执行——zykt 全平台仍为骨架+合成测试，勿据此认为可用"},
+        "course_list": {"status": "supported", "note": "实测：recent-learning（per-page 参数生效）；course-collect 本账号为空；课程目录经 catalogue 获取"},
+        "course_meta": {"status": "supported", "note": "实测：catalogue?course_id=（场次列表 XML）；get-sub-info 场次详情（时长秒、多轨 video_list）"},
+        "attachments_meta": {"status": "supported", "note": "实测：search-ppt 返回场次 PPT 列表（含 created_sec 时间戳）；平台公告：回放归档后不再二次抓取 PPT"},
+        "attachment_download": {"status": "unknown", "note": "get-sub-info 含 file_list 与 VOD 播放地址；下载链路未实测"},
+        "assignments": {"status": "unknown", "note": "未见作业相关接口；官方介绍未提及（负面证据，未二次确认）"},
+        "recordings": {"status": "supported", "note": "实测：场次列表 + 场次详情（时长、多轨、多清晰度、非 m3u8）；回放权限由教师设定、默认本教学班、有效期 2 年"},
+        "subtitles": {"status": "supported", "note": "实测：转写接口返回 {BeginSec,EndSec,Text,TransText} 分段（本次 933 段，含中英对照）；translation 为场次级开关"},
+        "playback_seek": {"status": "supported", "note": "实测：is_allow_video_drag 场次级开关（本次=1）；转写/PPT/弹幕均带秒级时间戳"},
+        "deletion_signal": {"status": "unknown", "note": "sub_delete 字段观察为 '0'；删除语义未验证"}
+      },
+      "limits": {
+        "page_size_max": null,
+        "rate_limit_note": "per-page（course 列表类）与 pageSize（弹幕）参数可用；无速率限制信息",
+        "campus_network_required": "unknown"
+      },
+      "checked_at": "2026-10-09T19:30:00+08:00"
+    }
+  ]
+}

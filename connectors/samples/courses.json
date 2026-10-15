@@ -1,0 +1,68 @@
+{
+  "courses": [
+    {
+      "id": "crs_3f8a21",
+      "title": "数据结构基础",
+      "term": "2026-2027-秋冬",
+      "teacher": "示例教师甲",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-course-10001",
+          "canonical_url": "https://courses.zju.edu.cn/course/10001/content",
+          "observed_at": "2026-10-08T09:20:00+08:00"
+        }
+      ],
+      "archived_at": null,
+      "created_at": "2026-10-08T09:20:00+08:00",
+      "updated_at": "2026-10-09T09:05:00+08:00"
+    },
+    {
+      "id": "crs_9b6c40",
+      "title": "数据结构基础",
+      "term": "2026-2027-秋冬",
+      "teacher": "示例教师甲",
+      "source_refs": [
+        {
+          "platform": "zykt",
+          "external_id": "zykt-course-20011",
+          "canonical_url": null,
+          "observed_at": "2026-10-08T09:25:00+08:00"
+        }
+      ],
+      "archived_at": null,
+      "created_at": "2026-10-08T09:25:00+08:00",
+      "updated_at": "2026-10-09T09:05:00+08:00"
+    },
+    {
+      "id": "crs_51c9d0",
+      "title": "人工智能导论",
+      "term": "2026-2027-秋冬",
+      "teacher": "示例教师乙",
+      "source_refs": [
+        {
+          "platform": "xzzd",
+          "external_id": "xzzd-course-10002",
+          "canonical_url": "https://courses.zju.edu.cn/course/10002/content",
+          "observed_at": "2026-10-08T09:22:00+08:00"
+        }
+      ],
+      "archived_at": null,
+      "created_at": "2026-10-08T09:22:00+08:00",
+      "updated_at": "2026-10-09T09:05:00+08:00"
+    }
+  ],
+  "mapping_candidates": [
+    {
+      "left_course_id": "crs_3f8a21",
+      "right_course_id": "crs_9b6c40",
+      "evidence": {
+        "same_title": true,
+        "same_teacher": true,
+        "term_overlap": true
+      },
+      "confidence": 0.86,
+      "requires_user_confirmation": true
+    }
+  ]
+}

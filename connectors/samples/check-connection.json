@@ -1,0 +1,22 @@
+{
+  "samples": [
+    {
+      "platform": "xzzd",
+      "state": "ok",
+      "checked_at": "2026-10-08T09:10:00+08:00",
+      "action": null,
+      "detail": null
+    },
+    {
+      "platform": "zykt",
+      "state": "auth_required",
+      "checked_at": "2026-10-09T09:00:00+08:00",
+      "action": {
+        "type": "user_login",
+        "entry_url": "https://classroom.zju.edu.cn/",
+        "message": "登录已失效，请在连接器窗口完成登录后重试"
+      },
+      "detail": "请求被重定向至统一身份认证"
+    }
+  ]
+}

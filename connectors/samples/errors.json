@@ -1,0 +1,56 @@
+{
+  "errors": [
+    {
+      "code": "AUTH_EXPIRED",
+      "message": "登录已失效",
+      "retryable": false,
+      "details": {
+        "platform": "zykt",
+        "action": {
+          "type": "user_login",
+          "entry_url": "https://classroom.zju.edu.cn/"
+        }
+      },
+      "request_id": "req_a1f0c2"
+    },
+    {
+      "code": "PERMISSION_DENIED",
+      "message": "无权限访问该资源",
+      "retryable": false,
+      "details": {
+        "kind": "resource",
+        "external_id": "xzzd-file-33021"
+      },
+      "request_id": "req_b7e214"
+    },
+    {
+      "code": "RESOURCE_NOT_FOUND",
+      "message": "资源不存在",
+      "retryable": false,
+      "details": {
+        "kind": "resource",
+        "external_id": "xzzd-file-33055"
+      },
+      "request_id": "req_c3d980"
+    },
+    {
+      "code": "NETWORK_ERROR",
+      "message": "网络请求失败",
+      "retryable": true,
+      "details": {
+        "attempt": 2,
+        "next_retry_at": "2026-10-09T09:10:30+08:00"
+      },
+      "request_id": "req_d5f117"
+    },
+    {
+      "code": "RATE_LIMITED",
+      "message": "请求过于频繁",
+      "retryable": true,
+      "details": {
+        "retry_after_seconds": 60
+      },
+      "request_id": "req_e9b3a6"
+    }
+  ]
+}

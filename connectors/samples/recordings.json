@@ -1,0 +1,67 @@
+{
+  "recordings": [
+    {
+      "id": "rec_r101",
+      "course_id": "crs_9b6c40",
+      "title": "第04讲 图与搜索",
+      "started_at": "2026-10-07T08:00:00+08:00",
+      "duration_seconds": 5400,
+      "canonical_url": "https://classroom.zju.edu.cn/livingroom?course_id=20011&sub_id=40021&tenant_code=112",
+      "transcript_status": "pending",
+      "subtitle_languages": [],
+      "transcript_next_check_at": "2026-10-08T08:00:00+08:00",
+      "fact_source": "platform",
+      "source_ref": {
+        "platform": "zykt",
+        "external_id": "zykt-sub-40021",
+        "canonical_url": "https://classroom.zju.edu.cn/livingroom?course_id=20011&sub_id=40021&tenant_code=112",
+        "observed_at": "2026-10-08T09:50:00+08:00"
+      },
+      "observed_at": "2026-10-08T09:50:00+08:00",
+      "created_at": "2026-10-07T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:50:00+08:00"
+    },
+    {
+      "id": "rec_r102",
+      "course_id": "crs_9b6c40",
+      "title": "第03讲 树与遍历",
+      "started_at": "2026-09-30T08:00:00+08:00",
+      "duration_seconds": 5400,
+      "canonical_url": "https://classroom.zju.edu.cn/livingroom?course_id=20011&sub_id=40011&tenant_code=112",
+      "transcript_status": "ready",
+      "subtitle_languages": ["zh-CN", "en"],
+      "transcript_next_check_at": null,
+      "fact_source": "platform",
+      "source_ref": {
+        "platform": "zykt",
+        "external_id": "zykt-sub-40011",
+        "canonical_url": "https://classroom.zju.edu.cn/livingroom?course_id=20011&sub_id=40011&tenant_code=112",
+        "observed_at": "2026-10-08T09:51:00+08:00"
+      },
+      "observed_at": "2026-10-08T09:51:00+08:00",
+      "created_at": "2026-09-30T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:51:00+08:00"
+    },
+    {
+      "id": "rec_r103",
+      "course_id": "crs_3f8a21",
+      "title": "第03讲 线性表（回放）",
+      "started_at": "2026-10-06T08:00:00+08:00",
+      "duration_seconds": 5700,
+      "canonical_url": null,
+      "transcript_status": "unknown",
+      "subtitle_languages": null,
+      "transcript_next_check_at": null,
+      "fact_source": "platform",
+      "source_ref": {
+        "platform": "xzzd",
+        "external_id": "xzzd-lesson-30031",
+        "canonical_url": null,
+        "observed_at": "2026-10-08T09:52:00+08:00"
+      },
+      "observed_at": "2026-10-08T09:52:00+08:00",
+      "created_at": "2026-10-06T09:00:00+08:00",
+      "updated_at": "2026-10-08T09:52:00+08:00"
+    }
+  ]
+}

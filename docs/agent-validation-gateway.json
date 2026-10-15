@@ -1,0 +1,53 @@
+{
+  "stage": "M1 gateway incremental validation; not full acceptance",
+  "runtime_version": "0.2.0-rc.2",
+  "model_type": "controlled local synthetic",
+  "domain_adapter": "actual FastAPI and SQLAlchemy",
+  "tools": [
+    "campus_assignments_list",
+    "campus_connections_status",
+    "campus_courses_list",
+    "campus_jobs_read",
+    "campus_materials_list",
+    "campus_materials_read",
+    "campus_materials_search",
+    "campus_plans_read",
+    "campus_tasks_list"
+  ],
+  "model_calls": 13,
+  "query_turns": [
+    "succeeded",
+    "succeeded"
+  ],
+  "cancel_status": "cancelled",
+  "after_cancel_status": "succeeded",
+  "after_api_restart_status": "succeeded",
+  "second_turn_preserved_history": true,
+  "api_regression": {
+    "passed": 229,
+    "duration_seconds": 35.86
+  },
+  "tool_scope_regression_after_followup": {
+    "passed": 21,
+    "duration_seconds": 1.96
+  },
+  "latest_related_regression": {
+    "passed": 32,
+    "duration_seconds": 6.89,
+    "tool_tests": 22,
+    "gateway_tests": 10
+  },
+  "startup_smoke": {
+    "exit_code": 0,
+    "api_port": 18000,
+    "web_port": 15173
+  },
+  "missing": [
+    "conversation frontend",
+    "M2 plan change loop",
+    "desktop and narrow browser acceptance",
+    "clean directory rebuild",
+    "final full regressions"
+  ],
+  "live_campus_and_paid_model": "not tested"
+}

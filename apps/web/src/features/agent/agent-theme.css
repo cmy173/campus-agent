@@ -1,0 +1,30 @@
+:root {
+  --agent-content-width: 1260px;
+  --agent-space: 20px;
+  --agent-surface: var(--color-surface, #fffefa);
+  --agent-surface-subtle: #f0f1e9;
+  --agent-user-surface: #e7efe9;
+  --agent-border: var(--color-line, #dfe1d8);
+  --agent-accent-border: var(--color-pine, #315f50);
+  --agent-muted: var(--color-muted, #737d75);
+  --agent-note: #72552b;
+  --agent-radius: 11px;
+  --agent-text-size: 14px;
+  --agent-line-height: 1.7;
+  --agent-motion-fast: 140ms;
+  --agent-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+/* An optional high-legibility mode remains available to the layout preview. */
+.agent-page[data-theme="contrast"] {
+  --agent-surface: #ffffff;
+  --agent-surface-subtle: #edf1ed;
+  --agent-user-surface: #dce9df;
+  --agent-border: #63776d;
+  --agent-accent-border: #174c3b;
+  --agent-muted: #354a3f;
+  --agent-note: #4b381d;
+  --agent-radius: 6px;
+  --agent-text-size: 15px;
+  --agent-line-height: 1.65;
+}

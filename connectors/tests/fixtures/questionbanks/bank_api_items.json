@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "stem": "求数列 1, 1/2, 1/4, ... 的前 n 项和。",
+      "type": "calculation",
+      "options": [],
+      "answer": "2 - 2^{1-n}",
+      "analysis": "等比数列求和公式 S_n = a_1(1-q^n)/(1-q)。",
+      "difficulty": "中等",
+      "knowledge_point": "等比数列",
+      "source_url": "https://bank.example/item/1?token=SECRET&debug=1",
+      "license_note": "示例题库；仅测试用途"
+    },
+    {
+      "name": "字段名不同的条目",
+      "type": "选择题",
+      "options": {"A": "选项甲", "B": "选项乙", "C": "选项丙", "D": "选项丁"},
+      "answer": "C",
+      "source_url": "https://bank.example/item/2"
+    },
+    {
+      "stem": "判断：3 是质数。",
+      "type": "",
+      "options": []
+    },
+    {
+      "type": "选择题",
+      "options": ["A. 缺题干应跳过"],
+      "answer": "A"
+    }
+  ]
+}

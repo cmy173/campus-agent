@@ -1,0 +1,124 @@
+{
+  "items": [
+    {
+      "id": "job_1a2b3c",
+      "type": "import",
+      "status": "succeeded",
+      "progress": 1,
+      "errors": [],
+      "warnings": [],
+      "result_refs": [{ "type": "resource", "id": "res_01a7" }],
+      "cancel_requested": false,
+      "created_at": "2026-10-08T10:00:00+08:00",
+      "started_at": "2026-10-08T10:00:05+08:00",
+      "finished_at": "2026-10-08T10:00:31+08:00"
+    },
+    {
+      "id": "job_4d5e6f",
+      "type": "sync",
+      "status": "running",
+      "progress": 0.4,
+      "errors": [],
+      "warnings": [],
+      "result_refs": [],
+      "cancel_requested": false,
+      "created_at": "2026-10-09T19:30:00+08:00",
+      "started_at": "2026-10-09T19:30:02+08:00",
+      "finished_at": null
+    },
+    {
+      "id": "job_8d2c1f",
+      "type": "parse",
+      "status": "succeeded",
+      "progress": 1,
+      "errors": [],
+      "warnings": [],
+      "result_refs": [
+        { "type": "resource", "id": "res_01a7" },
+        { "type": "resource", "id": "res_01b2" },
+        { "type": "resource", "id": "res_02e1" },
+        { "type": "resource", "id": "res_03f1" }
+      ],
+      "cancel_requested": false,
+      "created_at": "2026-10-08T10:05:00+08:00",
+      "started_at": "2026-10-08T10:05:03+08:00",
+      "finished_at": "2026-10-08T10:06:47+08:00"
+    },
+    {
+      "id": "job_9h1k2m",
+      "type": "build_tasks",
+      "status": "succeeded",
+      "progress": 1,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "TASK_VERSION_UPDATED",
+          "message": "《第三讲-图像分类.pdf》存在 2 个版本（2 个文件），任务按最新版本 v2 估算并保留全部来源引用",
+          "task_ids": ["tsk_0f3a91"],
+          "details": { "course_id": "crs_3f8a21", "versions": [1, 2] }
+        }
+      ],
+      "result_refs": [{ "type": "task", "id": "tsk_0f3a91" }],
+      "cancel_requested": false,
+      "created_at": "2026-10-09T21:00:00+08:00",
+      "started_at": "2026-10-09T21:00:02+08:00",
+      "finished_at": "2026-10-09T21:00:02+08:00"
+    },
+    {
+      "id": "job_7g8h9i",
+      "type": "export",
+      "status": "partial_failed",
+      "progress": 1,
+      "errors": [
+        {
+          "code": "PARSE_FAILED",
+          "message": "3 篇资料解析失败，导出未包含其文本索引。",
+          "retryable": false,
+          "details": { "failed_count": 3 }
+        }
+      ],
+      "warnings": [],
+      "result_refs": [{ "type": "export_file", "id": "fil_export_7g8h9i" }],
+      "cancel_requested": false,
+      "created_at": "2026-10-09T08:00:00+08:00",
+      "started_at": "2026-10-09T08:00:03+08:00",
+      "finished_at": "2026-10-09T08:01:12+08:00"
+    },
+    {
+      "id": "job_5j6k7l",
+      "type": "review_generate",
+      "status": "succeeded",
+      "progress": 1,
+      "phase": null,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "MATERIAL_GAP",
+          "message": "1 项所选材料无可用正文（实验指导书(受限).pdf：平台仅预览、无下载权限），未纳入本次出卷。",
+          "task_ids": [],
+          "details": { "missing_reason": "not_accessible", "resource_id": "res_01d4" }
+        }
+      ],
+      "result_refs": [{ "type": "review_paper", "id": "pap_7c1a02" }],
+      "cancel_requested": false,
+      "created_at": "2026-10-11T09:08:00+08:00",
+      "started_at": "2026-10-11T09:08:02+08:00",
+      "finished_at": "2026-10-11T09:10:00+08:00"
+    },
+    {
+      "id": "job_6l7m8n",
+      "type": "review_generate",
+      "status": "running",
+      "progress": 0.55,
+      "phase": "generation",
+      "errors": [],
+      "warnings": [],
+      "result_refs": [],
+      "cancel_requested": false,
+      "created_at": "2026-10-11T09:40:00+08:00",
+      "started_at": "2026-10-11T09:40:01+08:00",
+      "finished_at": null
+    }
+  ],
+  "next_cursor": null
+}

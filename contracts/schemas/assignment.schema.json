@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Assignment",
+  "description": "作业。submission_status 是学校平台侧状态，与本地 LearningTask.status 严格分离。",
+  "type": "object",
+  "required": [
+    "id", "course_id", "title", "instructions", "due_at", "due_precision",
+    "submission_status", "fact_source", "confidence", "source_ref",
+    "attachment_resource_ids", "revision", "observed_at", "archived_at",
+    "created_at", "updated_at"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "instructions": { "type": ["string", "null"], "description": "作业要求原文；未知为 null，不做推断补全。" },
+    "due_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "截止时间。due_precision=unknown 时必须为 null；due_precision=date 时为该日期 00:00（用户时区），仅表达“当日截止”。"
+    },
+    "due_precision": { "$ref": "common.schema.json#/$defs/due_precision" },
+    "submission_status": {
+      "type": "string",
+      "enum": ["unknown", "not_submitted", "submitted", "graded"],
+      "description": "学校平台提交状态。只有平台同步或用户手工确认才能改变；本地“学习完成”不改变该字段。"
+    },
+    "fact_source": { "$ref": "common.schema.json#/$defs/fact_source" },
+    "confidence": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/confidence" }, { "type": "null" }],
+      "description": "fact_source=inferred 时的置信度，否则为 null。"
+    },
+    "source_ref": {
+      "oneOf": [{ "$ref": "source-ref.schema.json" }, { "type": "null" }],
+      "description": "平台来源；手工录入为 null。"
+    },
+    "attachment_resource_ids": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/id" },
+      "description": "作业附件对应的资源 ID 列表。"
+    },
+    "revision": { "type": "integer", "minimum": 1, "description": "变更版本号，用于 PATCH 的 If-Match 并发控制。" },
+    "observed_at": { "type": ["string", "null"], "format": "date-time", "description": "当前事实（尤其 due_at）被观测到的时间；手动录入为录入时间。" },
+    "archived_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false
+}

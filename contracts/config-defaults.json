@@ -1,0 +1,19 @@
+{
+  "description": "排程与任务生成的默认参数（B 与 D 冻结于契约 v0.1）。服务端可配置覆盖；修改默认值视为契约变更，走 README 变更流程。",
+  "schedule": {
+    "min_chunk_minutes": 25,
+    "max_chunk_minutes": 60,
+    "default_splittable": true
+  },
+  "taskgen": {
+    "minutes_per_unit": { "page": 3, "slide": 2 },
+    "watch_minutes_factor": 1.0,
+    "default_minutes_by_type": {
+      "reading": 60,
+      "watching": 60,
+      "assignment": 90,
+      "practice": 60,
+      "review": 45
+    }
+  }
+}
