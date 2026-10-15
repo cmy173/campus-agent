@@ -116,4 +116,12 @@ CI installs API dependencies from `apps/api`, where the editable learning-packag
 `requirements.txt` resolves correctly. A no-install dependency-resolution check passed after this
 working-directory correction. The connector test directory and runtime recovery tests are included
 in CI. Actual GitHub CI results still apply to the pushed commit and are separate from these local
-snapshot results. Only documentation and CI setup changed after the source snapshot was tested.
+snapshot results. Only documentation and verification/CI setup changed after the source snapshot was tested.
+
+The first remote CI run exposed a clean-runner prerequisite in runtime verification: its temporary
+parent directory did not yet exist. The recovery and subagent verification scripts now create their
+own parent/output directories, and are rechecked in an exported checkout without runtime data.
+The older child-cancellation scenario also used a now-denied PowerShell sleep. It now exercises two
+real child agents reading distinct fixture files and waiting on controlled provider responses; it
+still verifies unauthenticated cancellation is denied, only the chosen child aborts, and its sibling
+and parent complete. It does not enable shell access to make a verification pass.

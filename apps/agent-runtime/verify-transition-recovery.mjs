@@ -9,7 +9,9 @@ import { prepareProfile } from './prepare-profile.mjs';
 import { runWithGoalLifecycle } from './goal-lifecycle.mjs';
 
 const runtime = fileURLToPath(new URL('.', import.meta.url));
-const directory = await mkdtemp(resolve(runtime, '../../.test-tmp/transition-recovery-'));
+const temporaryRoot = resolve(runtime, '../../.test-tmp');
+await mkdir(temporaryRoot, { recursive: true });
+const directory = await mkdtemp(resolve(temporaryRoot, 'transition-recovery-'));
 const workspace = resolve(directory, 'workspace'); await mkdir(workspace);
 await writeFile(resolve(workspace, 'evidence.txt'), 'synthetic-recovery-marker-748');
 let mode = 'transient';
@@ -63,6 +65,7 @@ try {
   results.push({ case: 'auth-failure-no-retry', ok: true, model_requests: 1 });
   const report = { mode: 'real-installed-harness/controlled-model-and-bridge', results, requests,
     event_count: events.length, llm_retries: events.filter(e => e.params?.event?.type === 'llm/retry').length };
+  await mkdir(resolve(runtime, '../../docs/audit'), { recursive: true });
   await writeFile(resolve(runtime, '../../docs/audit/transition-harness-recovery.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 } finally {

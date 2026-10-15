@@ -1,14 +1,17 @@
 /** Concurrent actual child agents and selective human cancellation, no paid model. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
 import { prepareProfile } from './prepare-profile.mjs';
 
-const directory = await mkdtemp(fileURLToPath(new URL('../../var/v2-subagent-controls-', import.meta.url)));
-await writeFile(resolve(directory, 'material.md'), 'Independent child source marker 398\n');
+const verificationRoot = fileURLToPath(new URL('../../var/', import.meta.url));
+await mkdir(verificationRoot, { recursive: true });
+const directory = await mkdtemp(resolve(verificationRoot, 'v2-subagent-controls-'));
+await writeFile(resolve(directory, 'material-a.md'), 'Independent child A source marker 397\n');
+await writeFile(resolve(directory, 'material-b.md'), 'Independent child source marker 398\n');
 const rootId = 'control-root', token = 'fixture-control-only', requests = [], cases = [];
 const text = m => (m?.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n');
 const send = (res, data) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); };
@@ -25,12 +28,14 @@ const server = createServer(async (req, res) => {
   const tools = body.messages.slice(body.messages.lastIndexOf(user) + 1).filter(m => m.role === 'tool');
   const call = (id, name, args) => ({ id, name, arguments: args });
   if (marker.includes('CONTROL_CHILD_A')) {
-    if (!tools.length) return send(res, { tool_calls: [call('a_' + requests.length, 'pwsh', {
-      command: 'Start-Sleep -Seconds 30; Write-Output "SHOULD_NOT_COMPLETE"', description: 'Long independent child computation' })] });
-    return send(res, { content: tools.map(text).join('\n'), tool_calls: [] });
+    if (!tools.length) return send(res, { tool_calls: [call('a_' + requests.length, 'read', { file_path: 'material-a.md' })] });
+    // Hold the controlled provider response after a real permitted read. The production policy
+    // deliberately denies pwsh, so a shell sleep cannot represent a running child anymore.
+    state.aReady.resolve();
+    return;
   }
   if (marker.includes('CONTROL_CHILD_B')) {
-    if (!tools.length) return send(res, { tool_calls: [call('b_' + requests.length, 'read', { file_path: 'material.md' })] });
+    if (!tools.length) return send(res, { tool_calls: [call('b_' + requests.length, 'read', { file_path: 'material-b.md' })] });
     state.releaseB = () => send(res, { content: tools.map(text).join('\n'), tool_calls: [] });
     state.bReady.resolve();
     return;
@@ -43,7 +48,7 @@ const server = createServer(async (req, res) => {
     return send(res, { tool_calls: [call('load_' + requests.length, 'load_tools', { group: 'team' })] });
   }
   if (tools.length <= 1) return send(res, { tool_calls: [
-    call('spawn_a_' + requests.length, 'subagent', { description: 'Independent child A', prompt: 'CONTROL_CHILD_A Perform the long computation.', run_in_background: state.background }),
+    call('spawn_a_' + requests.length, 'subagent', { description: 'Independent child A', prompt: 'CONTROL_CHILD_A Read your material and wait for the provider result.', run_in_background: state.background }),
     call('spawn_b_' + requests.length, 'subagent', { description: 'Independent child B', prompt: 'CONTROL_CHILD_B Read the material and report its actual text.', run_in_background: state.background }),
   ] });
   const complete = () => send(res, { content: tools.map(text).join('\n') + '\n' + (state.bOutput ?? ''), tool_calls: [] });
@@ -66,7 +71,7 @@ async function bounded(promise) {
 
 try {
   for (const background of [false, true]) {
-    state = { background, loaded: false, aRunning: Promise.withResolvers(), bReady: Promise.withResolvers(), aEnded: Promise.withResolvers(),
+    state = { background, loaded: false, aReady: Promise.withResolvers(), bReady: Promise.withResolvers(), aEnded: Promise.withResolvers(),
       bEnded: Promise.withResolvers(), notifications: [] };
     const run = harness.run('CONTROL_ROOT_' + (background ? 'BACKGROUND' : 'FOREGROUND') + ' Complete two independent children.', {
       sessionId: rootId,
@@ -74,8 +79,9 @@ try {
         state.notifications.push(n);
         if (n.method === 'session.event' && n.params.event.type === 'tool/call') {
           const name = n.params.event.data.name;
-          if (name === 'pwsh') { state.aId = n.params.sessionId; state.aRunning.resolve(); }
-          if (name === 'read') state.bId = n.params.sessionId;
+          const argumentsText = JSON.stringify(n.params.event.data);
+          if (name === 'read' && argumentsText.includes('material-a.md')) state.aId = n.params.sessionId;
+          if (name === 'read' && argumentsText.includes('material-b.md')) state.bId = n.params.sessionId;
         }
         if (n.method === 'subagent.finished') {
           if (n.params.childSessionId === state.aId) { state.aFinish = n.params; state.aEnded.resolve(); }
@@ -86,7 +92,9 @@ try {
         }
       },
     });
-    await bounded(Promise.all([state.aRunning.promise, state.bReady.promise]));
+    // A setup failure must retain its own diagnostic when finally closes the harness.
+    run.catch(() => {});
+    await bounded(Promise.all([state.aReady.promise, state.bReady.promise]));
     assert(controls && state.aId !== state.bId, 'Both independent children must be live');
     const denied = await fetch(controls + '/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ parent_id: rootId, child_id: state.aId }) });
