@@ -5,10 +5,9 @@ v0.2 仅允许回环地址访问，无 CORS。写请求需 `X-Campus-Request: 1`
 | 方法 / 路径 | 功能 |
 |---|---|
 | GET /api/health | 本机健康状态 |
-| POST /api/auth/register | JSON username、password；创建独立本地账号 |
-| POST /api/auth/login | 本地登录 |
+| POST /api/auth/login | JSON student_id、password；用校园通行证（浙大统一身份认证）登录，首次成功登录自动建立账号 |
 | POST /api/auth/logout | 撤销当前会话 |
-| GET /api/me | 用户名与 CSRF token |
+| GET /api/me | 学号与 CSRF token |
 | GET /api/model | 模型配置状态，不返回密钥 |
 | POST /api/documents | 原始字节；X-Filename 为 URL 编码名称，X-Document-Kind 为 notice/material |
 | GET /api/documents | 当前账号资料与状态 |
@@ -27,5 +26,7 @@ v0.2 仅允许回环地址访问，无 CORS。写请求需 `X-Campus-Request: 1`
 每用户最多 100 份资料，全局最多 10 个排队/解析任务；两条线程调度解析进程，单进程超时 30 秒。原件存于 SQLite BLOB，派生内容通过外键关联。
 
 身份来自服务端会话，不信任请求中的 owner_id。无权对象返回 404。文件内指令不会触发工具或网络动作。错误返回 detail 字符串。
+
+登录时学号与统一身份认证密码只在本机后端用于向 `zjuam.zju.edu.cn` 的 CAS 换取一次性票据；密码不写库、不写盘、不写日志，认证失败只尝试一次（避免触发风控锁号）。因此登录需要能访问统一身份认证（一般在校园网 / RVPN 下）。账号即学号，资料按学号隔离。
 
 当前 cookie 在本机 HTTP 下不设置 Secure，不能直接照搬公网；数据库不加密，解析子进程不是操作系统沙箱。详见 security.md。

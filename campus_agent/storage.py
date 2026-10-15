@@ -6,7 +6,7 @@ import sqlite3
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS users (
- id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
+ id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
  token TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  csrf TEXT NOT NULL, expires REAL NOT NULL);
@@ -37,7 +37,16 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            self._migrate(db)
             db.execute("UPDATE documents SET status='failed', error='上次解析被中断，请删除后重新上传' WHERE status IN ('queued','processing')")
+
+    @staticmethod
+    def _migrate(db):
+        # users.username 现在存的是校园通行证学号，不再保存任何密码。
+        # 早期本地账号库里有 password 列，升级时删掉它，避免残留凭据哈希。
+        columns = {row['name'] for row in db.execute('PRAGMA table_info(users)')}
+        if 'password' in columns:
+            db.execute('ALTER TABLE users DROP COLUMN password')
 
     @contextmanager
     def connect(self):

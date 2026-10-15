@@ -14,6 +14,15 @@ from campus_agent.web import create_app
 from campus_agent.services import extract_tasks
 from campus_agent.parser_worker import parse
 from campus_agent import llm
+from campus_agent import passport
+
+# 测试用校园通行证：学号 → 统一认证密码。mock passport.login，全程不触网。
+TEST_PASSPORTS = {'3250103732': 'alice-zju-pass', '3250109999': 'bob-zju-pass'}
+
+def fake_passport_login(student_id, password, **kwargs):
+    if TEST_PASSPORTS.get(student_id) == password:
+        return passport.PassportIdentity(student_id=student_id)
+    raise passport.PassportError('校园通行证认证被拒绝：学号或密码不正确')
 
 class WebTests(unittest.TestCase):
     def setUp(self):
@@ -23,9 +32,10 @@ class WebTests(unittest.TestCase):
         self.tmp = self.stack.enter_context(TemporaryDirectory(dir=base))
         self.assertTrue(Path(self.tmp).resolve().is_relative_to(base))
         self.app = create_app(self.tmp)
+        self.stack.enter_context(patch('campus_agent.passport.login', side_effect=fake_passport_login))
         self.client = self.stack.enter_context(TestClient(self.app, base_url='http://127.0.0.1'))
         self.client.headers['X-Campus-Request'] = '1'
-        result = self.client.post('/api/auth/register', json={'username': 'alice', 'password': 'test-only-pass'}).json()
+        result = self.client.post('/api/auth/login', json={'student_id': '3250103732', 'password': 'alice-zju-pass'}).json()
         self.client.headers['X-CSRF-Token'] = result['csrf']
 
     def tearDown(self):
@@ -68,7 +78,7 @@ class WebTests(unittest.TestCase):
         # Same server, different cookie jar; do not re-enter the app lifespan.
         with TestClient(self.app, base_url='http://127.0.0.1') as other:
             other.headers['X-Campus-Request']='1'
-            bob=other.post('/api/auth/register',json={'username':'bob','password':'test-only-pass'}).json()
+            bob=other.post('/api/auth/login',json={'student_id':'3250109999','password':'bob-zju-pass'}).json()
             other.headers['X-CSRF-Token']=bob['csrf']
             for path in ['/api/documents/'+doc,'/api/documents/'+doc+'/download']:
                 self.assertEqual(other.get(path).status_code,404)
@@ -76,7 +86,10 @@ class WebTests(unittest.TestCase):
             self.assertEqual(other.patch('/api/tasks/'+task['id'],json={'state':'done'}).status_code,404)
             self.assertEqual(other.get('/api/documents').json(),[])
             self.assertEqual(other.get('/api/tasks').json(),[])
-            self.assertEqual(other.get('/api/audit').json(),[])
+            # bob 只可能看到自己的登录审计，绝不能看到 alice 的资料操作记录
+            bob_actions=[a['action'] for a in other.get('/api/audit').json()]
+            self.assertNotIn('document.upload',bob_actions)
+            self.assertNotIn('document.parse',bob_actions)
             self.assertEqual(other.post('/api/chat',json={'query':'实验报告截止时间'}).json()['citations'],[])
 
     def test_duplicate_and_delete_cascade(self):
@@ -113,13 +126,33 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/health',headers={'Host':'evil.example'}).status_code,403)
         self.assertEqual(self.client.get('/').headers['x-content-type-options'],'nosniff')
 
-    def test_login_logout_and_no_plaintext_password(self):
+    def test_passport_login_logout_and_no_password_stored(self):
         self.assertEqual(self.client.post('/api/auth/logout').status_code,200)
         self.assertEqual(self.client.get('/api/documents').status_code,401)
-        self.assertEqual(self.client.post('/api/auth/login',json={'username':'alice','password':'wrong-password'}).status_code,401)
-        self.assertEqual(self.client.post('/api/auth/login',json={'username':'alice','password':'test-only-pass'}).status_code,200)
+        # 错误的校园通行证 → 401，且不建立会话
+        self.assertEqual(self.client.post('/api/auth/login',json={'student_id':'3250103732','password':'wrong-pass'}).status_code,401)
+        self.assertEqual(self.client.get('/api/documents').status_code,401)
+        # 正确的校园通行证 → 200，身份即学号
+        ok=self.client.post('/api/auth/login',json={'student_id':'3250103732','password':'alice-zju-pass'})
+        self.assertEqual(ok.status_code,200)
+        self.assertEqual(ok.json()['username'],'3250103732')
+        self.client.headers['X-CSRF-Token']=ok.json()['csrf']
+        self.assertEqual(self.client.get('/api/documents').status_code,200)
+        # users 表不再有 password 列，全表也不残留任何密码明文
         with self.app.state.store.connect() as db:
-            self.assertNotIn('test-only-pass',db.execute('SELECT password FROM users').fetchone()[0])
+            columns={row['name'] for row in db.execute('PRAGMA table_info(users)')}
+            self.assertNotIn('password',columns)
+            dump=' '.join(str(value) for row in db.execute('SELECT * FROM users') for value in tuple(row))
+            self.assertNotIn('alice-zju-pass',dump)
+
+    def test_register_endpoint_is_gone(self):
+        # 通行证登录取代本地注册：不再暴露 register
+        self.assertEqual(self.client.post('/api/auth/register',json={'student_id':'3250109999','password':'bob-zju-pass'}).status_code,404)
+
+    def test_invalid_student_id_rejected_before_cas(self):
+        with patch('campus_agent.passport.login') as model:
+            self.assertEqual(self.client.post('/api/auth/login',json={'student_id':'ab','password':'x'*12}).status_code,400)
+            model.assert_not_called()
 
     def test_no_evidence_and_no_automatic_model_call(self):
         doc=self.upload();self.wait_doc(doc)
