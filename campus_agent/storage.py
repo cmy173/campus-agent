@@ -7,6 +7,8 @@ SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS users (
  id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS passport_accounts (
+ identifier TEXT PRIMARY KEY, owner TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS sessions (
  token TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  csrf TEXT NOT NULL, expires REAL NOT NULL);
@@ -29,6 +31,9 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE INDEX IF NOT EXISTS ix_doc_owner ON documents(owner);
 CREATE INDEX IF NOT EXISTS ix_chunk_document ON chunks(document);
 CREATE INDEX IF NOT EXISTS ix_task_document ON tasks(document);
+CREATE TABLE IF NOT EXISTS campus_snapshots (
+ owner TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ snapshot TEXT NOT NULL);
 """
 
 class Store:

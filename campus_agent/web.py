@@ -24,6 +24,7 @@ from .core import MockConnector, TZ, recommend
 from . import llm
 from .services import extract_tasks, retrieve
 from .storage import Store
+from .campus_routes import install_campus_routes
 
 MAX_UPLOAD = 20 * 1024 * 1024
 ROOT = Path(__file__).resolve().parent.parent
@@ -106,6 +107,8 @@ def create_app(data_dir=None):
     async def lifespan(app):
         yield
         pool.shutdown(wait=True, cancel_futures=True)
+        campus.close()
+        close_passport_flows()
 
     app = FastAPI(title='Campus Agent 本地版', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(RequestGuard)
@@ -114,12 +117,19 @@ def create_app(data_dir=None):
     def user(request, mutate=False):
         token = request.cookies.get('campus_session', '')
         with store.connect() as db:
-            row = db.execute('SELECT s.*, u.username FROM sessions s JOIN users u ON u.id=s.owner WHERE token=? AND expires>?', (digest(token), time.time())).fetchone()
+            row = db.execute('''SELECT s.*, COALESCE(p.identifier,u.username) AS username,
+                p.identifier AS passport_identifier FROM sessions s JOIN users u ON u.id=s.owner
+                LEFT JOIN passport_accounts p ON p.owner=u.id WHERE token=? AND expires>?''', (digest(token), time.time())).fetchone()
         if not row:
-            raise HTTPException(401, '请先登录本地账号')
+            raise HTTPException(401, '请先登录通行证；已有本机会话可查看离线缓存')
         if mutate and not hmac.compare_digest(request.headers.get('x-csrf-token', ''), row['csrf']):
             raise HTTPException(403, '会话校验失败，请刷新页面')
         return dict(row)
+
+    campus = install_campus_routes(app, store, user)
+    app.state.campus = campus
+    from .passport_routes import install_passport_routes
+    close_passport_flows = install_passport_routes(app, store, campus, user, hash_password)
 
     async def payload(request):
         try:
@@ -186,22 +196,26 @@ def create_app(data_dir=None):
 
     @app.get('/static/{name}')
     def asset(name: str):
-        if name not in ('app.js', 'style.css'):
+        if name not in ('app.js', 'campus.js', 'academics.js', 'passport.js', 'style.css', 'academics.css'):
             raise HTTPException(404)
         return FileResponse(STATIC / name)
 
     @app.get('/api/health')
     def health():
-        return {'status': 'ok', 'mode': 'local-retrieval', 'version': '0.2.0'}
+        from .campus import CONNECTOR_REVISION
+        return {'status': 'ok', 'mode': 'local-retrieval', 'version': '0.2.0',
+                'campus_connector_revision': CONNECTOR_REVISION}
 
     @app.post('/api/auth/{action}')
     async def auth(action: str, request: Request):
         if action == 'logout':
             account = user(request, True)
+            await run_in_threadpool(campus.disconnect, account['owner'])
             with store.connect() as db:
                 db.execute('DELETE FROM sessions WHERE token=?', (account['token'],))
             response = JSONResponse({'ok': True})
             response.delete_cookie('campus_session', path='/')
+            response.delete_cookie('campus_passport_flow', path='/api/auth/passport')
             return response
         if action not in ('login', 'register'):
             raise HTTPException(404)
@@ -243,7 +257,10 @@ def create_app(data_dir=None):
     @app.get('/api/me')
     def me(request: Request):
         account = user(request)
-        return {'username': account['username'], 'csrf': account['csrf']}
+        mode = 'legacy'
+        if account['passport_identifier']:
+            mode = 'passport' if campus.status(account['owner'])['passport_connected'] else 'offline'
+        return {'username': account['username'], 'csrf': account['csrf'], 'mode': mode}
 
     @app.get('/api/model')
     def model_configuration(request: Request):
@@ -390,8 +407,9 @@ def create_app(data_dir=None):
             return [dict(r) for r in db.execute('SELECT action,result,created FROM audit WHERE owner=? ORDER BY id DESC LIMIT 50', (account['owner'],))]
 
     @app.delete('/api/data')
-    def clear_data(request: Request):
+    async def clear_data(request: Request):
         account = user(request, True)
+        await run_in_threadpool(campus.disconnect, account['owner'], True)
         with store.connect() as db:
             db.execute('DELETE FROM documents WHERE owner=?', (account['owner'],))
             db.execute('DELETE FROM audit WHERE owner=?', (account['owner'],))
