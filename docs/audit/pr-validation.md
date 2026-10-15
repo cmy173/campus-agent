@@ -125,3 +125,9 @@ The older child-cancellation scenario also used a now-denied PowerShell sleep. I
 real child agents reading distinct fixture files and waiting on controlled provider responses; it
 still verifies unauthenticated cancellation is denied, only the chosen child aborts, and its sibling
 and parent complete. It does not enable shell access to make a verification pass.
+
+The next remote run passed runtime and web, but API reported **703 passed / 2 failed**.
+Both failures were settings diagnostics that start the real Node runtime (local MCP calculator
+and a local search-provider fixture). The Python job had not installed runtime dependencies;
+the separate runtime job cannot supply its node_modules. The Python job now installs the locked
+Node dependencies before those tests. Assertions and diagnostics remain unchanged.

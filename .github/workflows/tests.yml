@@ -13,6 +13,17 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+      # API settings diagnostics launch the real Node runtime for local MCP/search
+      # fixtures. Jobs have separate filesystems, so runtime-job installs do not
+      # satisfy these API tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/agent-runtime/package-lock.json
+      - name: Install runtime dependencies for API diagnostics
+        working-directory: apps/agent-runtime
+        run: npm ci
       - name: Install API and connector dependencies
         working-directory: apps/api
         run: |
