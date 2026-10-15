@@ -29,3 +29,17 @@ pip-*/
 pytest-of-*/
 .tmp-install/
 tmp*/
+
+# Local agent memory, captured UI/account data, and temporary test workspaces
+.workbuddy-ai/
+/outputs/
+campus-api-tests-*/
+/apps/agent-runtime/zdbk-login-notice-list.txt
+/tools/_probe2.py
+
+# Raw audit traces stay local; publish curated summaries and synthetic reproducers.
+/docs/audit/**/*.json
+/docs/audit/**/*.xml
+/docs/audit/**/artifacts*/
+/docs/audit/**/traces*/
+/docs/audit/**/visual/

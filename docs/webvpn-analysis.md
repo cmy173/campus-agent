@@ -95,6 +95,48 @@ token 结构 = `hex("wrdvpnisawesome!") + hex(主机名密文)[:len(主机名)*2
   `WebVPNAdapter.login()`；首次在 UI 保存真实凭据时即完成该验证，
   若失败会显示映射后的错误文案（账号密码错误/锁定/限流等）。
 
+## 2026-10-15 后台通道（已接入生产 transport）
+
+- `connectors/campus/webvpn_tunnel.py`：进程级 portal 会话 + 有界自动重认证。
+  凭据由 app 侧注入（`CampusWorkspace.stored_webvpn_credentials` → DPAPI 保险箱
+  `webvpn` 槽位），connectors 不读配置文件、不存密码；会话只存内存。
+- 通道选择：`CAMPUS_WEBVPN_MODE=auto`（默认）：仅当**已保存 WebVPN 凭据**时才对
+  业务主机做一次 TCP 探测（无 HTTP、无会话、不计入读取预算），不可达才把该主机
+  的请求改写为 `/https/<token>/...` 并走 portal；`zjuam` 直接可达所以通常仍直连。
+  `direct` / `webvpn` 可强制。未登记主机（目前 `eta.zju.edu.cn` 无 token）永不改写。
+- 有界性：portal 会话过期 → 重新认证一次并重试一次；再失败即报错。
+  认证失败（含验证码/锁定/限流）→ 一次尝试后进入 300s 冷却，不触碰校方接口。
+- `zjuam.zju.edu.cn` 恒定直连（`DIRECT_ONLY_HOSTS`）：它是认证来源且公网可达；
+  走代理会把通行证 cookie 落进门户域，校园客户端反而用不上。
+- 通道内的 3xx 会被翻译回原校园 URL（`unmap_url`）：CAS→ZDBK 的 SSO 交接本身就是
+  重定向链，而 `check_url` 只接受校园域；只有重定向回门户 `/login` 才判定会话失效。
+
+## 2026-10-15 已打通：真实登录请求契约 + 真实读通
+
+用合成账号先证明"格式被接受"，再用本机保存的真实账号验证：
+
+| 步骤 | 结果 |
+|---|---|
+| `GET /login` 解析表单 | `_csrf`、`auth_type=local`、`username`、`sms_code`、`password`、`captcha`、`needCaptcha`、`captcha_id` |
+| 修正前 `POST /do-login`（只发 user_name+password） | **HTTP 400**（门户拒绝 → `WEBVPN_PROTOCOL_CHANGED`） |
+| 修正后 `POST /do-login`（回发整张表单 + AES-CFB 密文） | 合成账号得到门户自己的 `INVALID_ACCOUNT`，**不再是 400** |
+| 真实账号 `POST /do-login`（应用内「立即验证」） | `WEBVPN_LOGIN_OK`，后台会话建立，全程无需浏览器窗口 |
+| 真实 `https://zdbk.zju.edu.cn/jwglxt/...`（强制走通道） | HTTP 200，16060 字节真实页面 |
+| 真实教务读：强制走通道 vs 直连 | 两次结果**完全一致**：`AUTO_LOGIN_OK`（CAS 直连）+ 真实学期列表 + `courses/grades` 均为 `error_code: null, freshness: fresh` |
+
+关键实现细节（均与真实页面/门户核对）：
+
+- 登录页把**整张表单**序列化后 POST 到 `/do-login`；`_csrf`/`captcha_id` 是每页令牌，
+  必须回发并在同一 cookie 会话内。
+- 密码用页面自带 AES-CFB（key=iv=`wrdvpnisawesome!`，`'0'` 字符补齐到 16 倍数，
+  输出 `hex(iv)+hex(ct)[:2*len]`），与 `campus_crypto.webvpn_encrypt_password` 一致。
+- 失败码：`INVALID_ACCOUNT`/`WEEK_PASSWORD_FORBID`/`CAPTCHA_FAILED`/`TOO_MANY_ATTEMPTS`/
+  `IP_FORBIDDEN`/`NEED_TWO_STEP`/`NEED_CONFIRM`。`NEED_CONFIRM`（账号已在别处登录）按
+  页面同款 `POST /do-confirm-login` 接管一次 —— **这会把浏览器里的 WebVPN 会话顶掉**。
+
+仍未验证：真实**离校网络**（本次是强制通道模拟）、`eta.zju.edu.cn` 未登记 token 不能走通道、
+以及 `courses/grades` 返回 0 条（直连与通道一致，属另一条数据映射线索，与通道无关）。
+
 ## 参考
 
 - WebVPN 使用说明：https://itc.zju.edu.cn/_t2014/2021/0615/c49798a2395843/page.psp

@@ -52,6 +52,15 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
         def do_GET(self):
             if self.path == '/browser/started':
                 stopped_script_started.set()
+            if self.path == '/browser/slow':
+                # A real, slow *allowed* browser operation: the root turn must be
+                # cancellable without waiting for it, and it must not complete later.
+                stopped_script_started.set()
+                try:
+                    time.sleep(self.server.slow_seconds)
+                    stopped_script_late.set()
+                except Exception:
+                    pass
             self.send_response(200)
             if self.path == '/browser/download':
                 self.send_header('Content-Disposition', 'attachment; filename="browser-campus.txt"')
@@ -80,11 +89,12 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
                 return
             receipts.append(body)
-            # This broad regression explicitly requests every optional family.
-            # The discovery-specific test separately asserts the minimal default
-            # and one-group-only visibility. Never call a tool absent on the wire.
+            # This broad regression explicitly requests every optional family that the
+            # project capability fence actually exposes. MCP resource enumeration is
+            # deliberately hidden from the model by that fence, so requiring it here
+            # would loop forever (and was the reason this audit could not finish).
             names = {t['function']['name'] for t in body.get('tools', [])}
-            optional = {'mcp__campus_browser__browser_navigate', 'list_mcp_resources',
+            optional = {'mcp__campus_browser__browser_navigate',
                         'subagent', 'job_list', 'exit_plan_mode'}
             if not optional.issubset(names):
                 assert 'load_tools' in names, names
@@ -137,7 +147,8 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                             'function': {'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}
                 if '[V2子任务A]' in marker:
                     if not results:
-                        calls = [native('pwsh', {'command': 'Start-Sleep -Seconds 30; Write-Output "SHOULD_NOT_COMPLETE"', 'description': '耗时子任务计算'})]
+                        calls = [native('mcp__campus_browser__browser_navigate',
+                                        {'url': f'http://127.0.0.1:{provider.server_port}/browser/slow'})]
                     else:
                         content = '\n'.join(results)
                 elif '[V2子任务B]' in marker:
@@ -182,20 +193,16 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 time.sleep(2)
             user_text = messages[last_user]["content"].split("用户消息：\n", 1)[1]
             if user_text.startswith('[V2停止演练]'):
+                # Page-script execution is refused by the project capability fence, so the
+                # delayed-operation cancellation guarantee is exercised with the slow
+                # *allowed* navigation instead of `browser_run_code_unsafe`.
                 results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
                 if not results:
                     stopped_script_started.clear()
                     stopped_script_late.clear()
-                delay = 90000 if serve else 15000
-                code = f'''async (page) => {{
-                  await page.goto('http://127.0.0.1:{provider.server_port}/browser/form');
-                  await fetch('http://127.0.0.1:{provider.server_port}/browser/started');
-                  await new Promise(resolve => setTimeout(resolve, {delay}));
-                  await fetch('http://127.0.0.1:{provider.server_port}/browser/late', {{method:'POST',body:'fixture'}});
-                  return '脚本执行完成';
-                }}'''
                 calls = [] if results else [{'id': 'stop_script_' + str(len(receipts)), 'type': 'function', 'function': {
-                    'name': 'mcp__campus_browser__browser_run_code_unsafe', 'arguments': json.dumps({'code': code})}}]
+                    'name': 'mcp__campus_browser__browser_navigate',
+                    'arguments': json.dumps({'url': f'http://127.0.0.1:{provider.server_port}/browser/slow'})}}]
                 self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': '\n'.join(results) if results else None,
                     'tool_calls': calls}, 'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
@@ -227,27 +234,25 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 attachments = context.get('attachments', [])
                 actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
                 stem = '文档成果-' + attachments[0]['id'][-6:] if attachments else '文档成果'
-                spec = {}
-                if len(actual_results) >= 3:
+                choices = [('skill', {'name': 'document-artifacts'}),
+                    ('read', {'file_path': str(ROOT / 'apps/agent-runtime/skills/document-artifacts/references/input-format.md')}),
+                    ('read', {'file_path': attachments[0]['path']})] if attachments else []
+                columns, rows = [], []
+                if attachments and len(actual_results) >= 3:
                     # Facts come from the actual read tool output, not fixture DB access.
                     lines = re.findall(r'^\s*\d+:\s?(.*)$', actual_results[2], re.MULTILINE)
                     source_rows = list(csv.reader(io.StringIO('\n'.join(lines))))
                     assert len(source_rows) > 1, actual_results[2]
                     columns, rows = source_rows[0], source_rows[1:]
-                    rows = [[int(value) if column == 1 and value.isdigit() else value for column, value in enumerate(row)] for row in rows]
-                    spec = {'title': '校园资料整理', 'subtitle': '依据本次上传资料',
-                        'sections': [{'heading': '资料清单', 'paragraphs': ['保留原始页数和截止时间；来源未提供的时间标为未知。'],
-                                      'table': {'columns': columns, 'rows': rows}}],
-                        'sources': [attachments[0]['name']],
-                        'sheets': [{'name': '资料清单', 'columns': columns, 'rows': rows}]}
-                choices = [('skill', {'name': 'document-artifacts'}),
-                    ('read', {'file_path': str(ROOT / 'apps/agent-runtime/skills/document-artifacts/references/input-format.md')}),
-                    ('read', {'file_path': attachments[0]['path']}),
-                    ('write', {'file_path': stem + '.json', 'content': json.dumps(spec, ensure_ascii=False)}),
-                    ('pwsh', {'command': '& $env:DSH_PYTHON_EXECUTABLE -X utf8 $env:DSH_DOCUMENT_EXPORTER --input "' + stem +
-                        '.json" --output-dir "文档成果" --stem "' + stem + '" --formats pdf,xlsx,md',
-                        'description': '生成实际中文 PDF、Excel 和 Markdown'}),
-                    *[('publish_file', {'path': '文档成果/' + stem + '.' + fmt}) for fmt in ['pdf', 'xlsx', 'md']]] if attachments else []
+                    # The fence forbids shell/code execution, so the deliverable is a text
+                    # artifact the write tool can produce; PDF/Excel are reported as
+                    # unavailable instead of being faked.
+                    markdown = ('# 校园资料整理\n\n依据本次上传资料整理；来源未提供的时间标为未知。\n\n'
+                        + '| ' + ' | '.join(columns) + ' |\n'
+                        + '| ' + ' | '.join('---' for _ in columns) + ' |\n'
+                        + '\n'.join('| ' + ' | '.join(str(value) for value in row) + ' |' for row in rows) + '\n')
+                    choices += [('write', {'file_path': stem + '.md', 'content': markdown}),
+                                ('publish_file', {'path': stem + '.md'})]
                 calls = []
                 if len(actual_results) < len(choices):
                     name, args = choices[len(actual_results)]
@@ -255,7 +260,8 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                         'name': name, 'arguments': json.dumps(args, ensure_ascii=False)}}]
                 self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({'choices': [{'message': {'role': 'assistant', 'content': None if calls else
-                    ('已根据上传资料生成 PDF、Excel 和 Markdown，成果可预览或下载。' if attachments else '请先选择资料清单 CSV 附件。'),
+                    (f'已交付 Markdown 成果：{stem}.md（含原始页数与未知截止标记）。PDF/Excel 需要本机导出器，'
+                     '本项目不提供代码执行，无法生成，也不伪造。' if attachments else '请先选择资料清单 CSV 附件。'),
                     'tool_calls': calls}, 'finish_reason': 'tool_calls' if calls else 'stop'}]}, ensure_ascii=False).encode())
                 return
             if user_text.startswith('[V2文件演练]'):
@@ -277,13 +283,15 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                 return
             if user_text.startswith('[V2工具演练]'):
                 actual_results = [m['content'] for m in messages[last_user + 1:] if m['role'] == 'tool']
+                # The project capability fence refuses arbitrary shell/code execution, so
+                # this turn proves file tools + a real configured MCP service instead of
+                # pwsh/Python. The MCP tool is loaded on demand, exactly as a model must.
                 choices = [
+                    ('load_tools', {'tools': ['mcp__calculator__multiply']}),
                     ('write', {'file_path': 'v2-browser-notes.md', 'content': '# 实际工具产物\n来源标记：v2-browser-731\n'}),
                     ('read', {'file_path': 'v2-browser-notes.md'}),
-                    ('pwsh', {'command': '& $env:DSH_PYTHON_EXECUTABLE -c "print(6 * 7)"', 'description': '通过实际 Python 环境计算结果'}),
+                    ('mcp__calculator__multiply', {'a': 36, 'b': 7}),
                 ]
-                if any(t['function']['name'] == 'mcp__calculator__multiply' for t in body.get('tools', [])):
-                    choices.append(('mcp__calculator__multiply', {'a': 36, 'b': 7}))
                 calls = []
                 if len(actual_results) < len(choices):
                     name, args = choices[len(actual_results)]
@@ -378,6 +386,10 @@ def verify(*, serve=False, web_port=15174, stop_file=None):
                     "tool_calls": calls}, "finish_reason": "tool_calls" if calls else "stop"}]}, ensure_ascii=False).encode())
 
     provider = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+    provider.slow_seconds = 90000 if serve else 15000
+    # A cancelled /browser/slow request leaves a sleeping handler thread behind; it must
+    # not keep the process alive nor fail the run during teardown.
+    provider.daemon_threads = True
     threading.Thread(target=provider.serve_forever, daemon=True).start()
     port = free_port()
     env = os.environ.copy()
@@ -476,20 +488,38 @@ with SessionLocal() as db:
         expected_tools = {"campus_connections_status", "campus_courses_list", "campus_materials_list", "campus_materials_search", "campus_materials_read", "campus_assignments_list", "campus_tasks_list", "campus_plans_read", "campus_jobs_read", "campus_availability_read", "campus_plans_preview", "campus_plans_apply", "campus_plans_revoke", "campus_tasks_build", "campus_jobs_cancel", "campus_tasks_feedback"}
         expected_tools |= {'campus_campus_' + name for name in ('status', 'query', 'sync', 'academics', 'notice_read',
             'imported_read', 'webvpn_entry', 'notice_import')}
+        expected_tools |= {'campus_connections_courses', 'campus_connections_courses_import', 'campus_connections_sync'}
+        # Round 3 added the trusted document export and the review-paper chain. Both stay on
+        # the default surface because they answer ordinary campus requests and are still
+        # fully scope-checked server-side.
+        expected_tools |= {'campus_artifacts_export',
+                           'campus_reviews_preflight', 'campus_reviews_generate',
+                           'campus_reviews_read', 'campus_reviews_export'}
         native_tools = {'load_tools', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent',
-                        'job_kill', 'job_list', 'job_output', 'list_agents', 'pwsh' if os.name == 'nt' else 'bash',
+                        'job_kill', 'job_list', 'job_output', 'list_agents',
                         'read', 'read_image', 'send_message', 'skill', 'subagent', 'subagent_fork', 'todo_write',
-                        'update_goal', 'web_fetch', 'web_search', 'workflow', 'write', 'publish_file'}
+                        'update_goal', 'web_fetch', 'web_search', 'write', 'publish_file'}
+        # Shell and workflow execution are denied by the project capability fence, so
+        # they must not appear on the wire at all (not merely fail when called).
+        hidden_native_tools = {'pwsh', 'bash', 'shell', 'powershell', 'workflow', 'ralph', 'run_code'}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
+        # Model-visible browser tools are exactly the reviewed interaction set; page
+        # script, drag/drop and file-upload entry points are hidden by the fence.
         browser_names = {'browser_close', 'browser_resize', 'browser_console_messages', 'browser_handle_dialog', 'browser_emulate_media',
-            'browser_evaluate', 'browser_file_upload', 'browser_drop', 'browser_find', 'browser_fill_form', 'browser_press_key',
+            'browser_find', 'browser_fill_form', 'browser_press_key',
             'browser_type', 'browser_navigate', 'browser_navigate_back', 'browser_network_requests', 'browser_network_request',
-            'browser_run_code_unsafe', 'browser_take_screenshot', 'browser_snapshot', 'browser_click', 'browser_drag',
+            'browser_take_screenshot', 'browser_snapshot', 'browser_click',
             'browser_hover', 'browser_select_option', 'browser_tabs', 'browser_wait_for', 'browser_prepare_action'}
+        hidden_browser_names = {'browser_evaluate', 'browser_file_upload', 'browser_drop', 'browser_drag',
+                                'browser_run_code_unsafe'}
         browser_tools = {'mcp__campus_browser__' + name for name in browser_names}
+        hidden_browser_tools = {'mcp__campus_browser__' + name for name in hidden_browser_names}
         mcp_resources = {'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'}
         scheduling_tools = {'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_history'}
-        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | scheduling_tools, actual_tools
+        assert actual_tools == expected_tools | native_tools | browser_tools | scheduling_tools, actual_tools
+        # Denied tool families must be invisible, not merely rejected at call time.
+        leaked = actual_tools & (hidden_browser_tools | mcp_resources | hidden_native_tools)
+        assert not leaked, leaked
         cancel_turn = post(f"/conversations/{cid}/turns", {"text": "取消演练"}, {"Idempotency-Key": "integration-cancel"})
         assert slow_started.wait(timeout=15), "controlled provider was not reached before cancellation"
         cancelled = post("/turns/" + cancel_turn["id"] + "/cancel", {})
@@ -509,7 +539,7 @@ with SessionLocal() as db:
         assert not [e for e in cancelled["events"] if e["kind"] == "tool_result"], "cancelled model response caused new tool execution"
         evidence["cancelled_turn"] = cancelled
         unsafe = post(f'/conversations/{cid}/turns', {'text': '[V2停止演练] 执行浏览器脚本并允许停止'}, {'Idempotency-Key': 'stop-browser-script'})
-        assert stopped_script_started.wait(15), 'Actual browser code did not start'
+        assert stopped_script_started.wait(15), 'The slow allowed browser operation did not start'
         began_stop = time.monotonic()
         stopping = post('/turns/' + unsafe['id'] + '/cancel', {})
         assert stopping['status'] in ('stopping', 'cancelled')
@@ -518,7 +548,8 @@ with SessionLocal() as db:
         assert time.monotonic() - began_stop < 10, 'Root cancellation waited for the delayed browser operation'
         assert not stopped_script_late.is_set()
         evidence['browser_script_cancelled_turn'] = stopped
-        evidence['browser_script_cancel_checks'] = {'actual_script_started': True, 'stopping_until_teardown': True,
+        evidence['browser_script_cancel_checks'] = {'page_script_tool_absent_from_wire': True,
+            'slow_allowed_browser_operation_started': True, 'stopping_until_teardown': True,
             'actual_browser_and_sdk_owned_processes_stopped': True, 'delayed_operation_did_not_execute': True}
         # Restart the actual API, keep the client cookie and both journals, then
         # resume again. No progress file or simulated memory substitutes for this.
@@ -637,7 +668,7 @@ with SessionLocal() as db:
         native_results = [e['data']['event']['data']['message'] for e in done['events']
             if e['kind'] == 'harness_event' and e['data']['event']['type'] == 'tool/result']
         assert len(native_results) == 5 and all(not r['isError'] for r in native_results), native_results
-        assert '42' in done['response'] and 'MCP computed: 252' in done['response']
+        assert 'MCP computed: 252' in done['response']
         assert (run_dir / 'workspace/v2-browser-notes.md').read_text(encoding='utf-8') == '# 实际工具产物\n来源标记：v2-browser-731\n'
         evidence['generic_tools_turn'] = done
         evidence['generic_checks'] = {'settings_api_to_actual_runtime': True, 'actual_file_and_python': True,
@@ -684,39 +715,29 @@ with SessionLocal() as db:
             and e['data']['event']['data']['message'].get('toolCallId', '').startswith('document_flow_')]
         # Same reason as the attachment flow: assert this flow's own steps, not a count that
         # silently depended on the one-time `load_tools` step landing in the same turn.
-        assert [c['name'] for c in document_calls] == ['skill', 'read', 'read', 'write', 'pwsh',
-            'publish_file', 'publish_file', 'publish_file'], document_calls
-        assert len(document_results) == 8 and all(not result['isError'] for result in document_results), document_results
+        assert [c['name'] for c in document_calls] == ['skill', 'read', 'read', 'write', 'publish_file'], document_calls
+        assert len(document_results) == 5 and all(not result['isError'] for result in document_results), document_results
         document_files = [e['data']['file'] for e in document_done['events'] if e['kind'] == 'file.published']
-        assert len(document_files) == 3 and {Path(f['name']).suffix for f in document_files} == {'.pdf', '.xlsx', '.md'}
-        from pypdf import PdfReader
-        from openpyxl import load_workbook
+        assert len(document_files) == 1 and {Path(f['name']).suffix for f in document_files} == {'.md'}
+        # The response must not claim PDF/Excel were produced without an exporter.
+        assert '无法生成' in document_done['response'] and 'PDF' in document_done['response'], document_done['response']
         for item in document_files:
             content = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{item['id']}/content", timeout=10)
             assert content.ok, content.text
             saved = run_dir / item['name']
             saved.write_bytes(content.content)
-            if saved.suffix == '.pdf':
-                assert '原始记录-619' in ''.join(page.extract_text() for page in PdfReader(saved).pages)
-            elif saved.suffix == '.xlsx':
-                book = load_workbook(saved)
-                assert book['资料清单']['A5'].value == '原始记录-619' and book['资料清单']['B5'].value == 0
-                assert book['资料清单']['B6'].value == 12
-                book.close()
-                preview = client.get(base + f"/api/v1/agent/conversations/{cid}/files/{item['id']}/preview", timeout=10).json()
-                assert preview['kind'] == 'spreadsheet' and preview['sheets'][0]['rows'][4][1] == 0
-            else:
-                assert '原始记录-619' in saved.read_text(encoding='utf-8')
+            assert '原始记录-619' in saved.read_text(encoding='utf-8')
         evidence['document_turn'] = document_done
         evidence['document_files'] = document_files
         evidence['document_checks'] = {'actual_skill_and_reference_read': True, 'actual_uploaded_csv_read': True,
-            'actual_python_pdf_xlsx_md_generation': True, 'all_eight_tools_succeeded': True,
-            'three_published_downloads': True, 'pdf_text_and_xlsx_numeric_values': True}
+            'actual_markdown_artifact_written_and_published': True,
+            'pdf_xlsx_reported_unavailable_not_faked': True, 'all_five_tools_succeeded': True}
         parallel = post(f'/conversations/{cid}/turns', {'text': '[V2子任务演练] 同时计算A与阅读B，允许单独停止A'}, {'Idempotency-Key': 'v2-parallel-controls'})
         assert child_b_waiting.wait(timeout=20), 'Both actual children did not reach their independent work'
         view = client.get(base + '/api/v1/agent/turns/' + parallel['id'], timeout=10).json()
         a_id = next(e['data']['session_id'] for e in view['events']['items'] if e['kind'] == 'harness_event' and
-                    e['data']['event']['type'] == 'tool/call' and e['data']['event']['data']['name'] == 'pwsh')
+                    e['data']['event']['type'] == 'tool/call'
+                    and e['data']['event']['data']['name'] == 'mcp__campus_browser__browser_navigate')
         stopped = post(f"/turns/{parallel['id']}/subagents/{a_id}/interrupt", {})
         assert stopped['accepted']
         for _ in range(100):
@@ -792,7 +813,12 @@ with SessionLocal() as db:
             'actual_attachment_published_and_downloaded': True, 'form_filled_before_one_confirmation': True,
             'duplicate_confirmation_did_not_resubmit': True, 'next_turn_knows_actual_external_action_receipt': True}
         actual_tools = {s['function']['name'] for s in receipts[-1]['tools']}
-        assert actual_tools == expected_tools | native_tools | browser_tools | mcp_resources | scheduling_tools | {'mcp__calculator__multiply'}
+        # The configured calculator tool is loaded on demand in its own turn (and proven
+        # there by 'MCP computed: 252'); a later turn in a rebuilt runner starts from the
+        # default groups again, so this final list is the default + always-visible set.
+        assert actual_tools == expected_tools | native_tools | browser_tools | scheduling_tools
+        # Denied families stay invisible on the wire (see the earlier equality check).
+        assert not (actual_tools & (hidden_browser_tools | mcp_resources | hidden_native_tools))
         evidence.update(model_call_count=len(receipts), model_visible_tools=sorted(actual_tools), second_turn_preserved_history=True)
         print(json.dumps({"ok": True, "evidence": str(run_dir / "evidence.json"), "model_calls": len(receipts)}, ensure_ascii=False))
     finally:

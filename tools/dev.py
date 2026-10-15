@@ -165,6 +165,8 @@ def main():
     parser.add_argument("--smoke-test", action="store_true", help="启动并检查网页代理后自动关闭本次服务；配合 --platforms 不打开浏览器")
     parser.add_argument("--open-browser", action="store_true", help="服务就绪后打开网页")
     parser.add_argument("--stop-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--ttl-seconds", type=int, default=0,
+                        help="运行这么多秒后自动关闭本次服务（0=不限制；自动化请配合 --stop-file）")
     parser.add_argument("--hidden", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--auto-ports", action="store_true", help="端口被占用时自动选择空闲端口")
     parser.add_argument("--state-file", type=Path, help=argparse.SUPPRESS)
@@ -338,8 +340,14 @@ def main():
                 args.state_file.write_text(json.dumps({"web_url": f"http://127.0.0.1:{args.web_port}/",
                                                       "ports": selected}), encoding="utf-8")
             webbrowser.open(f"http://127.0.0.1:{args.web_port}/")
+        _deadline = (time.monotonic() + args.ttl_seconds) if args.ttl_seconds else None
+        if _deadline:
+            print(f"本次启动将在 {args.ttl_seconds} 秒后自动关闭并释放端口。", flush=True)
         while all(p.poll() is None for p in processes):
             if stopping():
+                return
+            if _deadline is not None and time.monotonic() >= _deadline:
+                print("自动关闭时间到，正在释放端口；可用工作台启动器重新启动。", flush=True)
                 return
             time.sleep(.5)
         raise SystemExit("某个服务退出，请查看上方错误；正在关闭本次启动的服务。")

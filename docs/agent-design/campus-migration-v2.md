@@ -11,7 +11,7 @@
 | CAS、ZDBK、ETA 与身份核对 | `connectors/campus/campus*.py`、`connectors/campus/connectors` | 本科教务菜单、课表、成绩、本人资料；保留换票、验证码、错误分类、分平台会话与缓存合并规则 |
 | 校历、课程安排、学分/绩点 | `connectors/campus/{academic_defaults,academics,calendar_sources,calendar_extract}.py` | 学期/校历来源、默认值与缓存分别声明；不自行把未知日期变成确定日期 |
 | 校级通知与学院正文 | `connectors/campus/connectors/{notices,college_notices}.py` | 校级入口仅近期摘要；学院专用来源目前只有竺可桢学院，其他学院明确 unsupported，不猜网址 |
-| WebVPN | `connectors/campus/webvpn_adapter.py`、`CampusWorkspace.webvpn_entry` | 迁入既有认证/令牌映射；修正 Cookie processor。产品采用持久浏览器登录与代理页面操作，未实现 Python 教务透明代理，也没有宣称旧自动同步已实现这种代理 |
+| WebVPN | `connectors/campus/webvpn_adapter.py`、`connectors/campus/webvpn_tunnel.py`、`CampusWorkspace.webvpn_entry` | 已迁入并**接入生产 transport**：`webvpn` 独立凭据槽位 → 后台 portal 自动认证 → `CampusTransport` 按主机选通道；真实门户登录与真实 zdbk 读已实测（2026-10-15，见 docs/webvpn-analysis.md） |
 | 通知进入学习资料 | `apps/api/app/campus_domain.py` | 缓存通知正文进入现有 Resource/版本/片段，支持材料检索、任务生成、复习业务；附件/图片未读声明保留 |
 | 历史私有数据 | `apps/api/app/campus_migration.py`、`tools/migrate_campus_data.py` | 只读源库、明确单个 owner 映射、原始记录与文件字节可重入导入、受保护回滚 |
 
