@@ -23,6 +23,8 @@ import { JumpLoginModal } from '../../components/JumpLoginModal'
 import { StateView } from '../../components/StateView'
 import { ConnectorSetupNotice } from '../../components/ConnectorSetupNotice'
 import { PlatformCourseImport } from '../courses/PlatformCourseImport'
+import { CampusBrowserSessionCard } from './CampusBrowserSessionCard'
+import { CampusCredentialCard } from './CampusCredentialCard'
 import { API_MODE } from '../../lib/api/http'
 import {
   ConnectionStatusTag,
@@ -398,6 +400,10 @@ export function ConnectionsSettings() {
         title="同步只读取平台数据"
         description="这里的同步连接器读取课程与资料。需要填写或提交网页材料时，请在对话中提出目标，并通过浏览器工作区检查提交内容。"
       />
+
+      {API_MODE === 'real' && <CampusBrowserSessionCard />}
+
+      {API_MODE === 'real' && <CampusCredentialCard />}
 
       <Card title="平台连接">
         <StateView

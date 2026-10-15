@@ -6,6 +6,7 @@ import { apiErrorText } from '../../lib/api/http'
 import { agentApi } from '../agent/api'
 import type { DiagnosticResult, McpServerSettings } from '../agent/api'
 import { AiProviderCard } from './AiProviderCard'
+import { AgentDataSettings } from './AgentDataSettings'
 
 /** Accept the common MCP configuration shape in addition to the editable list. */
 export function parseMcpSettings(text: string): McpServerSettings[] {
@@ -109,6 +110,7 @@ export function RuntimeSettingsPanel() {
       <DiagnosticFeedback result={results['search:']} />
     </Space></Card>
     <Card title="MCP 服务" size="small"><Space orientation="vertical" style={{ width: '100%' }}>
+      <Alert type="warning" title="仅启用可信的 MCP 服务" description="启用 MCP 将运行本地命令或访问远程服务，并授予该服务工具权限。连接测试也会启动该服务；请勿配置不必要的凭据。" />
       <Typography.Text type="secondary">粘贴标准 mcpServers 配置或编辑服务列表。enabled 设为 false 可停用。凭据保存后以 __SAVED_CREDENTIAL__ 显示，保留该值即可沿用。</Typography.Text>
       <Input.TextArea aria-label="MCP 服务配置" value={mcpText} onChange={e => setMcpText(e.target.value)} autoSize={{ minRows: 6, maxRows: 14 }} />
       {settings.data?.mcp_servers.map(server => <div key={server.serverName}>
@@ -123,5 +125,6 @@ export function RuntimeSettingsPanel() {
 
 export function AssistantSettings() {
   return <Tabs items={[{ key: 'model', label: '模型服务', children: <AiProviderCard /> },
-    { key: 'tools', label: '工具与搜索', children: <RuntimeSettingsPanel /> }]} />
+    { key: 'tools', label: '工具与搜索', children: <RuntimeSettingsPanel /> },
+    { key: 'data', label: '数据与历史', children: <AgentDataSettings /> }]} />
 }

@@ -1,22 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useCourses, useProviders } from '../../lib/api/hooks'
-import { API_MODE, apiErrorText, isApiError } from '../../lib/api/http'
+import { API_MODE, isApiError } from '../../lib/api/http'
 import { agentApi, isActive } from './api'
 import type { AgentConversation, PlanAction } from './api'
 import { prepareSend, readDraft, saveDraft } from './draft'
 
+const providerPreferenceKey = 'campus.agent.provider'
+
+function readProviderPreference() {
+  try { return localStorage.getItem(providerPreferenceKey) ?? undefined } catch { return undefined }
+}
+
 /** Owns API state, retries and recovery independently of the chat layout. */
 export function useConversationController(id?: string) {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const draftKey = id ?? 'new'
   const [draft, setDraft] = useState(() => readDraft(draftKey))
-  const [providerId, setProviderId] = useState<string>()
-  const [consent, setConsent] = useState(false)
+  const latestDraft = useRef(draft)
+  latestDraft.current = draft
+  const [providerId, setProviderId] = useState<string | undefined>(readProviderPreference)
   const [sending, setSending] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(() => location.state?.firstSendError ?? null)
+  useEffect(() => {
+    if (location.state?.firstSendError) navigate(location.pathname + location.search, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
+  const createdId = useRef<string | undefined>(id)
+  const [historySearch, setHistorySearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(historySearch.trim()), 200)
+    return () => window.clearTimeout(timer)
+  }, [historySearch])
   const sendingRef = useRef(false)
   const transcript = useRef<HTMLDivElement>(null)
   const messages = useRef<HTMLDivElement>(null)
@@ -25,7 +43,10 @@ export function useConversationController(id?: string) {
   const restoredScroll = useRef(false)
   const providers = useProviders()
   const courses = useCourses()
-  const conversations = useQuery({ queryKey: ['agent', 'list'], queryFn: agentApi.list, enabled: API_MODE === 'real' })
+  const conversations = useInfiniteQuery({ queryKey: ['agent', 'list', debouncedSearch],
+    queryFn: ({ pageParam }) => agentApi.list({ cursor: pageParam, search: debouncedSearch || undefined }),
+    initialPageParam: undefined as string | undefined, getNextPageParam: page => page.next_cursor ?? undefined, enabled: API_MODE === 'real' })
+  const historyItems = [...new Map((conversations.data?.pages.flatMap(page => page.items) ?? []).map(item => [item.id, item])).values()]
   const conversation = useQuery({ queryKey: ['agent', 'conversation', id], queryFn: ({ signal }) => agentApi.read(id!, signal), enabled: Boolean(id),
     refetchInterval: query => query.state.data?.turns?.some(isActive) ? 650 : false })
   const turns = conversation.data?.turns ?? []
@@ -33,12 +54,17 @@ export function useConversationController(id?: string) {
   const actions = useQuery({ queryKey: ['agent', 'actions', id], queryFn: () => agentApi.actions(id!), enabled: Boolean(id),
     refetchInterval: active ? 650 : false })
   useEffect(() => { if (id) void queryClient.invalidateQueries({ queryKey: ['agent', 'actions', id] }) }, [active, id, queryClient])
-  const providerItems = providers.data?.items ?? []
-  const selectedProvider = providerId ?? providerItems[0]?.id
-  const provider = providerItems.find(p => p.id === (conversation.data?.provider_id ?? selectedProvider))
+  const providerItems = (providers.data?.items ?? []).filter(p => p.enabled !== false)
+  const selectedProvider = providerItems.some(p => p.id === providerId) ? providerId : providerItems[0]?.id
+  const provider = providers.data?.items.find(p => p.id === (conversation.data?.provider_id ?? selectedProvider))
   const courseId = draft.course_id ?? undefined
 
-  useEffect(() => { saveDraft(draftKey, draft) }, [draftKey, draft])
+  useEffect(() => {
+    if (!selectedProvider) return
+    setProviderId(selectedProvider)
+    try { localStorage.setItem(providerPreferenceKey, selectedProvider) } catch { /* Optional, non-secret preference. */ }
+  }, [selectedProvider])
+  useEffect(() => { saveDraft(createdId.current ?? draftKey, draft) }, [draftKey, draft])
   useEffect(() => {
     if (!conversation.data || restoredScroll.current) return
     restoredScroll.current = true
@@ -61,29 +87,41 @@ export function useConversationController(id?: string) {
   }, [])
 
   const changeText = (text: string) => setDraft(previous => ({ ...previous, text }))
+  async function ensureConversation() {
+    if (createdId.current) return createdId.current
+    const value = await agentApi.create(selectedProvider!, courseId)
+    createdId.current = value.id
+    // Move the entire recoverable draft before any send or route remount.
+    saveDraft(value.id, { ...latestDraft.current, course_id: courseId ?? null })
+    saveDraft('new', { text: '' })
+    queryClient.setQueryData(['agent', 'conversation', value.id], { ...value, turns: [] })
+    void queryClient.invalidateQueries({ queryKey: ['agent', 'list'] })
+    return value.id
+  }
+
   async function create() {
-    if (!selectedProvider || !consent || sendingRef.current) return
+    if (API_MODE !== 'real' || !selectedProvider || sendingRef.current) return
     sendingRef.current = true
     setSending(true)
-    setError('')
+    setError(null)
     try {
-      const value = await agentApi.create(selectedProvider, courseId)
-      saveDraft(value.id, { text: draft.text, course_id: courseId ?? null })
-      queryClient.setQueryData(['agent', 'conversation', value.id], { ...value, turns: [] })
-      await queryClient.invalidateQueries({ queryKey: ['agent', 'list'] })
-      navigate('/chat/' + value.id)
-    } catch (e) { setError(apiErrorText(e)) }
+      const cid = await ensureConversation()
+      navigate('/chat/' + encodeURIComponent(cid), { replace: true })
+    } catch (e) { setError(e) }
     finally { sendingRef.current = false; setSending(false) }
   }
 
   async function send(override?: { text: string; action: PlanAction; operation: 'apply' | 'revoke' }) {
     const text = override?.text ?? draft.text
-    if (!id || !text.trim() || active || sendingRef.current) return
+    if (API_MODE !== 'real' || (!id && !selectedProvider) || !text.trim() || active || sendingRef.current) return
     sendingRef.current = true
     setSending(true)
-    setError('')
+    setError(null)
     followBottom.current = true
+    let cid = createdId.current
+    let sendError: unknown = null
     try {
+      cid = await ensureConversation()
       let actionId = draft.pending?.payload.text === text && (!override || override.action.id === draft.pending.payload.action_id)
         ? draft.pending.payload.action_id : undefined
       const operation = override?.operation ?? (text.trim() === '按这个来' ? 'apply' : text.trim() === '撤销刚才安排' ? 'revoke' : undefined)
@@ -91,33 +129,51 @@ export function useConversationController(id?: string) {
         (operation === 'apply' ? a.status === 'pending' || a.status === 'approved' : a.status === 'completed'))
       if (operation && !actionId) {
         if (!target) throw new Error('当前没有可确认的具体方案，请先生成并查看预览。')
-        const accepted = target.status === 'approved' && target.kind === operation ? target : await agentApi.accept(id, target.id, operation, crypto.randomUUID())
+        const accepted = target.status === 'approved' && target.kind === operation ? target : await agentApi.accept(cid, target.id, operation, crypto.randomUUID())
         actionId = accepted.id
       }
       const pending = prepareSend(draft, { text, ...(courseId ? { course_id: courseId } : { clear_course_context: true }), ...(actionId ? { action_id: actionId } : {}),
         ...(!override && draft.attachment_ids?.length ? { attachment_ids: draft.attachment_ids } : {}) })
-      const retained = { ...draft, pending }
-      saveDraft(draftKey, retained)
+      const retained = { ...latestDraft.current, course_id: courseId ?? null, pending }
+      latestDraft.current = retained
+      saveDraft(cid, retained)
       setDraft(retained)
-      const turn = await agentApi.send(id, pending.payload, pending.key)
-      queryClient.setQueryData<AgentConversation>(['agent', 'conversation', id], old => old ? {
+      const turn = await agentApi.send(cid, pending.payload, pending.key)
+      queryClient.setQueryData<AgentConversation>(['agent', 'conversation', cid], old => old ? {
         ...old, current_course_id: courseId ?? null,
         turns: [...(old.turns ?? []).filter(t => t.id !== turn.id), turn],
       } : old)
-      const nextDraft = { text: override ? draft.text : '', course_id: courseId ?? null,
-        ...(override && draft.attachment_ids?.length ? { attachment_ids: draft.attachment_ids } : {}) }
+      const current = latestDraft.current
+      const edited = current.text !== draft.text
+      const nextDraft = { text: override || edited ? current.text : '', course_id: courseId ?? null,
+        ...((override || edited) && current.attachment_ids?.length ? { attachment_ids: current.attachment_ids } : {}) }
+      latestDraft.current = nextDraft
       setDraft(nextDraft)
-      saveDraft(draftKey, nextDraft)
-      void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', id] })
+      saveDraft(cid, nextDraft)
+      void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', cid] })
+      void queryClient.invalidateQueries({ queryKey: ['agent', 'list'] })
       requestAnimationFrame(() => { if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight })
     } catch (e) {
-      setError(apiErrorText(e))
-      // A transport error has an uncertain outcome; retry must keep the exact key.
-      if (!isApiError(e) || e.code !== 'NETWORK_ERROR') setDraft({ ...draft, pending: undefined })
-      void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', id] })
+      // Browser history structured-clones state, so transfer public error fields
+      // rather than an Error instance whose custom code may be lost.
+      sendError = isApiError(e) ? { message: e.message, code: e.code, request_id: e.requestId }
+        : { message: e instanceof Error ? e.message : String(e) }
+      setError(e)
+      // Only a definitive client rejection can discard the key. A 5xx or a
+      // malformed success response may arrive after the server committed the turn.
+      if (isApiError(e) && e.status >= 400 && e.status < 500 && e.status !== 408) {
+        const rejected = { ...latestDraft.current, pending: undefined }
+        latestDraft.current = rejected
+        setDraft(rejected)
+        saveDraft(cid ?? draftKey, rejected)
+      }
+      if (cid) void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', cid] })
     } finally {
-      void queryClient.invalidateQueries({ queryKey: ['agent', 'actions', id] })
+      if (cid) void queryClient.invalidateQueries({ queryKey: ['agent', 'actions', cid] })
       sendingRef.current = false; setSending(false)
+      // Keep create+send in one guarded operation; the restored page sees the
+      // final draft/key and cannot race the in-flight first send.
+      if (!id && cid) navigate('/chat/' + encodeURIComponent(cid), { replace: true, state: { firstSendError: sendError } })
     }
   }
 
@@ -129,7 +185,7 @@ export function useConversationController(id?: string) {
         ...old, turns: old.turns?.map(t => t.id === turnId ? cancelled : t),
       } : old)
       void queryClient.invalidateQueries({ queryKey: ['agent', 'conversation', id] })
-    } catch (e) { setError(apiErrorText(e)) }
+    } catch (e) { setError(e) }
   }
 
   const options = (courses.data?.items ?? []).filter(c => !id || conversation.data?.course_ids.includes(c.id)).map(c => ({ value: c.id, label: c.title }))
@@ -140,7 +196,7 @@ export function useConversationController(id?: string) {
 
   function selectProvider(value: string) {
     setProviderId(value)
-    setConsent(false)
+    try { localStorage.setItem(providerPreferenceKey, value) } catch { /* Only the public configuration ID is persisted. */ }
   }
 
   function selectAttachments(ids: string[]) {
@@ -148,8 +204,11 @@ export function useConversationController(id?: string) {
   }
 
   function reconnect() {
-    setError('')
-    void conversation.refetch()
+    setError(null)
+    if (id) void conversation.refetch()
+    void providers.refetch()
+    void courses.refetch()
+    void conversations.refetch()
   }
 
   function onScroll() {
@@ -161,8 +220,8 @@ export function useConversationController(id?: string) {
     } catch { /* Optional storage. */ }
   }
 
-  return { navigate, draft, consent, setConsent, sending, error, providers, courses,
-    conversations, conversation, turns, active, actions, providerItems, selectedProvider,
+  return { navigate, draft, sending, error, providers, courses,
+    conversations, historyItems, historySearch, setHistorySearch, conversation, turns, active, actions, providerItems, selectedProvider,
     provider, courseId, transcript, messages, changeText, create, send, cancel, options,
     selectCourse, selectProvider, selectAttachments, reconnect, onScroll }
 }

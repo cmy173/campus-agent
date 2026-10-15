@@ -24,6 +24,7 @@ it('shows concrete form values and confirms once, then preserves the receipt', a
   </QueryClientProvider>)
   expect(await screen.findByText('姓名：学生-819')).toBeInTheDocument()
   expect(screen.getByText('对象：https://example.com/submit')).toBeInTheDocument()
+  expect(screen.getByText(/停止浏览器只关闭窗口，不会清除持久登录/)).toBeInTheDocument()
   await userEvent.setup().click(screen.getByRole('button', { name: '确认并执行' }))
   await waitFor(() => expect(screen.queryByRole('button', { name: '确认并执行' })).toBeNull())
   expect(confirm).toHaveBeenCalledTimes(1)

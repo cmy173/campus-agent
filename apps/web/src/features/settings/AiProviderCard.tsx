@@ -12,6 +12,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Switch,
   Tag,
   Typography,
 } from 'antd'
@@ -35,6 +36,7 @@ interface ProviderFormState {
   model: string
   protocol: ProviderProtocol
   api_key: string
+  enabled: boolean
   timeout_seconds: number
 }
 
@@ -44,6 +46,7 @@ const emptyForm: ProviderFormState = {
   model: '',
   protocol: 'openai_chat_completions',
   api_key: '',
+  enabled: true,
   timeout_seconds: 120,
 }
 
@@ -54,6 +57,7 @@ function formFrom(provider: ProviderConfig): ProviderFormState {
     model: provider.model,
     protocol: provider.protocol,
     api_key: '',
+    enabled: provider.enabled !== false,
     timeout_seconds: provider.timeout_seconds,
   }
 }
@@ -79,6 +83,8 @@ function providerErrorAdvice(code: string, status: number | null): string {
       return status
         ? `服务端返回 HTTP ${status}：请核对 API 地址与模型名。`
         : '服务端返回错误：请核对 API 地址与模型名。'
+    case 'PROVIDER_DISABLED':
+      return '该模型服务已停用；在设置中启用后再发送请求，原密钥会保留。'
     case 'PROVIDER_NOT_FOUND':
       return '该设置不存在（可能已被删除）：请刷新页面确认。'
     default:
@@ -184,6 +190,7 @@ function ProviderEditor({
         base_url: form.base_url.trim(),
         model: form.model.trim(),
         api_key: apiKey,
+        enabled: form.enabled,
         timeout_seconds: form.timeout_seconds,
       }
       updateProvider.mutate({ id: editing.id, patch }, { onSuccess: onDone, onError: onFail })
@@ -194,6 +201,7 @@ function ProviderEditor({
         base_url: form.base_url.trim(),
         model: form.model.trim(),
         api_key: apiKey,
+        enabled: form.enabled,
         timeout_seconds: form.timeout_seconds,
       }
       createProvider.mutate(input, { onSuccess: onDone, onError: onFail })
@@ -213,6 +221,12 @@ function ProviderEditor({
     >
       <Space orientation="vertical" size={12} style={{ width: '100%' }}>
         {errorText && <Alert type="error" showIcon title="保存失败" description={errorText} />}
+        <Space>
+          <Typography.Text>启用模型服务</Typography.Text>
+          <Switch aria-label="启用模型服务" checked={form.enabled} disabled={pending}
+            onChange={enabled => setForm(f => ({ ...f, enabled }))} />
+        </Space>
+        <Typography.Text type="secondary">保存并启用后，正常对话上下文及工具结果由选中的模型服务处理；不要在对话中提供校园密码、验证码、Cookie 等认证秘密。</Typography.Text>
         <div>
           <Typography.Text>显示名称</Typography.Text>
           <Input
@@ -309,6 +323,7 @@ export function AiProviderCard() {
   const providersQuery = useProviders()
   const clearKey = useClearProviderKey()
   const deleteProvider = useDeleteProvider()
+  const updateProvider = useUpdateProvider()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<ProviderConfig | null>(null)
 
@@ -334,7 +349,7 @@ export function AiProviderCard() {
     >
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
         用于助手对话与复习资料生成。支持 DeepSeek 官方服务、本地模型及兼容服务；
-        请填写服务商提供的 API 地址、模型名和密钥。
+        保存并启用后，正常对话上下文及工具结果由选中的模型服务处理。不要在对话中提供校园密码、验证码、Cookie 等认证秘密；停用不会清除已保存的 API 密钥。
       </Typography.Paragraph>
       {providersQuery.isLoading && <Typography.Text type="secondary">加载中…</Typography.Text>}
       {providersQuery.isError && (
@@ -355,7 +370,14 @@ export function AiProviderCard() {
       )}
       <Space orientation="vertical" size={12} style={{ width: '100%' }}>
         {providers.map((provider) => (
-          <Card key={provider.id} size="small" type="inner" title={provider.name}>
+          <Card key={provider.id} size="small" type="inner" title={provider.name}
+            extra={<Switch aria-label={`启用 ${provider.name}`} checked={provider.enabled !== false}
+              checkedChildren="启用" unCheckedChildren="停用" loading={updateProvider.isPending && updateProvider.variables?.id === provider.id}
+              disabled={updateProvider.isPending}
+              onChange={enabled => updateProvider.mutate({ id: provider.id, patch: { enabled } }, {
+                onSuccess: () => message.success(enabled ? '模型服务已启用' : '模型服务已停用，密钥保留'),
+                onError: err => message.error(toApiError(err).message),
+              })} />}>
             <Descriptions
               column={1}
               size="small"

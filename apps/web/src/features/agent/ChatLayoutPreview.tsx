@@ -31,7 +31,7 @@ export function ChatLayoutPreview() {
         options={[{ value: 'calm', label: '柔和主题' }, { value: 'contrast', label: '高对比主题' }]} />
     </Space>
     <ChatLayout variant={variant} theme={theme}
-      toolbar={<div className="agent-toolbar"><Typography.Title level={3}>校园助手</Typography.Title><Button>新对话</Button></div>}
+      toolbar={<div className="agent-toolbar"><Typography.Title level={5} className="agent-heading-title">校园助手</Typography.Title><Button>新对话</Button></div>}
       context={<div className="agent-context-row"><Tag>实验课程</Tag><Tag>文件与成果 · 1</Tag><Button>日历</Button></div>}
       notices={<Alert type="info" title="相同会话、工具事件和草稿；只切换布局与 tokens" />}
       transcript={<div className="agent-transcript" aria-label="示例对话记录"><article className="agent-turn">
@@ -42,7 +42,6 @@ export function ChatLayoutPreview() {
           <div className="agent-file-results"><Tag>报告清单.md · Markdown 成果</Tag></div>
         </div>
       </article></div>}
-      setup={null}
       composer={<div className="agent-composer"><Input.TextArea aria-label="示例草稿" value={text} onChange={event => setText(event.target.value)} />
         <Typography.Text type="secondary">切换布局后草稿保持，示例不发送请求。</Typography.Text></div>} />
   </div>

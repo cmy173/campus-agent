@@ -3,6 +3,7 @@ import type { ErrorInfo, Plan, PlanBlock } from '../../types/contract'
 
 export interface AgentConversation {
   id: string
+  title?: string | null
   provider_id: string
   course_ids: string[]
   current_course_id: string | null
@@ -23,6 +24,18 @@ export interface AgentTurn {
   updated_at: string
   attachment_ids?: string[]
 }
+
+export interface AuthRecoveryItem {
+  id: string
+  status: 'waiting_auth' | 'ready' | 'resumed' | 'cancelled' | 'failed'
+  pending_tool: string
+  source_turn_id: string
+  continuation_turn_id: string | null
+  error: ErrorInfo | null
+}
+export interface AuthRecoveryStatus { status: 'waiting_auth' | 'ready' | 'idle'; items: AuthRecoveryItem[] }
+export interface HistoryPurge { deleted_conversation_ids: string[]; deleted_count?: number; cleanup_complete?: boolean }
+export interface ConversationPage { items: AgentConversation[]; next_cursor: string | null; purge?: HistoryPurge }
 
 export interface PersistentGoal {
   id: string
@@ -111,6 +124,48 @@ export interface BrowserAction {
     attachments?: string[]; target_text?: string | null }
   created_at: string
 }
+export interface CampusSessionStatus {
+  connected: boolean
+  passport_authenticated: boolean
+  session_remaining_seconds: number
+  browser_session_authorized: boolean
+  login_mode: 'persistent_browser'
+  session_persistence: string
+}
+
+export interface CampusCredentialItem {
+  scope: 'passport' | 'webvpn'
+  configured: boolean
+  username_hint: string | null
+  auto_relogin: boolean
+  saved_at: string | null
+  note?: string
+}
+
+export interface CampusWebVPNChannel {
+  configured: boolean
+  authenticated: boolean
+  cooldown_active: boolean
+  cooldown_seconds: number
+  attempts: number
+  last_error: { code: string; at: number } | null
+  authenticated_at: number | null
+  mapped_hosts: string[]
+  unmapped_hosts: string[]
+  mode?: 'auto' | 'direct' | 'webvpn'
+  channel_active?: Record<string, boolean>
+  note?: string
+}
+
+export interface CampusCredentialStatus {
+  items: CampusCredentialItem[]
+  dpapi: boolean
+  residual_risk: string
+  last_login?: { ok: boolean; code: string; needs_user: boolean; at: number; automatic: boolean } | null
+  cooldown_active?: boolean
+  webvpn_channel?: CampusWebVPNChannel
+}
+
 export interface BrowserStatus { running: boolean; headed: boolean;
   pages: { index: number; url: string; title: string }[]; reviews: BrowserAction[] }
 const browserPath = (cid: string) => `/agent/conversations/${encodeURIComponent(cid)}/browser`
@@ -126,6 +181,18 @@ export interface PlanAction {
 }
 
 export const agentApi = {
+  campusStatus: () => apiRequest<CampusSessionStatus>('/agent/campus/status'),
+  connectCampusBrowser: () => apiRequest<CampusSessionStatus>('/agent/campus/connect-browser', { method: 'POST', body: {} }),
+  disconnectCampus: () => apiRequest<CampusSessionStatus>('/agent/campus/disconnect', { method: 'POST', body: { clear_cache: false } }),
+  campusCredentials: () => apiRequest<CampusCredentialStatus>('/agent/campus/credentials'),
+  saveCampusCredential: (body: { scope: 'passport' | 'webvpn'; username: string; password: string; authcode?: string; auto_relogin?: boolean }) =>
+    apiRequest<CampusCredentialItem>('/agent/campus/credentials', { method: 'PUT', body }),
+  toggleCampusAutoRelogin: (scope: 'passport' | 'webvpn', enabled: boolean) =>
+    apiRequest<CampusCredentialItem>('/agent/campus/credentials', { method: 'PATCH', body: { scope, enabled } }),
+  clearCampusCredential: (scope: 'passport' | 'webvpn') =>
+    apiRequest<CampusCredentialItem>('/agent/campus/credentials', { method: 'DELETE', query: { scope } }),
+  testCampusAutoLogin: (scope: 'passport' | 'webvpn' = 'passport') =>
+    apiRequest<{ ok: boolean; code: string; needs_user: boolean }>('/agent/campus/credentials/test-login', { method: 'POST', body: { scope } }),
   resumeGoal: (cid: string, goal: Pick<PersistentGoal, 'id' | 'revision'> & { maxGoalRounds?: number }, key: string) => apiRequest<AgentTurn>(
     `/agent/conversations/${encodeURIComponent(cid)}/goal/resume`, { method: 'POST', body: goal, idempotencyKey: key }),
   pauseGoal: (tid: string, goal: Pick<PersistentGoal, 'id' | 'revision'>) => apiRequest<{ goal: PersistentGoal; agent_status: string }>(
@@ -147,7 +214,8 @@ export const agentApi = {
     apiRequest<RuntimeSettings>('/agent/settings', { method: 'PUT', body }),
   testMcp: (name: string) => apiRequest<DiagnosticResult>(`/agent/settings/mcp/${encodeURIComponent(name)}/test`, { method: 'POST', body: {} }),
   testSearch: (provider_id?: string) => apiRequest<DiagnosticResult>('/agent/settings/search/test', { method: 'POST', body: { provider_id } }),
-  list: () => apiRequest<{ items: AgentConversation[]; next_cursor: null }>('/agent/conversations'),
+  list: (query?: { cursor?: string; search?: string }) => apiRequest<ConversationPage>('/agent/conversations', { query }),
+  recovery: (id: string, signal?: AbortSignal) => apiRequest<AuthRecoveryStatus>(`/agent/conversations/${encodeURIComponent(id)}/recovery`, { signal }),
   read: (id: string, signal?: AbortSignal) => apiRequest<AgentConversation>(`/agent/conversations/${encodeURIComponent(id)}`, { signal }),
   create: (provider_id: string, course_id?: string) => apiRequest<AgentConversation>('/agent/conversations', {
     method: 'POST', body: { provider_id, send_to_provider: true, course_id: course_id ?? null },

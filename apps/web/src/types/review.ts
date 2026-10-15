@@ -44,6 +44,8 @@ export interface ProviderConfig {
    */
   base_url: string
   model: string
+  /** 缺省视为启用，兼容旧配置；false 时不向该服务发送请求 */
+  enabled?: boolean
   /** 本地密钥存储是否已有密钥；密钥本身永不出现在任何响应/日志/导出 */
   has_api_key: boolean
   /** 单次模型请求超时（5–600 秒） */
@@ -63,6 +65,7 @@ export interface ProviderUpsertInput {
   model: string
   /** 可省略：先保存设置、稍后补密钥（has_api_key=false） */
   api_key?: string | null
+  enabled?: boolean
   timeout_seconds?: number
 }
 
@@ -74,6 +77,7 @@ export interface ProviderPatchInput {
   model?: string
   /** 缺省或 null=保留现有密钥（不覆盖、不清除）；空字符串 400（避免误清空）；清除请用 DELETE .../key */
   api_key?: string | null
+  enabled?: boolean
   timeout_seconds?: number
 }
 

@@ -15,6 +15,7 @@ export function BrowserWorkspace({ id, open, active, onOpen, onClose }: {
     <Drawer title="浏览器工作区" open={open} onClose={onClose} size="min(660px, 100vw)">
       <Space orientation="vertical" size={16} style={{ width: '100%' }}>
         <Typography.Paragraph>在助手自己的浏览器窗口完成登录或验证码，之后可继续读取、下载和填写。登录状态会保留。下载附件出现在“文件与成果”。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">停止浏览器只关闭窗口，不会清除持久登录。需要退出时，请在学校官方页面操作退出；校园查询授权可在校园账号中单独解除。</Typography.Paragraph>
         <Input aria-label="浏览器地址" placeholder="网站地址，可留空打开浏览器" value={url} onChange={e => setUrl(e.target.value)} />
         <Space wrap><Button loading={state.busy === 'open'} disabled={Boolean(state.busy)} onClick={() => void state.openBrowser(url.trim() || undefined)}>打开浏览器 / 登录</Button>
           <Button loading={state.busy === 'stop'} disabled={Boolean(state.busy)} onClick={() => void state.stop()}>停止浏览器</Button>

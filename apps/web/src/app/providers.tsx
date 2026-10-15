@@ -26,7 +26,29 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#1677ff' } }}>
+      <ConfigProvider locale={zhCN} theme={{
+        token: {
+          colorPrimary: '#315f50',
+          colorSuccess: '#47775a',
+          colorWarning: '#a87127',
+          colorError: '#ad5144',
+          colorInfo: '#456b78',
+          colorText: '#25332d',
+          colorTextSecondary: '#737d75',
+          colorBorder: '#dfe1d8',
+          colorBgBase: '#f4f3ed',
+          colorBgContainer: '#fffefa',
+          borderRadius: 8,
+          borderRadiusLG: 11,
+          controlHeight: 40,
+          controlHeightSM: 32,
+          fontFamily: '"Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif',
+          fontSize: 14,
+          lineHeight: 1.55,
+          boxShadow: 'none',
+          boxShadowSecondary: '0 12px 34px rgba(37, 51, 45, 0.12)',
+        },
+      }}>
         <AntApp>{children}</AntApp>
       </ConfigProvider>
     </QueryClientProvider>

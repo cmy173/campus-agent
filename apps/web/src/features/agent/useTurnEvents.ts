@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiErrorText } from '../../lib/api/http'
 import { agentApi, isActive } from './api'
+import { mergeTurnEvents } from './mergeTurnEvents'
 import type { AgentEvent, AgentTurn, PersistentGoal } from './api'
 
 /** Transport, pagination and reconnect state are independent of result presentation. */
@@ -31,7 +32,7 @@ export function useTurnEvents(turn: AgentTurn) {
         const data = await agentApi.turn(turn.id, cursor.current.value, abort.signal)
         if (stopped) return
         cursor.current.value = data.events.next_cursor
-        setEvents(previous => [...previous, ...data.events.items].filter((e, i, all) => all.findIndex(v => v.seq === e.seq) === i))
+        setEvents(previous => mergeTurnEvents(previous, data.events.items))
         setError('')
         if (isActive(data) || data.events.items.length === 100) timer = setTimeout(poll, 600)
       } catch (e) {

@@ -8,6 +8,29 @@ import { projectTurnEvents } from './turnProjection'
 import { ToolActivities } from './ToolActivities'
 import { FileActivities } from './FileActivities'
 import { GoalActivity } from './GoalActivity'
+import { AgentErrorNotice } from './AgentErrorNotice'
+
+const submissionStatusLabels: Record<string, string> = {
+  unknown: '提交状态未知',
+  not_submitted: '平台未提交',
+  submitted: '平台已提交',
+  graded: '已批改',
+}
+
+const learningStatusLabels: Record<string, string> = {
+  pending: '待开始',
+  in_progress: '进行中',
+  completed: '学习完成',
+  cancelled: '已取消',
+}
+
+const parseStatusLabels: Record<string, string> = {
+  pending: '待解析',
+  processing: '解析中',
+  ready: '已解析',
+  failed: '解析失败',
+  skipped: '未解析',
+}
 
 function ResultView({ name, result, onSource }: { name: string; result: ToolEnvelope; onSource: (value: ToolEnvelope) => void }) {
   const items = result.data.items ?? []
@@ -19,10 +42,29 @@ function ResultView({ name, result, onSource }: { name: string; result: ToolEnve
     {['assignments.list', 'tasks.list', 'courses.list', 'materials.list'].includes(name) && items.map(item =>
       <article className="agent-fact" key={String(item.id)}>
         <Typography.Text strong>{String(item.title ?? item.id)}</Typography.Text>
-        {name === 'assignments.list' && <div>{dueText(item)} · 平台提交状态：{String(item.submission_status ?? 'unknown')}</div>}
-        {name === 'tasks.list' && <div>本地学习状态：{String(item.status)}（不代表平台提交）</div>}
-        {name === 'materials.list' && <div>版本 v{String(item.version)} · 解析状态：{String(item.parse_status)}</div>}
-        <Typography.Text type="secondary">来源 {String(item.id)}</Typography.Text>
+        {name === 'assignments.list' && <div className="agent-fact-meta">
+          <span>{dueText(item)}</span>
+          <Tag color={item.submission_status === 'submitted' || item.submission_status === 'graded' ? 'success' : item.submission_status === 'not_submitted' ? 'warning' : 'default'}>
+            {submissionStatusLabels[String(item.submission_status ?? 'unknown')] ?? '提交状态待核对'}
+          </Tag>
+        </div>}
+        {name === 'tasks.list' && <div className="agent-fact-meta">
+          <span>本地学习进度</span>
+          <Tag color={item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'processing' : 'default'}>
+            {learningStatusLabels[String(item.status)] ?? '进度待核对'}
+          </Tag>
+          <Typography.Text type="secondary">不代表学校平台已提交</Typography.Text>
+        </div>}
+        {name === 'materials.list' && <div className="agent-fact-meta">
+          <span>资料版本 v{String(item.version)}</span>
+          <Tag color={item.parse_status === 'ready' ? 'success' : item.parse_status === 'failed' ? 'error' : 'default'}>
+            {parseStatusLabels[String(item.parse_status)] ?? '解析状态待核对'}
+          </Tag>
+        </div>}
+        <details className="agent-technical-meta">
+          <summary>查看记录编号</summary>
+          <code>{String(item.id)}</code>
+        </details>
       </article>)}
     {'items' in result.data && !items.length && !result.error && <Typography.Text type="secondary">本次查询没有返回条目，不能据此判断学校平台没有对应信息。</Typography.Text>}
     {name === 'materials.search' && items.length > 0 && <Typography.Text type="secondary">找到 {items.length} 个正文片段；读取原文后核对要求。</Typography.Text>}
@@ -62,11 +104,17 @@ export function TurnView({ turn, onSource, onCancel, attachments = [], onFile }:
       {goalError && <Alert type="warning" title="持续任务控制未完成" description={goalError} />}
       <FileActivities events={events} conversationId={turn.conversation_id} onOpen={onFile} />
       {turn.status === 'cancelled' && <Typography.Paragraph type="secondary">本轮已停止，已获得的资料保留。</Typography.Paragraph>}
-      {modelErrors.map(event => <Alert key={event.seq} type="warning" title={String(event.data.message)} description={String(event.data.code ?? '')} />)}
-      {turn.error && !modelErrors.length && <Alert type="warning" title={turn.error.message} description={turn.error.code} />}
+      {modelErrors.map(event => <AgentErrorNotice key={event.seq} error={event.data} />)}
+      {turn.error && !modelErrors.length && <AgentErrorNotice error={turn.error} />}
       {error && <Alert type="warning" title="进度连接暂时中断，正在恢复" description={error} />}
       {controlError && <Alert type="warning" title="子任务停止请求未完成" description={controlError} />}
       {jobIds.map(id => <JobProgressInline key={id} jobId={id} compact allowRetry={false} />)}
+      {activity.tools.length > 0 && <div className="agent-task-summary" role="status" aria-label="工具进度摘要">
+        <span>工具进度：已完成 {activity.tools.filter(tool => tool.status === 'completed').length} / {activity.tools.length} 项</span>
+        {activity.tools.some(tool => ['running', 'stopping'].includes(tool.status)) && <Tag color="processing">仍在执行</Tag>}
+        {activity.tools.some(tool => tool.status === 'failed') && <Tag color="error">部分失败，请展开查看</Tag>}
+        {activity.tools.some(tool => ['cancelled', 'interrupted'].includes(tool.status)) && <Tag>有操作未完成</Tag>}
+      </div>}
       <ToolActivities tools={activity.tools} children={activity.children} onInterrupt={interruptChild} stoppingChildren={stoppingChildren} />
       {results.filter(e => e.data.name === 'materials.read' && e.data.result?.data.resource).map(e =>
         <div className="agent-source-action" key={e.seq}><Button onClick={() => onSource(e.data.result!)}>
