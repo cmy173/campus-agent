@@ -8,6 +8,7 @@ import os
 import queue
 import secrets
 import shutil
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -20,6 +21,22 @@ import requests
 from ..config import REPO_ROOT
 from ..errors import ApiError
 from ..process_owner import spawn_owned
+
+
+# Defense in depth before starting the browser subprocess. The owned daemon
+# separately checks its live tool catalog and inspects interaction targets.
+BLOCKED_MODEL_BROWSER_TOOLS = frozenset({
+    'browser_evaluate', 'browser_run_code_unsafe', 'browser_file_upload', 'browser_drop', 'browser_drag',
+})
+
+
+def validate_model_browser_call(name: str | None, arguments: dict | None = None) -> None:
+    args = arguments or {}
+    if (name in BLOCKED_MODEL_BROWSER_TOOLS
+            or (name == 'browser_handle_dialog' and args.get('accept') is not False)
+            or (name == 'browser_network_request' and args.get('part') != 'response-body')):
+        raise ApiError(403, 'BROWSER_APPROVAL_REQUIRED',
+                       '该工具可能绕过提交确认或直接传出文件；请使用页面预览工具，或由用户在浏览器中完成')
 
 
 class BrowserField(BaseModel):
@@ -161,8 +178,13 @@ class BrowserHost:
                 raise ApiError(503, 'BROWSER_START_FAILED', '浏览器服务未启动，请检查 Node 和锁定依赖', retryable=True) from None
 
     def rpc(self, cid: str, method: str, **arguments):
-        self._start()
+        if method == 'call':
+            validate_model_browser_call(arguments.get('name'), arguments.get('arguments'))
+        if method != 'campus-session':
+            self._start()
         with self.lock:
+            if method == 'campus-session' and (self.process is None or self.process.poll() is not None):
+                raise ApiError(409, 'BROWSER_AUTH_REQUIRED', '请先在浏览器窗口中完成校园登录')
             url, token = self.url, self.token
             if method == 'call' and arguments.get('name') == 'browser_run_code_unsafe':
                 self.unsafe_turns.add(arguments.get('turn_id') or 'manual')
@@ -183,10 +205,98 @@ class BrowserHost:
             raise ApiError(502, 'BROWSER_CONNECTION_LOST', '浏览器连接中断；若刚提交，请先核对页面回执再操作', retryable=True) from None
         if not response.ok or not data.get('ok'):
             code = data.get('code', 'BROWSER_OPERATION_FAILED')
-            raise ApiError(409, code, data.get('message', '浏览器操作未完成'), retryable=code not in ('BROWSER_ACTION_CHANGED', 'NOT_FOUND'))
+            raise ApiError(409, code, data.get('message', '浏览器操作未完成'), retryable=code not in ('BROWSER_ACTION_CHANGED', 'BROWSER_APPROVAL_REQUIRED', 'BROWSER_AUTH_REQUIRED', 'NOT_FOUND'))
         if method == 'stop' and data['result'].get('reset_required'):
             self.close(terminal=False, force=True)
         return data['result']
+
+    def campus_cookies_private(self) -> list[dict]:
+        """Owner-only cookie handoff, not a model/API response. Never boot a browser."""
+        with self.lock:
+            if self.process is None or self.process.poll() is not None:
+                raise ApiError(409, 'BROWSER_AUTH_REQUIRED', '请先在浏览器窗口中完成校园登录')
+            # Hold the owner lock so teardown cannot race this private RPC into a restart.
+            value = self.rpc('campus-session', 'campus-session')
+        cookies = value.get('cookies') if isinstance(value, dict) else None
+        if not isinstance(cookies, list) or len(cookies) > 2048:
+            raise ApiError(502, 'BROWSER_SESSION_INVALID', '浏览器校园会话暂时无法读取')
+        allowed = {'zjuam.zju.edu.cn', 'zdbk.zju.edu.cn', 'eta.zju.edu.cn', 'zju.edu.cn'}
+        selected = []
+        for item in cookies:
+            if not isinstance(item, dict):
+                continue
+            domain = str(item.get('domain', '')).lstrip('.').lower()
+            if domain in allowed and isinstance(item.get('name'), str) and isinstance(item.get('value'), str):
+                selected.append({k: item[k] for k in ('name', 'value', 'domain', 'path', 'expires', 'secure', 'httpOnly', 'sameSite') if k in item})
+        return selected
+
+    def clear_session_private(self) -> dict:
+        """Owner-UI only: erase this app's browser profile and its local copies.
+
+        This is the shared app window, not the user's own Edge profile. It never
+        starts a browser, refuses while any tool operation is live, and reports a
+        component-level receipt instead of claiming a clean wipe it could not do.
+        """
+        with self.lock:
+            if self.active_operation:
+                raise ApiError(409, 'BROWSER_BUSY', '浏览器正在执行操作；请等本次操作结束后再清除会话')
+            proc = self.process
+            self.process = None
+            self.url = self.token = ''
+        if proc is not None:
+            self.close(terminal=False, force=True)
+        elif not self.closing:
+            # Nothing is running: an already-live daemon would have been in self.process.
+            pass
+        home = self.home.resolve()
+        components = ('profile', 'downloads', 'outputs', 'tmp', 'actions.json')
+        cleared, missing = [], []
+        for name in components:
+            target = home / name
+            try:
+                self._verify_owned(home, target)
+                if not target.exists():
+                    missing.append(name)
+                    continue
+                self._remove(target)
+                cleared.append(name)
+            except ApiError:
+                raise
+            except OSError:
+                raise ApiError(503, 'BROWSER_CLEAR_INCOMPLETE',
+                               '浏览器会话未能完全清除，请关闭相关窗口后重试', retryable=True,
+                               details={'cleared': cleared, 'pending': name}) from None
+        for name in ('downloads', 'outputs', 'tmp'):
+            # The daemon may never have run, so the owned home can be absent.
+            (home / name).mkdir(parents=True, exist_ok=True)
+        return {'cleared': True, 'components': cleared, 'absent': missing,
+                'note': '已清除助手浏览器的登录会话与本地记录；用户自己的 Edge 配置未受影响，校园授权需重新确认。'}
+
+    def _verify_owned(self, home: Path, target: Path) -> None:
+        """Refuse links/reparse points and anything outside the owned browser home."""
+        # Walk from the target upward and stop after the owned home, so the target
+        # itself and every component down to the home are all inspected.
+        for entry in (target, *target.parents):
+            try:
+                metadata = entry.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, 'st_file_attributes', 0) & 0x400:
+                    raise ApiError(409, 'BROWSER_PATH_UNSAFE', '浏览器目录包含链接或重解析点，未执行清除')
+            if entry == home:
+                break
+        try:
+            target.resolve().relative_to(home)
+        except ValueError:
+            raise ApiError(409, 'BROWSER_PATH_UNSAFE', '浏览器清除目标超出应用目录，未执行清除') from None
+
+    @staticmethod
+    def _remove(target: Path) -> None:
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
 
     def peek(self, cid: str, *, saved_only=False):
         with self.lock:

@@ -337,7 +337,7 @@ class ZyktAdapter:
                 details={"path": path},
             ) from exc
         status = resp.status_code
-        if status in (401, 403):
+        if status in (301, 302, 303, 307, 308, 401, 403):
             raise AdapterError(
                 "AUTH_EXPIRED", f"HTTP {status}（登录态失效）", retryable=False,
                 details={"action": _login_action(), "http_status": status},
@@ -372,7 +372,7 @@ class ZyktAdapter:
                 details={"path": path},
             ) from exc
         status = resp.status_code
-        if status in (401, 403):
+        if status in (301, 302, 303, 307, 308, 401, 403):
             raise AdapterError(
                 "AUTH_EXPIRED", f"HTTP {status}（登录态失效）", retryable=False,
                 details={"action": _login_action(), "http_status": status},
@@ -418,7 +418,7 @@ class ZyktAdapter:
                 if is_true(payload.get("success", True)) is False:
                     raise AdapterError("UPSTREAM_CHANGED", "个人学习记录接口返回失败，不能据此确认登录失效", retryable=False)
             return "ok"
-        if status in (401, 403):
+        if status in (301, 302, 303, 307, 308, 401, 403):
             raise AdapterError("AUTH_EXPIRED", f"HTTP {status}（登录态失效）", retryable=False)
         if status == 429:
             return "blocked"

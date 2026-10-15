@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app import models as m
-from app.agent_bridge import model
+from app.agent_bridge import model, tools
 from app.agent_bridge.runtime import Runtime
 from app.agent_bridge.store import Store
 from app.agent_bridge.limits import RunLimits
@@ -278,10 +278,10 @@ def test_settings_transport_validation_and_local_origin(gateway):
     assert client.get('/api/v1/agent/settings', headers={'Origin': 'https://unrelated.example'}).status_code == 403
 
 
-def test_consent_and_browser_ownership(gateway):
+def test_saved_provider_authorization_and_browser_ownership(gateway):
     client, _, _, _ = gateway
-    denied = client.post("/api/v1/agent/conversations", json={"provider_id": "provider_a"})
-    assert denied.status_code == 403
+    automatic = client.post("/api/v1/agent/conversations", json={"provider_id": "provider_a"})
+    assert automatic.status_code == 201
     cid = conversation(client)
     assert any(c.name == "campus_agent_owner" and c.has_nonstandard_attr("HttpOnly") for c in client.cookies.jar)
     client.cookies.clear()
@@ -370,7 +370,7 @@ def test_internal_auth_scope_contract_and_idempotent_call(gateway):
     tid = turn(client, cid)
     token = tokens[tid]
     assert client.post("/api/v1/agent/internal/schemas", json={}).status_code == 403
-    assert len(internal(client, token, "schemas", {}).json()) == 24
+    assert len(internal(client, token, "schemas", {}).json()) == 32
     request = {"conversation_id": cid, "call_id": "one", "name": "courses.list", "arguments": {}}
     first = internal(client, token, "tool", request)
     assert first.status_code == 200
@@ -462,7 +462,10 @@ def test_native_provider_configuration_and_frozen_lease(gateway, monkeypatch):
         db.commit()
         settings = {'provider': model.snapshot(cfg), 'send_to_provider': True}
         configuration = model.runtime_configuration(db, settings)
-        assert configuration == {'provider': 'deepseek-official', 'model': 'deepseek-flash', 'key': 'synthetic-provider-key'}
+        assert configuration['provider'] == 'deepseek-official' and configuration['model'] == 'deepseek-flash'
+        assert configuration['key'] == 'synthetic-provider-key'
+        # Only a non-secret credential version may travel alongside the key.
+        assert configuration['provider_id'] == 'provider_a' and isinstance(configuration['key_revision'], int)
     cid = conversation(client)
     tid = turn(client, cid)
     result = internal(client, tokens[tid], 'model-lease', {'conversation_id': cid})
@@ -543,3 +546,167 @@ def test_runner_stderr_is_discarded_by_default_and_opt_in_capture_is_closed(tmp_
         if handle is not None:
             handle.close()
     assert capture.closed
+
+
+# ───────────────── 网关调用缓存身份：观测参数 vs 业务参数（R1） ─────────────────
+# `wait_seconds` only widens how long one call observes an already-accepted background job; it is
+# not part of the business request. The gateway must fingerprint the *same* normalised business
+# arguments on the write and the read side, otherwise a first call that already carried a wait
+# window stores a fingerprint its own unchanged replay can never match and reports a bogus
+# 409 IDEMPOTENCY_CONFLICT. The raw arguments must stay untouched for journalling.
+
+REVIEW_RESOURCE = "res_synthetic_text"
+REVIEW_NOTES = "重点考察边界条件，增加一道综合计算题。"
+
+
+def review_generate_arguments(**over):
+    """A resolvable `reviews.generate` request against the gateway fixture's course."""
+    body = {
+        "course_id": "course_a", "mode": "ai", "provider_config_id": "provider_a",
+        "title": None, "notes": REVIEW_NOTES,
+        "materials": {"resources": [{"resource_id": REVIEW_RESOURCE}], "assignments": []},
+        "constraints": {
+            "question_types": [{"type": "single_choice", "count": 2, "points_each": 5},
+                               {"type": "short_answer", "count": 1, "points_each": 10}],
+            "difficulty": "mixed", "total_points": 20, "duration_minutes": 45,
+            "answer_display": "separate",
+        },
+    }
+    body.update(over)
+    return body
+
+
+@pytest.fixture
+def review_job_material(gateway, monkeypatch, tmp_path):
+    """Real parsed material + credential for a `reviews.generate` acceptance, fully isolated.
+
+    The provider key goes to this test's tmp secrets dir and the rows into the fixture's own
+    domain engine, so nothing here can reach the personal secrets/files area.
+    """
+    _, _, _, engine = gateway
+    monkeypatch.setattr(secrets_store, "SECRETS_DIR", tmp_path / "secrets")
+    secrets_store.set_key("provider_a", "sk-synthetic-review")
+    with Session(engine) as db:
+        db.add(m.Resource(id=REVIEW_RESOURCE, course_id="course_a", kind="document",
+                          title="合成讲义-线性表", version=1, parse_status="ready",
+                          content_hash="sha256:synthetic-ready", access_level="full"))
+        db.add_all([
+            m.ContentChunk(id="chk_synthetic_1", resource_id=REVIEW_RESOURCE, resource_version=1,
+                           ordinal=0, text="线性表是由n个数据元素构成的有限序列，相邻元素之间存在序偶关系；表头无前驱，表尾无后继。",
+                           locator={"paragraph": 1}, provenance={"kind": "synthetic"}),
+            m.ContentChunk(id="chk_synthetic_2", resource_id=REVIEW_RESOURCE, resource_version=1,
+                           ordinal=1, text="顺序存储结构用一段地址连续的存储单元依次存储线性表的数据元素，插入与删除平均移动约一半元素。",
+                           locator={"paragraph": 2}, provenance={"kind": "synthetic"}),
+        ])
+        db.commit()
+    return engine
+
+
+def review_tool(client, token, cid, call_id, arguments):
+    return internal(client, token, "tool", {"conversation_id": cid, "name": "reviews.generate",
+                                            "arguments": arguments, "call_id": call_id})
+
+
+def accepted_job_count(engine):
+    with Session(engine) as db:
+        return len(db.query(m.Job).all())
+
+
+def test_first_call_with_an_explicit_wait_window_replays_under_the_same_call_id(gateway, review_job_material):
+    """The verified acceptance defect: write raw / read normalised turned an unchanged replay into 409."""
+    client, runtime, tokens, engine = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    arguments = review_generate_arguments(wait_seconds=1)
+    first = review_tool(client, tokens[tid], cid, "explicit-wait", arguments)
+    assert first.status_code == 200, first.text
+    assert first.json()["error"] is None, first.text
+    assert first.json()["job_id"]
+    replay = review_tool(client, tokens[tid], cid, "explicit-wait", arguments)
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert accepted_job_count(engine) == 1, "an identical replay must not accept a second charged job"
+
+
+def test_a_different_wait_window_replays_the_same_acceptance(gateway, review_job_material):
+    """1 s vs 14 s is only an observation choice; it stays one accepted business request."""
+    client, runtime, tokens, engine = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    first = review_tool(client, tokens[tid], cid, "wait-window", review_generate_arguments(wait_seconds=1))
+    assert first.status_code == 200, first.text
+    assert first.json()["error"] is None, first.text
+    replay = review_tool(client, tokens[tid], cid, "wait-window", review_generate_arguments(wait_seconds=14))
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert accepted_job_count(engine) == 1
+
+
+def test_omitted_wait_window_and_explicit_zero_are_one_business_request(gateway, review_job_material):
+    client, runtime, tokens, engine = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    first = review_tool(client, tokens[tid], cid, "omitted-wait", review_generate_arguments())
+    assert first.status_code == 200, first.text
+    assert first.json()["error"] is None, first.text
+    replay = review_tool(client, tokens[tid], cid, "omitted-wait", review_generate_arguments(wait_seconds=0))
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert accepted_job_count(engine) == 1
+
+
+def test_a_real_business_change_under_the_same_call_id_still_conflicts(gateway, review_job_material):
+    """Normalising observation arguments must not weaken the content check."""
+    client, runtime, tokens, engine = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    first = review_tool(client, tokens[tid], cid, "business-change", review_generate_arguments())
+    assert first.status_code == 200, first.text
+    changed = review_tool(client, tokens[tid], cid, "business-change",
+                          review_generate_arguments(notes="只考选择题，不要综合计算题。"))
+    assert changed.status_code == 409, changed.text
+    assert changed.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    # `new_generation` picks a different paper, so it is deliberately not an observation argument.
+    regenerated = review_tool(client, tokens[tid], cid, "business-change",
+                              review_generate_arguments(new_generation=True))
+    assert regenerated.status_code == 409, regenerated.text
+    assert regenerated.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert accepted_job_count(engine) == 1
+
+
+def test_observation_arguments_are_declared_per_tool_and_do_not_widen_content_checks(gateway):
+    assert tools.observation_arguments("courses.list") == ()
+    for name in ("jobs.read", "jobs.cancel", "connections.sync", "reviews.generate"):
+        assert tools.observation_arguments(name) == ("wait_seconds",)
+    client, runtime, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    token = tokens[tid]
+    request = {"conversation_id": cid, "call_id": "plain-arguments", "name": "courses.list", "arguments": {}}
+    first = internal(client, token, "tool", request)
+    assert first.status_code == 200, first.text
+    replay = internal(client, token, "tool", request)
+    assert replay.status_code == 200 and replay.json() == first.json()
+    changed = internal(client, token, "tool", request | {"arguments": {"limit": 1}})
+    assert changed.status_code == 409, changed.text
+    assert changed.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_tool_result_events_keep_the_raw_wait_arguments(gateway, review_job_material):
+    """Raw arguments still feed the journal even though they are not the cache identity."""
+    client, runtime, tokens, _ = gateway
+    cid = conversation(client)
+    tid = turn(client, cid)
+    arguments = review_generate_arguments(wait_seconds=1)
+    first = review_tool(client, tokens[tid], cid, "event-arguments", arguments)
+    assert first.status_code == 200, first.text
+    assert first.json()["error"] is None, first.text
+    events = [event for event in runtime.store.events(tid)["items"] if event["kind"] == "tool_result"]
+    assert len(events) == 1, events
+    assert events[0]["data"]["call_id"] == "event-arguments"
+    assert events[0]["data"]["arguments"]["wait_seconds"] == 1
+    assert events[0]["data"]["arguments"]["notes"] == REVIEW_NOTES
+    replay = review_tool(client, tokens[tid], cid, "event-arguments", arguments)
+    assert replay.status_code == 200, replay.text
+    assert len([event for event in runtime.store.events(tid)["items"] if event["kind"] == "tool_result"]) == 1, \
+        "a cached replay must not journal a second execution"

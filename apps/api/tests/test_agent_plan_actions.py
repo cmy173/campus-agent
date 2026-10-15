@@ -31,11 +31,15 @@ def test_registered_tools_use_real_engine_and_do_not_accept_model_approval(works
     assert error.value.code == "APPROVAL_REQUIRED"
     actions.approve(db, "conversation", action["id"])
     assert execute("plans.apply", {"action_id": action["id"]}, db, ctx)["data"]["receipt"]["plan"]["status"] == "active"
-    # 校园只读同步与本地通知导入同样是写入效果；授权边界仍由各自执行路径保证：
-    # plans.apply/revoke 需要可信界面动作，campus.notice.import 是本地可撤销操作。
+    # 校园同步仅刷新已授权只读数据；本地修改与提交仍由对应路径保证权限。
+    assert next(s for s in schemas() if s['name'] == 'campus.sync')['effects'] == 'read'
     assert {s["name"] for s in schemas() if s["effects"] == "write"} == {
-        "campus.sync", "campus.notice.import", "plans.preview", "plans.apply",
-        "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback"}
+        "campus.notice.import", "plans.preview", "plans.apply",
+        "plans.revoke", "tasks.build", "jobs.cancel", "tasks.feedback", "connections.sync",
+        "connections.courses.import",
+        # Round 3 writes: a real document is delivered to the session file area, a charged
+        # review job is enqueued, and a review export is published.
+        "artifacts.export", "reviews.generate", "reviews.export"}
 
 
 def test_schedule_tools_reject_partial_scope_and_invalid_relative_dates(workspace):

@@ -60,11 +60,82 @@ def test_plan_cannot_disclose_foreign_task_in_unscheduled_or_warning(db, context
 
 
 def test_inventory_is_exact_and_inputs_closed():
-    assert len(SPECS) == 24
-    assert len({s["model_name"] for s in schemas()}) == 24
+    assert len(SPECS) == 32
+    assert len({s["model_name"] for s in schemas()}) == 32
     assert {'campus.status', 'campus.query', 'campus.sync', 'campus.academics', 'campus.notice.read',
             'campus.imported.read', 'campus.webvpn.entry', 'campus.notice.import'} <= set(SPECS)
+    # The agent must be able to discover/import courses from 学在浙大 (and refresh them)
+    # instead of only searching whatever happened to be imported locally.
+    assert {'connections.courses', 'connections.courses.import', 'connections.sync'} <= set(SPECS)
+    # Round 3: a fixed trusted document exporter and the review-paper business chain, both
+    # still strict-schema and server-scoped.
+    assert {'artifacts.export', 'reviews.preflight', 'reviews.generate',
+            'reviews.read', 'reviews.export'} <= set(SPECS)
     assert all(s["input_schema"]["additionalProperties"] is False for s in schemas())
+
+
+def test_reviews_generate_exposes_the_explicit_new_generation_signal():
+    """F2 escape hatch: "another fresh paper" is a machine-checkable argument, not prompt text.
+
+    The tool count stays at 32; this only adds one optional field to an existing schema.
+    """
+    schema = next(s for s in schemas() if s["name"] == "reviews.generate")["input_schema"]
+    assert schema["properties"]["new_generation"]["type"] == "boolean"
+    assert schema["properties"]["new_generation"].get("default") is False
+    assert "new_generation" not in schema.get("required", [])
+    assert "wait_seconds" in schema["properties"], "the bounded observation window is unchanged"
+    assert schema["additionalProperties"] is False
+
+
+def test_cache_identity_excludes_only_declared_observation_arguments():
+    """R1: the call cache identity is the business request, and only for tools that declare it.
+
+    The regression this guards: the gateway removed `wait_seconds` when *reading* the cache but
+    stored the raw arguments, so a first call that already carried a wait window could never be
+    replayed under its own trusted call id (409 for byte-identical arguments). Read and write must
+    therefore share one normalisation, and tools without observation arguments must keep a raw
+    identity so a changed business argument still conflicts.
+    """
+    from app.agent_bridge.store import digest, encoded
+    from app.agent_bridge.tools import OBSERVATION_ARGUMENTS, cache_arguments, observation_arguments
+
+    # Declared where it exists, and nowhere else.
+    assert observation_arguments("jobs.read") == ("wait_seconds",)
+    assert observation_arguments("courses.list") == ()
+    assert observation_arguments("artifacts.export") == ()
+    declared = {name for name in SPECS if "wait_seconds" in SPECS[name][0].model_fields}
+    assert declared == {"jobs.read", "jobs.cancel", "connections.sync", "reviews.generate"}
+    assert {name for name, args in OBSERVATION_ARGUMENTS.items() if args} == declared
+
+    # A wait window is not part of the identity; a business argument always is.
+    short = cache_arguments("jobs.read", {"job_id": "job_a", "wait_seconds": 1})
+    long = cache_arguments("jobs.read", {"job_id": "job_a", "wait_seconds": 14})
+    assert short == long == {"job_id": "job_a"}
+    assert cache_arguments("jobs.read", {"job_id": "job_b", "wait_seconds": 1}) != short
+    assert cache_arguments("courses.list", {"query": "x", "wait_seconds": 1}) != cache_arguments("courses.list", {"query": "x"})
+    assert digest(encoded({"name": "jobs.read", "arguments": short})) == digest(encoded({"name": "jobs.read", "arguments": long}))
+
+
+def test_store_digest_of_the_cache_identity_replays_after_a_wait_change():
+    """R1 at the identity seam: what one gateway write fingerprints must be replayable.
+
+    `Store.cached_call`/`cache_call` compare `digest(encoded(request))`, so the invariant is on the
+    value the gateway hands them. Hash the normalised identity of a first call carrying a wait
+    window, then hash the normalised identity of its replay with a different window: they must be
+    the same string, while a changed business argument must not be.
+    """
+    from app.agent_bridge.store import digest, encoded
+    from app.agent_bridge.tools import cache_arguments
+
+    def identity(name, arguments):
+        return digest(encoded({"name": name, "arguments": cache_arguments(name, arguments)}))
+
+    assert identity("jobs.read", {"job_id": "job_a", "wait_seconds": 1}) == identity("jobs.read", {"job_id": "job_a", "wait_seconds": 14})
+    assert identity("jobs.read", {"job_id": "job_a", "wait_seconds": 1}) == identity("jobs.read", {"job_id": "job_a"})
+    assert identity("reviews.generate", {"course_id": "course_a", "wait_seconds": 14}) == identity("reviews.generate", {"course_id": "course_a", "wait_seconds": 0})
+    assert identity("jobs.read", {"job_id": "job_b", "wait_seconds": 1}) != identity("jobs.read", {"job_id": "job_a", "wait_seconds": 1})
+    assert identity("reviews.generate", {"course_id": "course_a", "new_generation": True, "wait_seconds": 1}) != identity("reviews.generate", {"course_id": "course_a", "wait_seconds": 1})
+    assert identity("courses.list", {"query": "x", "wait_seconds": 1}) != identity("courses.list", {"query": "x"})
 
 
 def test_ambiguous_course_query_requires_a_choice_instead_of_guessing(db, context):

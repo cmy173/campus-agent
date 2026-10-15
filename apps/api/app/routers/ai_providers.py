@@ -75,6 +75,7 @@ def create_provider(req: UpsertProviderRequest, db: Session = Depends(get_db)) -
         base_url=normalize_base_url(req.base_url),
         model=req.model,
         timeout_seconds=req.timeout_seconds,
+        enabled=req.enabled,
     )
     db.add(cfg)
     if req.api_key is not None:
@@ -89,6 +90,15 @@ def get_provider(provider_id: str, db: Session = Depends(get_db)) -> dict[str, A
     return _serialize(get_or_404(db, ProviderConfig, provider_id, "AI 服务配置"))
 
 
+def _retire_warm_runners(provider_id: str) -> None:
+    """Best effort: a retired credential must not survive in a warm runtime env."""
+    try:
+        from ..agent_bridge.runtime import get_runtime
+        get_runtime().invalidate_provider(provider_id)
+    except Exception:
+        pass
+
+
 @router.patch("/ai/providers/{provider_id}")
 def update_provider(provider_id: str, req: PatchProviderRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     cfg = get_or_404(db, ProviderConfig, provider_id, "AI 服务配置")
@@ -99,17 +109,31 @@ def update_provider(provider_id: str, req: PatchProviderRequest, db: Session = D
     if req.protocol is not None and "protocol" in fields:
         cfg.protocol = req.protocol
     if req.base_url is not None and "base_url" in fields:
-        cfg.base_url = normalize_base_url(req.base_url)
+        changed_url = normalize_base_url(req.base_url)
+        # A new destination must never inherit the old recipient's API key.
+        # Configuring the new service is consent for its normal context, not for
+        # disclosing a credential belonging to an unrelated provider.
+        from urllib.parse import urlsplit
+        if urlsplit(changed_url).netloc != urlsplit(cfg.base_url).netloc or urlsplit(changed_url).scheme != urlsplit(cfg.base_url).scheme:
+            secrets_store.clear_key(provider_id)
+            changed_origin = True
+        cfg.base_url = changed_url
     if req.model is not None and "model" in fields:
         cfg.model = req.model
     if req.timeout_seconds is not None and "timeout_seconds" in fields:
         cfg.timeout_seconds = req.timeout_seconds
+    if req.enabled is not None and "enabled" in fields:
+        cfg.enabled = req.enabled
+        if not req.enabled:
+            _retire_warm_runners(provider_id)
     # api_key 缺省/null=保留现有密钥；空串已被请求体校验拦为 400（清密钥走 DELETE /key）
     if req.api_key is not None and "api_key" in fields:
         secrets_store.set_key(cfg.id, req.api_key)
     cfg.updated_at = utc_now()
     db.commit()
     db.refresh(cfg)
+    if "api_key" in fields or locals().get('changed_origin'):
+        _retire_warm_runners(provider_id)
     return _serialize(cfg)
 
 
@@ -128,6 +152,7 @@ def delete_provider(provider_id: str, db: Session = Depends(get_db)) -> None:
                 details={"job_id": job.id, "provider_id": provider_id},
             )
     secrets_store.clear_key(provider_id)
+    _retire_warm_runners(provider_id)
     db.delete(cfg)
     db.commit()
     return None
@@ -139,6 +164,7 @@ def clear_provider_key(provider_id: str, db: Session = Depends(get_db)) -> None:
     get_or_404(db, ProviderConfig, provider_id, "AI 服务配置")
     _ensure_not_in_use(db, provider_id)
     secrets_store.clear_key(provider_id)
+    _retire_warm_runners(provider_id)
     return None
 
 

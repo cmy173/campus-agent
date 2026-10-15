@@ -12,7 +12,9 @@ def check(payload: dict) -> dict:
     node = shutil.which('node')
     if not node:
         raise ApiError(503, 'DEPENDENCY_UNAVAILABLE', '请安装 Agent 运行时依赖后重试')
-    env = {k: os.environ[k] for k in ('PATH', 'PATHEXT', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'TEMP', 'TMP') if k in os.environ}
+    env = {k: os.environ[k] for k in ('PATH', 'PATHEXT', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'TEMP', 'TMP',
+           'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+           'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy') if k in os.environ}
     process = subprocess.Popen([node, str(REPO_ROOT / 'apps/agent-runtime/diagnose.mjs')],
         cwd=REPO_ROOT / 'apps/agent-runtime', env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, text=True, encoding='utf-8',

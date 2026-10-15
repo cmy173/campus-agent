@@ -264,30 +264,63 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/conversations:
-    get:
-      tags:
-      - campus-agent
-      summary: List Conversations
-      operationId: list_conversations_api_v1_agent_conversations_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
     post:
       tags:
       - campus-agent
       summary: Create Conversation
       operationId: create_conversation_api_v1_agent_conversations_post
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ConversationRequest'
-        required: true
       responses:
         '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - campus-agent
+      summary: List Conversations
+      operationId: list_conversations_api_v1_agent_conversations_get
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 1024
+          - type: 'null'
+          title: Cursor
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+          default: ''
+          title: Search
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
           description: Successful Response
           content:
             application/json:
@@ -500,6 +533,31 @@ paths:
               $ref: '#/components/schemas/TurnRequest'
       responses:
         '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/conversations/{conversation_id}/recovery:
+    get:
+      tags:
+      - campus-agent
+      summary: Conversation Recovery
+      operationId: conversation_recovery_api_v1_agent_conversations__conversation_id__recovery_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
           description: Successful Response
           content:
             application/json:
@@ -1353,6 +1411,141 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/connect-browser:
+    post:
+      tags:
+      - campus-workspace
+      summary: Connect Browser
+      operationId: connect_browser_api_v1_agent_campus_connect_browser_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusBrowserConnectRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/credentials:
+    get:
+      tags:
+      - campus-workspace
+      summary: Credentials
+      operationId: credentials_api_v1_agent_campus_credentials_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - campus-workspace
+      summary: Save Credentials
+      operationId: save_credentials_api_v1_agent_campus_credentials_put
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusCredentialRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - campus-workspace
+      summary: Toggle Auto Relogin
+      operationId: toggle_auto_relogin_api_v1_agent_campus_credentials_patch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusAutoReloginRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - campus-workspace
+      summary: Clear Credentials
+      operationId: clear_credentials_api_v1_agent_campus_credentials_delete
+      parameters:
+      - name: scope
+        in: query
+        required: false
+        schema:
+          enum:
+          - passport
+          - webvpn
+          type: string
+          default: passport
+          title: Scope
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/campus/credentials/test-login:
+    post:
+      tags:
+      - campus-workspace
+      summary: Test Auto Login
+      description: Explicit user-triggered verification of the stored credential.
+      operationId: test_auto_login_api_v1_agent_campus_credentials_test_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampusCredentialScope'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/campus/academics:
     get:
       tags:
@@ -1450,6 +1643,170 @@ paths:
         schema:
           type: string
           title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/data/settings:
+    get:
+      tags:
+      - campus-agent-data
+      summary: Settings
+      operationId: settings_api_v1_agent_data_settings_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - campus-agent-data
+      summary: Save Settings
+      operationId: save_settings_api_v1_agent_data_settings_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSettingsRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/data/history:
+    get:
+      tags:
+      - campus-agent-data
+      summary: History
+      operationId: history_api_v1_agent_data_history_get
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 1024
+          - type: 'null'
+          title: Cursor
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+          default: ''
+          title: Search
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - campus-agent-data
+      summary: Delete History
+      operationId: delete_history_api_v1_agent_data_history_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/agent/data/history/{conversation_id}:
+    delete:
+      tags:
+      - campus-agent-data
+      summary: Delete Conversation
+      operationId: delete_conversation_api_v1_agent_data_history__conversation_id__delete
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/data/history/purge-expired:
+    post:
+      tags:
+      - campus-agent-data
+      summary: Purge Expired
+      operationId: purge_expired_api_v1_agent_data_history_purge_expired_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/data/browser-session/clear:
+    post:
+      tags:
+      - campus-agent-data
+      summary: Clear Browser Session
+      operationId: clear_browser_session_api_v1_agent_data_browser_session_clear_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Empty'
+        required: true
       responses:
         '200':
           description: Successful Response
@@ -1722,6 +2079,76 @@ components:
       - conversation_id
       - method
       title: BrowserToolRequest
+    CampusAutoReloginRequest:
+      properties:
+        scope:
+          type: string
+          enum:
+          - passport
+          - webvpn
+          title: Scope
+        enabled:
+          type: boolean
+          title: Enabled
+      additionalProperties: false
+      type: object
+      required:
+      - scope
+      - enabled
+      title: CampusAutoReloginRequest
+    CampusBrowserConnectRequest:
+      properties: {}
+      additionalProperties: false
+      type: object
+      title: CampusBrowserConnectRequest
+    CampusCredentialRequest:
+      properties:
+        scope:
+          type: string
+          enum:
+          - passport
+          - webvpn
+          title: Scope
+        username:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Username
+        password:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Password
+        authcode:
+          type: string
+          maxLength: 32
+          title: Authcode
+          default: ''
+        auto_relogin:
+          type: boolean
+          title: Auto Relogin
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - scope
+      - username
+      - password
+      title: CampusCredentialRequest
+      description: 'Credential payload: accepted once, encrypted locally, never returned.'
+    CampusCredentialScope:
+      properties:
+        scope:
+          type: string
+          enum:
+          - passport
+          - webvpn
+          title: Scope
+      additionalProperties: false
+      type: object
+      required:
+      - scope
+      title: CampusCredentialScope
     CampusDisconnectRequest:
       properties:
         clear_cache:
@@ -1786,9 +2213,10 @@ components:
           minLength: 1
           title: Provider Id
         send_to_provider:
-          type: boolean
+          anyOf:
+          - type: boolean
+          - type: 'null'
           title: Send To Provider
-          default: false
         course_id:
           anyOf:
           - type: string
@@ -1801,6 +2229,18 @@ components:
       required:
       - provider_id
       title: ConversationRequest
+    DataSettingsRequest:
+      properties:
+        history_retention_days:
+          type: integer
+          maximum: 36500.0
+          minimum: 0.0
+          title: History Retention Days
+      additionalProperties: false
+      type: object
+      required:
+      - history_retention_days
+      title: DataSettingsRequest
     DownloadPreview:
       properties:
         kind:
@@ -1947,6 +2387,12 @@ components:
           minimum: 1000.0
           title: Toolcalltimeoutms
           default: 60000
+        allowedTools:
+          items:
+            type: string
+          type: array
+          maxItems: 256
+          title: Allowedtools
       additionalProperties: false
       type: object
       required:
@@ -1969,6 +2415,7 @@ components:
           - PROVIDER_INVALID_RESPONSE
           - PROVIDER_HTTP_ERROR
           - PROVIDER_CHANGED
+          - PROVIDER_DISABLED
           - BUDGET_EXCEEDED
           - CONSENT_REQUIRED
           title: Code

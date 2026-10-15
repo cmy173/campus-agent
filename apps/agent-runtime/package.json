@@ -7,7 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "test:runtime": "node smoke.mjs"
+    "test:runtime": "node smoke.mjs",
+    "test:audit": "node --test --test-isolation=none tool-groups.test.mjs mcp-config.test.mjs mcp-results.test.mjs mcp-verification-case.test.mjs sdk.test.mjs tests/*.test.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.0-rc.2",

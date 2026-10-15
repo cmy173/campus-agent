@@ -34,7 +34,7 @@ export const GROUPS = [
     id: 'team',
     label: '子 Agent 与并行协作',
     hint: '把独立子任务分给子 Agent、查看进度、汇总或停止',
-    match: name => ['subagent', 'subagent_fork', 'send_message', 'list_agents', 'interrupt_agent'].includes(name)
+    match: name => ['subagent', 'subagent_fork', 'list_subagent_models', 'spawn_teammate', 'wait_agent', 'send_message', 'list_agents', 'interrupt_agent'].includes(name)
       || name.startsWith('team_task_'),
   },
   {
@@ -46,7 +46,7 @@ export const GROUPS = [
   {
     id: 'planning',
     label: '计划模式',
-    hint: '先出计划再执行的任务模式',
+    hint: '退出已由用户开启的计划模式并提交计划供审核；加载工具不会进入计划模式',
     match: name => name === 'exit_plan_mode',
   },
 ];
@@ -111,10 +111,13 @@ export function applyMask(agent) {
     // schemas() without an explicit scope reads GLOBAL tools, not agent tools.
     // Only add masks for newly visible definitions. Our own change notification
     // is ignored; no dispose/restrict timer loop and no next-request race.
+    // Upstream deliberately exempts scope-owned tools from restrict(). They
+    // remain available; only inherited definitions can be deferred safely.
+    const restrictable = agent.ctx.tools.view(agent).restrictableNames;
     for (const { name } of agent.ctx.tools.schemas(agent)) {
       state.catalog.add(name);
       const group = groupOf(name);
-      if (!protectedName(name) && group && !state.lifted.has(group.id) && !state.masks.has(name)) {
+      if (restrictable.has(name) && !protectedName(name) && group && !state.lifted.has(group.id) && !state.masks.has(name)) {
         state.masks.set(name, agent.ctx.tools.restrict({ deny: [name] }));
       }
     }
@@ -144,12 +147,14 @@ export function registerToolLoader(ctx) {
     description: '按需加载更多工具。默认只提供普通校园任务常用的工具；需要浏览器操作、MCP 服务、'
       + '子 Agent 协作、后台任务或计划模式时，先调用本工具再使用它们。'
       + `可选分组：\n${GROUPS.map(group => `- ${group.id}（${group.label}）：${group.hint}`).join('\n')}`
-      + '\n也可以传 tools 指定具体工具名。返回本次实际可见的工具名，新加载的分组在下一轮请求生效。',
+      + '\n传 group 或非空 tools；tools 指定名称会加载该工具所属整组，而非只加载一个工具。'
+      + '返回当前实际可见名称，新加载的分组在下一轮模型请求生效；不授予权限，也不会移除其他能力策略。',
     parameters: {
       type: 'object', additionalProperties: false,
+      anyOf: [{ required: ['group'] }, { required: ['tools'] }],
       properties: {
         group: { type: 'string', enum: GROUPS.map(group => group.id), description: '要加载的工具分组。' },
-        tools: { type: 'array', items: { type: 'string' }, description: '要加载的具体工具名（可替代 group）。' },
+        tools: { type: 'array', minItems: 1, maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 128 }, description: '具体工具名；加载其所属整组（可替代 group）。' },
       },
     },
     output: {
@@ -166,6 +171,15 @@ export function registerToolLoader(ctx) {
     },
     isConcurrencySafe: true,
     async execute(args, exec) {
+      const selectedGroup = args?.group !== undefined;
+      const selectedTools = args?.tools !== undefined;
+      if (!args || typeof args !== 'object' || Array.isArray(args)
+          || Object.keys(args).some(key => key !== 'group' && key !== 'tools')
+          || (!selectedGroup && !selectedTools)
+          || (selectedGroup && !GROUPS.some(group => group.id === args.group))
+          || (selectedTools && (!Array.isArray(args.tools) || args.tools.length < 1 || args.tools.length > 64
+            || args.tools.some(name => typeof name !== 'string' || name.length < 1 || name.length > 128)
+            || new Set(args.tools).size !== args.tools.length))) throw new Error('invalid tool args: select a known group or nonempty unique tool names');
       const agent = exec?.agent;
       const tools = agent?.ctx?.tools;
       if (!tools) return { available: [], loaded_groups: [], note: '当前调用没有可用的工具作用域。' };
@@ -180,10 +194,13 @@ export function registerToolLoader(ctx) {
       for (const scope of chain) for (const group of groups) agentState(scope).lifted.add(group.id);
       for (const scope of [...chain].reverse()) applyMask(scope);
       applyMask(agent);
+      const available = tools.schemas(agent).map(schema => schema.name);
+      const unavailable = [...requested].filter(name => !available.includes(name));
       return {
-        available: tools.schemas(agent).map(schema => schema.name),
+        available,
         loaded_groups: [...state.lifted],
-        note: groups.length ? '所请求分组已加载；后续模型请求可使用。' : '没有匹配的分组或工具。',
+        note: (groups.length ? '所请求整组已加载；以后续模型请求实际 schema 为准，不改变权限。' : '没有匹配的分组或工具。')
+          + (unavailable.length ? ` 未注册或受其他策略限制的工具：${unavailable.join(', ')}。` : ''),
       };
     },
   });

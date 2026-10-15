@@ -283,7 +283,7 @@ def eta_current(client):
     from ..campus_common import CampusError
     def has_identity(current):
         return isinstance(current,dict) and any(text(current.get(k)) for k in ('xh','zgh','yhm','studentId','student_id'))
-    site_cookie=any(c.domain.lstrip('.').lower()=='eta.zju.edu.cn' and not c.is_expired() for c in client.jar)
+    site_cookie=any(c.domain.lstrip('.').lower()=='eta.zju.edu.cn' and not c.is_expired() for c in client.cookies_for('eta.zju.edu.cn'))
     if getattr(client,'eta_authenticated',False) or site_cookie:
         try:
             current=eta_json(client,ETA_CURRENT)

@@ -2,6 +2,13 @@
 
 格式：版本号（日期，状态）→ 变更类型（breaking / 兼容 / 补充）→ 明细。
 
+## v0.2.0-local — 2026-10-15（校园浏览器授权与历史分页，CR018）
+
+- 新增可信账户端 `POST /agent/campus/connect-browser {}`；Cookie仅私有内存桥接，学校会话/身份核验成功才授权，disconnect撤销。
+- `GET /agent/conversations` 新增可选cursor/search/limit，摘要title，next_cursor改为string|null以支持超过100项历史。
+- 这是扩展分页协议：旧客户端可忽略新增字段但需升级才能读取全部历史，不能继续假定next_cursor永为null；默认页50，范围1..100。
+- 本地实施、Mock回归；未宣称真实学校登录/WebVPN端到端验收。见 reviews/2026-10-15-CR018-校园浏览器授权与历史分页.md。
+
 ## v0.2.0-local — 2026-10-14（长会话消息预算，CR017）
 
 - 兼容放宽内部模型请求的历史消息条数；继续按内容体积与运行时预算限制。

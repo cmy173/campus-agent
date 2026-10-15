@@ -7,9 +7,36 @@ from ..routers.jobs import cancel_job_mutation
 from .plan_actions import fingerprint
 
 
-def owns(db, conversation_id, job_id):
-    return db.scalar(select(m.AgentJobRequest.id).where(m.AgentJobRequest.conversation_id == conversation_id,
-                                                       m.AgentJobRequest.job_id == job_id)) is not None
+def owns(db, conversation_id, job_id, connection_ids=None, *, course_ids=None):
+    """Ownership receipt, plus the platform-sync scope rule.
+
+    `tasks.build` jobs carry a per-conversation receipt. A platform sync job belongs to a
+    *connection* rather than to one course, so it is owned when the conversation is
+    authorized for that connection — the same grant that let the agent start it.
+    `connection_ids=None` means the conversation has no per-connection restriction.
+
+    A `review_generate` job is a charged, model-calling job: it is owned only through this
+    conversation's own `reviews.generate` receipt, never by knowing its id.
+    """
+    if db.scalar(select(m.AgentJobRequest.id).where(m.AgentJobRequest.conversation_id == conversation_id,
+                                                   m.AgentJobRequest.job_id == job_id)) is not None:
+        return True
+    if db.scalar(select(m.AgentReviewReceipt.id).where(m.AgentReviewReceipt.conversation_id == conversation_id,
+                                                       m.AgentReviewReceipt.job_id == job_id)) is not None:
+        return True
+    job = db.get(m.Job, job_id)
+    if job is None or getattr(job, "type", None) != "sync":
+        return False  # unknown ids fail closed instead of leaking existence through a 404
+    connection_id = (job.payload or {}).get("connection_id")
+    if not connection_id:
+        return False
+    if course_ids is not None and not set(job.payload.get('course_ids') or []).issubset(course_ids):
+        return False
+    if connection_ids is None:
+        # No per-connection restriction for this conversation: the job must still name a
+        # connection that actually exists in the workspace.
+        return db.get(m.Connection, connection_id) is not None
+    return connection_id in connection_ids
 
 
 def build(db, conversation_id, request_key, course_id):
@@ -32,8 +59,8 @@ def build(db, conversation_id, request_key, course_id):
         raise
 
 
-def cancel(db, conversation_id, job_id):
-    if not owns(db, conversation_id, job_id):
+def cancel(db, conversation_id, job_id, connection_ids=None, *, course_ids=None):
+    if not owns(db, conversation_id, job_id, connection_ids, course_ids=course_ids):
         raise ApiError(403, "SCOPE_DENIED", "只能停止当前会话发起的后台任务")
     job = db.get(m.Job, job_id)
     if job.status == "cancelled" or (job.status == "running" and job.cancel_requested):

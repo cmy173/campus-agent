@@ -51,7 +51,7 @@ async function ensureHarness(input) {
   if (harness !== null) return;
   profile = await prepareProfile(input.home, { workspace: input.workspace, maxTokens: input.max_tokens,
     searchBaseURL: input.search_base_url, searchModel: input.search_model, skillDirs: input.skill_dirs,
-    mcpServers: input.mcp_servers });
+    mcpServers: input.mcp_servers, attachmentPaths: input.attachment_paths ?? [] });
   mark('profile-written');
   harness = new DeepSeekHarness({
     ...profile, provider: input.provider ?? 'campus-model', model: input.model ?? 'configured-campus-provider',
@@ -99,9 +99,9 @@ try {
       }
       continue;
     }
-    await ensureHarness(input);
-    if (harness === null) break;
     try {
+      await ensureHarness(input);
+      if (harness === null) break;
       emit({ kind: 'runtime', data: { version: '0.2.0-rc.2', bundles: profile.bundles, plugins: profile.entries, provider: input.provider ?? 'campus-model' } });
       mark('turn-start');
       const result = await runWithGoalLifecycle(harness, input.text, {
@@ -134,10 +134,9 @@ try {
         conversation_id: result.sessionId, response: result.finalResponse, event_count: result.eventCount,
       } });
     } catch (error) {
-      // stderr is discarded unless the operator opts in, so this leaks nothing by default.
-      if (process.env.CAMPUS_RUNNER_MARKS) {
-        process.stderr.write('TURN FAILED ' + String((error && error.stack) || error) + '\n');
-      }
+      // SDK transport errors can contain child stderr and remote response bodies.
+      // Boot diagnostics remain useful without writing an untrusted exception.
+      mark('turn-failed');
       if (!cancelled) emit({ kind: 'error', data: { code: 'HARNESS_FAILED', message: 'Harness 本轮未完成，请检查模型或工具错误记录', retryable: true } });
       // A failed turn may have left the harness in an unknown state; end the process so
       // the API starts a clean one instead of reusing this one.

@@ -79,3 +79,66 @@ def test_browser_error_and_restart_receipt_do_not_start_or_repeat_actions(tmp_pa
     with pytest.raises(ApiError) as raised:
         host.rpc('conv-one', 'confirm', action_id='review-one')
     assert raised.value.code == 'BROWSER_ACTION_CHANGED' and raised.value.retryable is False
+@pytest.mark.parametrize('name,args', [
+    ('browser_evaluate', {'function': 'untrusted fixture'}),
+    ('browser_run_code_unsafe', {}), ('browser_file_upload', {'paths': ['private.txt']}),
+    ('browser_drop', {}), ('browser_drag', {}), ('browser_handle_dialog', {'accept': True}),
+])
+def test_browser_blocked_tools_fail_before_process_or_network(tmp_path, monkeypatch, name, args):
+    host = BrowserHost(tmp_path / 'browser')
+    calls = []
+    monkeypatch.setattr(host, '_start', lambda: calls.append('start'))
+    with pytest.raises(ApiError) as error:
+        host.rpc('fixture', 'call', name=name, arguments=args, turn_id='fixture-turn')
+    assert error.value.code == 'BROWSER_APPROVAL_REQUIRED'
+    assert error.value.status_code == 403
+    assert calls == [] and host.process is None
+
+
+def test_browser_readonly_and_dialog_rejection_validation():
+    from app.agent_bridge.browser import validate_model_browser_call
+    for name, args in [('browser_snapshot', {}), ('browser_handle_dialog', {'accept': False}),
+                       ('browser_type', {'text': 'fixture', 'submit': False})]:
+        validate_model_browser_call(name, args)
+
+
+def test_private_campus_cookie_handoff_no_boot_or_generic_domains(tmp_path, monkeypatch):
+    host = BrowserHost(tmp_path / 'browser')
+    calls = []
+    monkeypatch.setattr(host, '_start', lambda: calls.append('boot'))
+    with pytest.raises(ApiError) as error:
+        host.campus_cookies_private()
+    assert error.value.code == 'BROWSER_AUTH_REQUIRED'
+    assert calls == []
+    host.process = type('FakeLive', (), {'poll': lambda self: None})()
+    def rpc(cid, method, **kwargs):
+        calls.append((cid, method, kwargs))
+        return {'cookies': [
+            {'domain': '.zjuam.zju.edu.cn', 'name': 'CASTGC', 'value': 'synthetic', 'httpOnly': True},
+            {'domain': 'zdbk.zju.edu.cn', 'name': 'sid', 'value': 'synthetic2'},
+            {'domain': 'zju.edu.cn', 'name': 'parent', 'value': 'synthetic3'},
+            {'domain': 'evilzju.edu.cn', 'name': 'bad', 'value': 'never-import'},
+            {'domain': 'other.zju.edu.cn', 'name': 'other', 'value': 'never-import'},
+        ]}
+    monkeypatch.setattr(host, 'rpc', rpc)
+    assert [c['name'] for c in host.campus_cookies_private()] == ['CASTGC', 'sid', 'parent']
+    assert calls == [('campus-session', 'campus-session', {})]
+
+
+@pytest.mark.parametrize('part', [None, 'request-body', 'request-headers', 'response-headers'])
+def test_browser_request_details_do_not_expose_human_authentication(part):
+    from app.agent_bridge.browser import validate_model_browser_call
+    with pytest.raises(ApiError) as error:
+        validate_model_browser_call('browser_network_request', {'index': 1, **({'part': part} if part else {})})
+    assert error.value.code == 'BROWSER_APPROVAL_REQUIRED'
+    validate_model_browser_call('browser_network_request', {'index': 1, 'part': 'response-body'})
+
+
+def test_private_campus_session_rpc_cannot_restart_dead_daemon(tmp_path, monkeypatch):
+    host = BrowserHost(tmp_path / 'browser')
+    calls = []
+    monkeypatch.setattr(host, '_start', lambda: calls.append('boot'))
+    with pytest.raises(ApiError) as error:
+        host.rpc('campus-session', 'campus-session')
+    assert error.value.code == 'BROWSER_AUTH_REQUIRED'
+    assert calls == []

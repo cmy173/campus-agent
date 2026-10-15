@@ -23,9 +23,33 @@ class CampusQueryRequest(BaseModel):
     platform: Literal["zdbk", "eta", "zdbk_public", "ckc_public"] | None = None
 
 
+class CampusBrowserConnectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
 class CampusDisconnectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     clear_cache: bool = False
+
+
+class CampusCredentialRequest(BaseModel):
+    """Credential payload: accepted once, encrypted locally, never returned."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    scope: Literal["passport", "webvpn"]
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+    authcode: str = Field(default="", max_length=32)
+    auto_relogin: bool = True
+
+
+class CampusCredentialScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    scope: Literal["passport", "webvpn"]
+
+
+class CampusAutoReloginRequest(CampusCredentialScope):
+    enabled: bool
 
 
 def install_campus_router(app, owner_dependency, *, prefix="/api/v1/agent/campus"):
@@ -52,8 +76,52 @@ def install_campus_router(app, owner_dependency, *, prefix="/api/v1/agent/campus
     @router.post("/disconnect")
     def disconnect(payload: CampusDisconnectRequest):
         workspace = get_campus_workspace()
-        workspace.manager.disconnect(OWNER, delete=payload.clear_cache)
-        return workspace.status()
+        return workspace.disconnect(clear_cache=payload.clear_cache)
+
+    @router.post("/connect-browser")
+    def connect_browser(payload: CampusBrowserConnectRequest):
+        # No cookie/password payload, no arbitrary remote endpoints. This is a
+        # trusted account action protected by the same owner/Origin dependency.
+        # Workspace owns a lazy provider which resolves the current runtime on
+        # each authorized handoff, including after API restart. Never retain a
+        # bound method from a retired runtime, and never grant on status/query.
+        result = get_campus_workspace().authorize_browser_session()
+        from ..agent_bridge.runtime import get_runtime
+        get_runtime().resume_authenticated_tasks()
+        return result
+
+    @router.get("/credentials")
+    def credentials():
+        # Masked summary only: no password, no username, no ciphertext.
+        return get_campus_workspace().credential_status()
+
+    @router.put("/credentials")
+    def save_credentials(payload: CampusCredentialRequest):
+        return get_campus_workspace().save_credentials(
+            payload.scope, username=payload.username, password=payload.password,
+            authcode=payload.authcode, auto_relogin=payload.auto_relogin)
+
+    @router.patch("/credentials")
+    def toggle_auto_relogin(payload: CampusAutoReloginRequest):
+        return get_campus_workspace().set_auto_relogin(payload.scope, payload.enabled)
+
+    @router.delete("/credentials")
+    def clear_credentials(scope: Literal["passport", "webvpn"] = "passport"):
+        return get_campus_workspace().clear_credentials(scope)
+
+    @router.post("/credentials/test-login")
+    def test_auto_login(payload: CampusCredentialScope):
+        """Explicit user-triggered verification of the stored credential."""
+        workspace = get_campus_workspace()
+        if payload.scope == "webvpn":
+            # WebVPN accounts are separate from the campus passport and are verified
+            # against the portal itself, in the background, without a browser window.
+            return workspace.test_webvpn_login()
+        with workspace.manager.lock(OWNER):
+            outcome = workspace.auto_relogin_locked()
+        if outcome.get("code") == "NO_CREDENTIAL":
+            raise ApiError(409, "NOT_CONFIGURED", "尚未保存该用途的凭据")
+        return outcome | {"status": workspace.status()}
 
     @router.get("/academics")
     def academics(day: str | None = None, term: str | None = None):

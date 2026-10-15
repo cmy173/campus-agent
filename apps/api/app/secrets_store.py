@@ -89,11 +89,27 @@ def set_key(provider_id: str, key: str) -> None:
     payload = key.encode("utf-8")
     path = _path_for(provider_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    prior_revision = key_revision(provider_id)
     path.write_bytes(_encode(payload))
+    stamp = path.stat()
+    if stamp.st_mtime_ns <= prior_revision:
+        os.utime(path, ns=(stamp.st_atime_ns, prior_revision + 1_000_000))
     try:
         os.chmod(path, 0o600)
     except OSError:  # pragma: no cover - Windows 上 chmod 语义有限，失败不致命
         pass
+
+
+def key_revision(provider_id: str) -> int:
+    """Non-secret persistent credential version; never open/decrypt the key.
+
+    Missing files have revision zero. A replacement gets a new mtime even when
+    the filesystem clock would otherwise reuse the previous write's timestamp.
+    """
+    try:
+        return _path_for(provider_id).stat().st_mtime_ns
+    except (FileNotFoundError, ValueError):
+        return 0
 
 
 def has_key(provider_id: str) -> bool:

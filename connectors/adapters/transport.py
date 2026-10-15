@@ -107,6 +107,11 @@ class RequestsTransport:
         params: Optional[dict[str, Any]] = None,
         json_body: Optional[dict[str, Any]] = None,
     ) -> TransportResponse:
+        # Relative API paths only: base + "evil.example" would change authority.
+        # Reject before invoking token/header callbacks or touching the network.
+        if (not isinstance(path, str) or not path.startswith("/") or path.startswith("//")
+                or any(ord(char) < 33 or char in "\\#" for char in path)):
+            raise ValueError("Transport requires an absolute relative path")
         headers = self._headers(path) if callable(self._headers) else self._headers
         if self._params_for_path:
             params = {**(params or {}), **self._params_for_path(path)}
@@ -116,6 +121,7 @@ class RequestsTransport:
             params=params,
             json=json_body,
             timeout=self._timeout,
+            allow_redirects=False,  # API 失效响应交给适配器，不将 token/POST 跟随到 SSO
             **({"headers": headers} if headers else {}),
         )
         return TransportResponse(status_code=resp.status_code, text=resp.text)

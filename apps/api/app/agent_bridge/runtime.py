@@ -54,6 +54,76 @@ class Runtime:
         self.browser = BrowserHost(store.path.parent / 'browser')
         self.runtime_dir = REPO_ROOT / "apps" / "agent-runtime"
         self.settings = SettingsStore(store.path.parent / 'settings.json')
+        from .recovery import AuthenticationRecovery
+        self.auth_recovery = AuthenticationRecovery(self)
+
+    def defer_authentication(self, turn: dict, name: str, arguments: dict, result: dict):
+        """Called by internal_tool AFTER journaling a structured campus read auth error."""
+        return self.auth_recovery.defer(turn, name, arguments, result)
+
+    def resume_authenticated_tasks(self):
+        """A successful human campus connection/check requests one cooled-down probe."""
+        return self.auth_recovery.authenticated()
+
+    def recovery_status(self, cid: str):
+        """Owner checking belongs to the public route; payload/secrets are not public."""
+        return self.auth_recovery.status(cid)
+
+    def auth_resume_context(self, turn_or_id) -> dict | None:
+        tid = turn_or_id['id'] if isinstance(turn_or_id, dict) else turn_or_id
+        return next((e['data'] for e in self.store.events(tid)['items']
+                     if e['kind'] == 'accepted_auth_resume'), None)
+
+    def recovery_tool_allowed(self, turn_or_id, name: str) -> bool:
+        """Router guard: an automatic auth continuation must not perform writes."""
+        from .recovery import read_tool
+        return self.auth_resume_context(turn_or_id) is None or read_tool(name, campus_only=False)
+
+    def _auth_recovery_scope(self, db, checkpoint):
+        from sqlalchemy import select
+        from .. import models as m
+        from .tools import ToolContext
+        cid = checkpoint['conversation_id']
+        source = self.store.turn(checkpoint['source_turn_id'])
+        if source['conversation_id'] != cid:
+            raise ApiError(403, 'SCOPE_DENIED', '恢复检查点不属于来源会话')
+        settings = self.store.conversation(cid)['settings']
+        model.validated_config(db, settings)  # Includes enabled; never fetches a key.
+        scope = checkpoint['payload']['scope']
+        courses = set(db.scalars(select(m.Course.id).where(m.Course.archived_at.is_(None))))
+        connections = set(db.scalars(select(m.Connection.id)))
+        course_ids = frozenset(scope.get('course_ids', [])) & frozenset(settings.get('course_ids', [])) & courses
+        connection_ids = frozenset(scope.get('connection_ids', [])) & frozenset(settings.get('connection_ids', [])) & connections
+        return ToolContext('local', cid, frozenset(course_ids), frozenset(connection_ids),
+                           frozenset(settings.get('job_ids', [])), allow_uncoursed_tasks=True,
+                           request_key='auth-probe:' + checkpoint['id'])
+
+    def auth_recovery_tool_context(self, turn_or_id, db):
+        """Optional router adapter; automatic reads retain the checkpoint's narrow scope."""
+        context = self.auth_resume_context(turn_or_id)
+        if context is None:
+            return None
+        checkpoint = self.store.auth_checkpoint(context['checkpoint_id'])
+        return self._auth_recovery_scope(db, checkpoint)
+
+    def validate_auth_recovery(self, checkpoint):
+        with SessionLocal() as db:
+            self._auth_recovery_scope(db, checkpoint)
+
+    def probe_authenticated_read(self, checkpoint):
+        """Callback adapter: execute ONLY the persisted pending campus read and args.
+
+        No browser, login, model call, newly widened course scope or accepted writes.
+        Tests may replace this callback without contacting real services/accounts.
+        """
+        from . import tools
+        from .recovery import valid_pending
+        pending = checkpoint['payload']['pending_tool']
+        if not valid_pending(pending):
+            raise ApiError(403, 'RECOVERY_READ_ONLY', '仅允许恢复原校园只读查询')
+        with SessionLocal() as db:
+            ctx = self._auth_recovery_scope(db, checkpoint)
+            return tools.execute(pending['name'], pending['arguments'], db, ctx)
 
     def call_lock(self, tid: str):
         with self.lock:
@@ -209,7 +279,18 @@ class Runtime:
             recorded = None
         return recorded or data or {'code': 'RUNTIME_FAILED', 'message': '运行时未完成，可查看本轮事件后重试', 'retryable': True}
 
-    def _runner_signature(self, configuration, runtime_settings, workspace):
+    def _attachment_paths(self, turn: dict) -> list[str]:
+        """Exact files the user selected for THIS turn; never the shared directory.
+
+        A runner may only read these copies, and only while this turn is the live
+        one; the next turn re-derives its own list from its own selection.
+        """
+        try:
+            return [reference['path'] for reference in self.files.references(turn)]
+        except ApiError:
+            return []
+
+    def _runner_signature(self, configuration, runtime_settings, workspace, attachment_paths=()):
         """Everything baked into an owned runner process at startup.
 
         The SDK keeps one runtime subprocess and reuses it for later sessions, so a
@@ -217,10 +298,33 @@ class Runtime:
         (provider, model, budget, search, skills, MCP servers, workspace) must replace it.
         """
         return json.dumps({'provider': configuration['provider'], 'model': configuration['model'],
+                           'provider_id': configuration.get('provider_id'),
+                           'key_revision': configuration.get('key_revision', 0),
                            'max_tokens': self.store.limits.max_output_tokens,
+                           'attachments': sorted(attachment_paths),
                            'search': runtime_settings['search'], 'skill_dirs': runtime_settings['skill_dirs'],
                            'mcp_servers': runtime_settings['mcp_servers'], 'workspace': str(workspace)},
                           sort_keys=True, ensure_ascii=False)
+
+    def invalidate_provider(self, provider_id: str) -> int:
+        """Drop warm runners that were started with a provider's old credentials.
+
+        Called after a key clear/replacement or an origin change so a retired key
+        cannot keep being spent from a live subprocess environment.
+        """
+        with self.lock:
+            doomed = [(cid, handle['proc']) for cid, handle in self.runners.items()
+                      if self._signature_provider(handle.get('signature')) == provider_id]
+        for cid, process in doomed:
+            self._discard_runner(cid, process)
+        return len(doomed)
+
+    @staticmethod
+    def _signature_provider(signature) -> str | None:
+        try:
+            return json.loads(signature).get('provider_id')
+        except (TypeError, ValueError):
+            return None
 
     def _acquire_runner(self, cid: str, tid: str, env: dict, signature: str, resume):
         """Reuse this conversation's warm runner, or start a new one.
@@ -328,6 +432,9 @@ class Runtime:
             # A fresh runner resumes the same official JSONL session after each turn.
             context = {"current_course_id": settings.get("current_course_id"), "timezone": "Asia/Shanghai",
                        "now": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")}
+            auth_resume = self.auth_resume_context(turn)
+            if auth_resume:
+                context['resume_context'] = auth_resume
             try:
                 browser_actions = self.browser.peek(turn['conversation_id'], saved_only=True)['reviews']
             except ApiError:
@@ -352,10 +459,9 @@ class Runtime:
                 env['CAMPUS_GOAL_RESUME'] = json.dumps(resume)
             with self.lock:
                 self.workspaces[tid] = workspace
-            # The runtime's stderr is discarded by default so transport details and
-            # model inputs never leak into logs. Diagnosing a plugin-level failure
-            # needs it, so an explicit opt-in path captures it for the operator.
-            signature = self._runner_signature(configuration, runtime_settings, workspace)
+            # A turn's own attachments are the only extra files the runner may read.
+            attachment_paths = self._attachment_paths(turn)
+            signature = self._runner_signature(configuration, runtime_settings, workspace, attachment_paths)
             handle, spawned = self._acquire_runner(turn['conversation_id'], tid, env, signature, resume)
             proc = handle['proc']
             with self.lock:
@@ -371,6 +477,8 @@ class Runtime:
             proc.stdin.write(json.dumps({"text": text, "conversation_id": turn["conversation_id"], "home": str(home),
                                         'provider': configuration['provider'], 'model': configuration['model'],
                                         'workspace': str(workspace), 'max_tokens': self.store.limits.max_output_tokens,
+                                        # Exact per-turn attachment copies; never the shared directory.
+                                        'attachment_paths': attachment_paths,
                                         'search_base_url': runtime_settings['search']['base_url'], 'search_model': runtime_settings['search']['model'],
                                         'skill_dirs': runtime_settings['skill_dirs'],
                                         'mcp_servers': [harness_server(s) for s in runtime_settings['mcp_servers'] if s['enabled']] + [{
@@ -422,7 +530,7 @@ class Runtime:
                 # owned by the API. Drain it before presenting a settled pause.
                 while not self._interrupt_browser(tid):
                     time.sleep(0.1)
-                with self.call_lock(tid):
+                with self.call_lock('browser-call:' + tid), self.call_lock(tid):
                     pass
             if answered:
                 self.store.finish(tid, "succeeded", response=answer)
@@ -444,6 +552,7 @@ class Runtime:
                 capture = self.stderr_captures.pop(tid, None)
                 if self.store.turn(tid)['status'] != 'stopping':
                     self.call_locks.pop(tid, None)
+                    self.call_locks.pop('browser-call:' + tid, None)
                 self.control_addresses.pop(tid, None)
                 self.workspaces.pop(tid, None)
             if capture is not None and not retained:
@@ -550,16 +659,17 @@ class Runtime:
             self.store.event(tid, 'stop_requested', {'message': '正在结束本轮运行与工具调用。'})
             runner = self.threads.get(tid)
             call_lock = self.call_lock(tid)
+            browser_call_lock = self.call_lock('browser-call:' + tid)
             with self.browser.lock:
                 browser_alive = self.browser.process is not None and self.browser.process.poll() is None
             if not runner and not browser_alive:
                 self.store.complete_stop(tid)
                 return
-            worker = threading.Thread(target=self._drain_stop, args=(tid, runner, call_lock), name='campus-stop-' + tid, daemon=True)
+            worker = threading.Thread(target=self._drain_stop, args=(tid, runner, call_lock, browser_call_lock), name='campus-stop-' + tid, daemon=True)
             self.stop_threads[tid] = worker
             worker.start()
 
-    def _drain_stop(self, tid, runner, call_lock):
+    def _drain_stop(self, tid, runner, call_lock, browser_call_lock):
         sdk_errors = []
         with self.lock:
             proc = self.processes.get(tid)
@@ -582,10 +692,11 @@ class Runtime:
                 runner.join()
             # API business calls may outlive the SDK connection. Wait for their
             # original lock, not a new lock after the runner removed its entry.
-            with call_lock:
+            with browser_call_lock, call_lock:
                 self.store.complete_stop(tid)
             with self.lock:
                 self.call_locks.pop(tid, None)
+                self.call_locks.pop('browser-call:' + tid, None)
         except Exception:
             self.store.event(tid, 'stop_incomplete', {'message': '停止收尾尚未完成，仍保留停止中状态；请检查进程状态。'})
         finally:
@@ -593,6 +704,9 @@ class Runtime:
                 self.stop_threads.pop(tid, None)
 
     def close(self):
+        # Stop the single auth monitor before closing workers/browser resources; a
+        # completed probe must not enqueue a fresh turn during runtime shutdown.
+        self.auth_recovery.close()
         with self.lock:
             tids, threads = list(self.threads), list(self.threads.values())
         for tid in tids:

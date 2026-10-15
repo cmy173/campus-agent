@@ -1,13 +1,13 @@
 import { LlmAdapter, attributionHeaders } from '@deepseek-ai/dsh-llm';
 import { Service } from '@deepseek-ai/cordis';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { mountControls } from './campus-control.mjs';
 import { mountSchedules } from './campus-schedules.mjs';
 import { registerToolLoader, installToolMask } from './campus-tool-groups.mjs';
+import { installCapabilityPolicy } from './capability-policy.mjs';
+import { installWebRecovery } from './web-recovery.mjs';
 
 export const name = 'campus';
-export const inject = ['tools', 'llm', 'shellEnv', 'agents', 'subagents', 'goals'];
+export const inject = ['tools', 'fs', 'llm', 'agents', 'subagents', 'goals'];
 
 async function bridge(path, payload, signal) {
   const base = process.env.CAMPUS_BRIDGE_URL;
@@ -26,11 +26,27 @@ async function bridge(path, payload, signal) {
 
 export class CampusModelAdapter extends LlmAdapter {
   async *stream(options) {
-    const result = await bridge('/api/v1/agent/internal/model', {
-      conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId), messages: options.messages,
-      tools: options.tools || [], max_tokens: options.maxTokens || 2048,
-      attribution_headers: attributionHeaders(),
-    }, options.signal);
+    let result;
+    try {
+      result = await bridge('/api/v1/agent/internal/model', {
+        conversation_id: process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId), messages: options.messages,
+        tools: options.tools || [], max_tokens: options.maxTokens || 2048,
+        attribution_headers: attributionHeaders(),
+      }, options.signal);
+    } catch (error) {
+      // rc.2 normalizes a plain Error to UNKNOWN, discarding its custom code and
+      // retryable properties. Emit the public failure protocol so its existing
+      // bounded retry policy can recover transient model requests (never tools).
+      const code = options.signal?.aborted ? 'ABORTED' : {
+        PROVIDER_TIMEOUT: 'TIMEOUT', PROVIDER_RATE_LIMITED: 'RATE_LIMIT',
+        PROVIDER_UNREACHABLE: 'TRANSPORT', PROVIDER_AUTH_FAILED: 'AUTH',
+        PROVIDER_HTTP_ERROR: error.retryable === true ? 'SERVER' : 'BAD_REQUEST',
+        PROVIDER_INVALID_RESPONSE: 'MALFORMED_RESPONSE',
+      }[error.code] ?? (/^[A-Z][A-Z0-9_]{0,63}$/.test(error.code ?? '') ? error.code : 'UNKNOWN');
+      yield { type: 'finish', reason: { kind: options.signal?.aborted ? 'aborted' : 'error',
+        failure: { code, message: '模型请求未完成，请根据错误类型恢复；认证和配置问题需要检查设置。' } } };
+      return;
+    }
     let index = 0;
     if (result.content) {
       yield { type: 'block-start', index, blockType: 'text' };
@@ -44,22 +60,20 @@ export class CampusModelAdapter extends LlmAdapter {
       yield { type: 'block-end', index, block: { type: 'tool-call', id: call.id, name: call.name, arguments: JSON.stringify(call.arguments) } };
       index++;
     }
-    yield { type: 'finish', reason: (result.tool_calls || []).length ? 'tool-calls' : 'stop' };
+    yield { type: 'finish', reason: { kind: (result.tool_calls || []).length ? 'tool-calls' : 'stop' } };
   }
 }
 
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
+  installCapabilityPolicy(ctx, config);
+  installWebRecovery(ctx);
   ctx.effect(() => registerToolLoader(ctx));
   ctx.on('agent/created', ({ agent }) => { installToolMask(agent); });
-  const python = process.env.CAMPUS_PYTHON_EXECUTABLE || fileURLToPath(new URL('../api/.venv/Scripts/python.exe', import.meta.url));
-  ctx.effect(() => ctx.shellEnv.register({
-    name: 'campus-executables',
-    variables: { DSH_PYTHON_EXECUTABLE: { description: 'Absolute path to the Campus Python environment; invoke with & $env:DSH_PYTHON_EXECUTABLE.' },
-      DSH_DOCUMENT_EXPORTER: { description: 'Path to document-artifacts skill export_documents.py; read its skill before use.' } },
-    resolve: () => ({ DSH_PYTHON_EXECUTABLE: resolve(python),
-      DSH_DOCUMENT_EXPORTER: fileURLToPath(new URL('./skills/document-artifacts/scripts/export_documents.py', import.meta.url)) }),
-  }));
+  // No model-facing environment resolver or arbitrary shell exporter. A future
+  // document exporter must be a dedicated argument-validated capability.
+
   const inventory = await bridge('/api/v1/agent/internal/schemas', {});
+  registerCampusDomainOutcomes(ctx, inventory);
   ctx.effect(() => ctx.tools.register({
     name: 'publish_file',
     description: 'Deliver an existing local file to the user as a downloadable snapshot in the conversation file workspace. Use after writing documents, spreadsheets, PDFs or other task results. Relative paths resolve in the task directory. Reading a file is not delivery; publish each finished output.',
@@ -100,7 +114,7 @@ export async function apply(ctx) {
           type: 'object', additionalProperties: false,
           required: ['status', 'data', 'evidence', 'coverage', 'freshness', 'warnings', 'next_cursor', 'job_id', 'error'],
           properties: {
-            status: { type: 'string', enum: ['ok', 'partial', 'queued', 'needs_user', 'error'] },
+            status: { type: 'string', enum: ['ok', 'partial', 'queued', 'running', 'needs_user', 'error'] },
             data: { type: 'object' }, evidence: { type: 'array' }, coverage: { type: 'object' },
             freshness: { type: 'object' }, warnings: { type: 'array' },
             next_cursor: { oneOf: [{ type: 'string' }, { type: 'null' }] },
@@ -187,4 +201,27 @@ export function nativeModelFailure(error) {
   const [code, message, retryable] = mapped[error?.code] ??
     ['PROVIDER_HTTP_ERROR', 'DeepSeek 模型调用未完成，请检查模型配置与服务状态。', true];
   return { code, message, retryable };
+}
+
+/** Reclassify only schema-validated domain envelopes through the public dispatch middleware. */
+export function registerCampusDomainOutcomes(ctx, inventory) {
+  const names = new Set(inventory.map(spec => spec.model_name));
+  ctx.on('tools/execute', async (exec, next) => {
+    const result = await next();
+    if (!names.has(exec.name) || result.isError || result.value?.status !== 'error') return result;
+    // next() has already validated and rendered the canonical envelope. A plain
+    // throw would discard recovery details, evidence, coverage, cursors and jobs.
+    // Never copy a bridge-supplied diagnostic into the durable error identity.
+    const rawCode = result.value.error?.code;
+    const code = typeof rawCode === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(rawCode)
+      ? rawCode : 'CAMPUS_TOOL_FAILED';
+    return {
+      isError: true,
+      error: { message: '校园工具未完成，请检查工具结果中的错误与恢复提示。',
+        info: { name: 'CampusDomainError', code } },
+      content: result.content,
+      ...(result.meta !== undefined ? { meta: result.meta } : {}),
+      ...(result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {}),
+    };
+  });
 }

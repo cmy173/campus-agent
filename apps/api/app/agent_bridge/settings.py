@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Literal
@@ -56,6 +57,9 @@ class McpServer(Input):
     url: str = Field(default='', max_length=2048)
     headers: dict[str, str] = Field(default_factory=dict, max_length=64)
     toolCallTimeoutMs: int = Field(default=60000, ge=1000, le=1800000)
+    # Exact raw MCP tool names; enabled is a connection setting, not authority.
+    # No hints, globs, or readOnlyHint can grant model execution.
+    allowedTools: list[str] = Field(default_factory=list, max_length=256)
 
     @model_validator(mode='after')
     def validate_transport(self):
@@ -63,6 +67,11 @@ class McpServer(Input):
             raise ValueError('本地 MCP 服务需要启动命令')
         if self.transport == 'streamable-http':
             self.url = endpoint(self.url)
+        prefix_length = len(f'mcp__{self.serverName}__')
+        if (len(self.allowedTools) != len(set(self.allowedTools)) or any(
+                not re.fullmatch(r'[A-Za-z0-9_-]+', name) or prefix_length + len(name) > 64
+                for name in self.allowedTools)):
+            raise ValueError('MCP 工具白名单需要唯一明确工具名（不支持通配符或截断名称）')
         for mapping in (self.env, self.headers):
             if any(not k or len(k) > 256 or len(v) > 16384 for k, v in mapping.items()):
                 raise ValueError('MCP 环境变量或请求头长度无效')
@@ -103,6 +112,7 @@ class SettingsStore:
             value = self._load()
             value['search']['has_api_key'] = secrets_store.has_key(SEARCH_KEY)
             for server in value['mcp_servers']:
+                server.setdefault('allowedTools', [])
                 for kind in ('env', 'headers'):
                     server[kind] = {key: MASK for key in server.get(kind, {})}
             return value
@@ -137,6 +147,15 @@ class SettingsStore:
             temporary = self.path.with_suffix('.tmp')
             temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
             os.replace(temporary, self.path)
+            # Remove only orphaned MCP references after publishing the new
+            # settings; keeping a name via MASK must preserve the stored secret.
+            old_refs = {ref for server in prior.values() for kind in ('env', 'headers')
+                        for ref in server.get(kind, {}).values()}
+            live_refs = {ref for server in value['mcp_servers'] for kind in ('env', 'headers')
+                         for ref in server.get(kind, {}).values()}
+            for reference in old_refs - live_refs:
+                if isinstance(reference, str) and reference.startswith('agent-mcp-'):
+                    secrets_store.clear_key(reference)
             return self.public()
 
     def resolved(self, shared_key: str | None = None):
@@ -152,6 +171,7 @@ class SettingsStore:
 
 def harness_server(server: dict) -> dict:
     common = {k: server[k] for k in ('serverName', 'transport', 'toolCallTimeoutMs')}
+    common['allowedTools'] = list(server.get('allowedTools', []))
     if server['transport'] == 'stdio':
         return common | {k: server[k] for k in ('command', 'args', 'cwd', 'env')}
     return common | {k: server[k] for k in ('url', 'headers')}

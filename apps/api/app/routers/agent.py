@@ -33,7 +33,8 @@ COOKIE = "campus_agent_owner"
 
 class ConversationRequest(tools.Input):
     provider_id: str = Field(min_length=1, max_length=128)
-    send_to_provider: bool = False
+    # Compatibility field only: saved, enabled provider configuration is consent.
+    send_to_provider: bool | None = None
     course_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
@@ -128,7 +129,7 @@ class BrowserOpenRequest(tools.Input):
 class ModelErrorRequest(ModelLeaseRequest):
     code: Literal['PROVIDER_AUTH_FAILED', 'PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT',
                   'PROVIDER_UNREACHABLE', 'PROVIDER_INVALID_RESPONSE', 'PROVIDER_HTTP_ERROR',
-                  'PROVIDER_CHANGED', 'BUDGET_EXCEEDED', 'CONSENT_REQUIRED']
+                  'PROVIDER_CHANGED', 'PROVIDER_DISABLED', 'BUDGET_EXCEEDED', 'CONSENT_REQUIRED']
     message: str = Field(min_length=1, max_length=512)
     retryable: bool
 
@@ -222,12 +223,16 @@ def internal_browser(req: BrowserToolRequest, auth=Depends(runtime_authority)):
     runtime, turn, conversation = auth
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'SCOPE_DENIED', '浏览器调用不属于本轮会话')
+    if not str(turn['id']).startswith('prewarm:') and req.method == 'call' and runtime.auth_resume_context(turn):
+        raise ApiError(403, 'RECOVERY_READ_ONLY', '自动认证续任务不执行浏览器操作；已取得的查询结果会继续使用')
     prewarming = str(turn['id']).startswith('prewarm:')
     if prewarming and req.method != 'tools':
         # A prewarmed runtime may discover the browser tools, but nothing may act on a
         # turn that does not exist yet.
         raise ApiError(409, 'TURN_NOT_RUNNING', '预热中的运行时只能发现浏览器工具')
-    lock_key = turn['id'] if not prewarming else 'browser:' + conversation['id']
+    # Browser IO is serialized independently of short tool leases/local tools.
+    # Holding the whole-turn lock during a slow navigation starved sibling reads.
+    lock_key = 'browser-call:' + turn['id'] if not prewarming else 'browser:' + conversation['id']
     with runtime.call_lock(lock_key):
         if prewarming:
             return runtime.browser.rpc(conversation['id'], req.method, name=req.name,
@@ -269,11 +274,11 @@ def test_search(req: SearchTestRequest, owner: str = Depends(browser_owner), db:
 
 @router.post("/conversations", status_code=201)
 def create_conversation(req: ConversationRequest, owner: str = Depends(browser_owner), db: Session = Depends(get_db)):
-    if not req.send_to_provider:
-        raise ApiError(403, "CONSENT_REQUIRED", "请明确同意向所选模型发送对话和相关工具返回的本地资料")
     cfg = db.get(m.ProviderConfig, req.provider_id)
     if cfg is None:
         raise ApiError(404, "NOT_FOUND", "所选模型配置不存在")
+    if not cfg.enabled:
+        raise ApiError(403, "PROVIDER_DISABLED", "该模型服务已停用，可在设置中启用或选择其他模型")
     if cfg.protocol != "openai_chat_completions":
         raise ApiError(400, "UNSUPPORTED", "当前对话仅支持 Chat Completions 兼容服务")
     course_ids = list(db.scalars(select(m.Course.id).where(m.Course.archived_at.is_(None))))
@@ -289,8 +294,11 @@ def create_conversation(req: ConversationRequest, owner: str = Depends(browser_o
 
 
 @router.get("/conversations")
-def list_conversations(owner: str = Depends(browser_owner)):
-    return {"items": [public_conversation(c) for c in get_runtime().store.conversations(owner)], "next_cursor": None}
+def list_conversations(owner: str = Depends(browser_owner), cursor: str | None = Query(default=None, max_length=1024),
+                       search: str = Query(default="", max_length=200), limit: int = Query(default=50, ge=1, le=100)):
+    runtime = get_runtime()
+    page = runtime.store.conversation_page(owner, cursor=cursor, search=search, limit=limit)
+    return {"items": [public_conversation(c) | {"title": c["title"]} for c in page["items"]], "next_cursor": page["next_cursor"]}
 
 
 @router.get("/conversations/{conversation_id}")
@@ -357,6 +365,13 @@ def send_turn(conversation_id: str, req: TurnRequest, owner: str = Depends(brows
     return turn
 
 
+@router.get('/conversations/{conversation_id}/recovery')
+def conversation_recovery(conversation_id: str, owner: str = Depends(browser_owner)):
+    runtime = get_runtime()
+    runtime.store.conversation(conversation_id, owner)
+    return runtime.recovery_status(conversation_id)
+
+
 @router.get("/conversations/{conversation_id}/actions")
 def list_actions(conversation_id: str, owner: str = Depends(browser_owner), db: Session = Depends(get_db)):
     get_runtime().store.conversation(conversation_id, owner)
@@ -398,6 +413,8 @@ def read_turn(turn_id: str, owner: str = Depends(browser_owner), after: int = Qu
 def cancel_turn(turn_id: str, owner: str = Depends(browser_owner)):
     runtime, _ = owned_turn(turn_id, owner)
     runtime.cancel(turn_id)
+    with runtime.store.connection() as db:
+        db.execute("UPDATE auth_recovery SET status='cancelled',probe_requested=0,claim_token=NULL,lease_until=0 WHERE source_turn_id=? AND status IN ('waiting_auth','ready')", (turn_id,))
     return runtime.store.turn(turn_id)
 
 
@@ -443,6 +460,8 @@ def internal_goal_state(req: ModelLeaseRequest, authority=Depends(runtime_author
     runtime, turn, conversation = authority
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    if runtime.auth_resume_context(turn):
+        return {'goal': None, 'agent_status': 'running'}
     return runtime.goal_control(turn['id'], {'operation': 'read'})
 
 
@@ -451,11 +470,121 @@ def internal_schemas(req: tools.Empty, authority=Depends(runtime_authority)):
     return tools.schemas()
 
 
-def error_envelope(exc: ApiError) -> dict:
+def error_envelope(exc: ApiError, files=None) -> dict:
+    error = {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
+    # Only the domain validator's sanitized field/type repair hints are model
+    # feedback. Other exception details may carry internal paths or private data.
+    if exc.code == "INVALID_INPUT" and isinstance(exc.details, dict):
+        issues = exc.details.get("validation_errors")
+        if isinstance(issues, list):
+            error["details"] = {"validation_errors": [
+                {"field": item["field"], "type": item["type"]} for item in issues[:16]
+                if isinstance(item, dict) and isinstance(item.get("field"), str) and isinstance(item.get("type"), str)
+            ]}
+    else:
+        # A failed batch publish that could not be rolled back is the one case where the
+        # error must carry its own partial result: the model has to know which files really
+        # exist instead of being told "nothing was delivered". Server-owned file rows only.
+        # The key is added only when there is something to say, so an ordinary failure keeps
+        # the same envelope shape as before.
+        delivery = sanitized_delivery_details(exc, files)
+        if delivery is not None:
+            error["details"] = delivery
     return {"status": "error", "data": {}, "evidence": [],
             "coverage": {"scope": "authorized_conversation", "complete": False, "missing": ["工具未成功完成"]},
             "freshness": {"fetched_at": None, "stale": True}, "warnings": [], "next_cursor": None, "job_id": None,
-            "error": {"code": exc.code, "message": exc.message, "retryable": exc.retryable}}
+            "error": error}
+
+
+DELIVERED_FILE_FIELDS = ("id", "conversation_id", "kind", "name", "size", "sha256", "mime_type", "created_at")
+
+
+def _retryable_error(result: dict) -> bool:
+    """True for a cached envelope whose own error says the caller may retry it.
+
+    A retryable failure must not be replayed as a permanent answer: that is what made the
+    "retry the same call" advice in a publish-failure message unusable. The stored request
+    fingerprint still decides idempotency — a genuinely charged business operation
+    (`reviews.generate`) keeps its own receipt/identity guard, so relaxing the cache here
+    cannot start a second billed job.
+    """
+    if not isinstance(result, dict) or result.get("status") != "error":
+        return False
+    error = result.get("error")
+    return bool(isinstance(error, dict) and error.get("retryable") is True)
+
+
+def sanitized_delivery_details(exc: ApiError, files=None) -> dict | None:
+    """`error.details` for a failed batch publish, projected onto server-owned fields only.
+
+    Only ids the conversation download entry can really serve (`files.servable`) are forwarded as
+    read receipts; ids that cannot be served are forwarded as pending cleanup. `delivered` is
+    empty in exactly that case, so the cleanup/rollback state is returned even with no delivered
+    file: otherwise the model would be told nothing about a batch that may still hold a usable
+    file. Without a store handle nothing can be verified, so nothing is advertised.
+    """
+    details = exc.details if isinstance(exc.details, dict) else {}
+    delivered = details.get("delivered")
+    if not isinstance(delivered, list):
+        return None
+    # The conversation to verify against: the detailed rows carry it, and the publisher also names
+    # it explicitly because a batch that delivered nothing has no row to read it from.
+    cid = details.get("conversation_id")
+    if not isinstance(cid, str) or cid == "":
+        cid = next((item.get("conversation_id") for item in delivered
+                    if isinstance(item, dict) and isinstance(item.get("conversation_id"), str)), None)
+
+    def servable_ids(key: str) -> list[str]:
+        """Ids the download entry confirmed it can serve."""
+        out: list[str] = []
+        for item in details.get(key) or []:
+            if not isinstance(item, str) or not isinstance(cid, str) or files is None:
+                continue
+            if files.servable(cid, item) is True:
+                out.append(item)
+        return out
+
+    def unusable_ids(key: str) -> list[str]:
+        """Ids the download entry confirmed it *cannot* serve (never merely "unverified")."""
+        out: list[str] = []
+        for item in details.get(key) or []:
+            if not isinstance(item, str) or not isinstance(cid, str) or files is None:
+                continue
+            if files.servable(cid, item) is False:
+                out.append(item)
+        return out
+
+    servable = servable_ids("retained_file_ids")
+    cleanup = unusable_ids("cleanup_pending_file_ids")
+    files_payload = [{key: item.get(key) for key in DELIVERED_FILE_FIELDS}
+                     for item in delivered[:8]
+                     if isinstance(item, dict) and isinstance(item.get("id"), str)
+                     and item.get("id") in set(servable)]
+    rollback = sanitized_rollback(details.get("rollback"))
+    if not files_payload and not servable and not cleanup and rollback is None:
+        return None
+    result: dict = {"delivered": files_payload, "complete": False}
+    if servable:
+        result["retained_file_ids"] = servable[:8]
+    if cleanup:
+        result["cleanup_pending_file_ids"] = cleanup[:8]
+    if isinstance(details.get("failed_format"), str):
+        result["failed_format"] = details["failed_format"]
+    if rollback is not None:
+        result["rollback"] = rollback
+    return result
+
+
+def sanitized_rollback(rollback) -> dict | None:
+    """Bounded per-state rollback ids; server-owned ids only, never file contents.
+
+    Every state key is emitted, empty included, so "this batch had nothing in that state" is
+    readable from the payload instead of being inferred from a missing key.
+    """
+    if not isinstance(rollback, dict):
+        return None
+    return {key: [item for item in rollback.get(key) or [] if isinstance(item, str)][:8]
+            for key in ("removed", "retained", "cleanup_pending", "uncertain")}
 
 
 @router.post("/internal/tool")
@@ -464,23 +593,55 @@ def internal_tool(req: ToolRequest, authority=Depends(runtime_authority), db: Se
     if req.conversation_id != conversation["id"]:
         raise ApiError(403, "RUNTIME_DENIED", "运行时授权不属于指定会话")
     request = {"name": req.name, "arguments": req.arguments}
+    # The cache identity is the *business* request: per-tool observation parameters (e.g.
+    # `wait_seconds`, which only widens how long one call observes an already-accepted job) are
+    # removed by the single canonical helper. Read and write use this same value — normalising on
+    # one side only made a first call that already carried a wait window unresolvable on replay
+    # (409 for byte-identical arguments). The raw `req.arguments` stays the journal record and the
+    # value actually executed.
+    cached_request = tools.cache_arguments(req.name, req.arguments)
     with runtime.call_lock(turn["id"]):
         if runtime.store.turn(turn["id"])["status"] != "running":
             raise ApiError(409, "TURN_STOPPED", "本轮已停止")
-        cached = runtime.store.cached_call(turn["id"], req.call_id, request)
-        if cached is not None:
+        cached = runtime.store.cached_call(turn["id"], req.call_id, cached_request)
+        if cached is not None and not _retryable_error(cached):
             return cached
-        settings = conversation["settings"]
+        if hasattr(runtime, 'recovery_tool_allowed') and not runtime.recovery_tool_allowed(turn, req.name):
+            raise ApiError(403, 'RECOVERY_READ_ONLY', '认证恢复中的自动续任务仅允许查询与分析，不重放写入')
+        # Another tool call may just have imported a course after this request's
+        # dependency snapshot. Read grants inside the existing per-turn call lock.
+        settings = runtime.store.conversation(conversation["id"])["settings"]
         ctx = tools.ToolContext("local", conversation["id"], frozenset(settings["course_ids"]),
                                 frozenset(settings["connection_ids"]), frozenset(settings["job_ids"]), allow_uncoursed_tasks=True,
                                 request_key=turn["id"] + ":" + req.call_id)
+        recovered_ctx = runtime.auth_recovery_tool_context(turn, db)
+        if recovered_ctx is not None:
+            ctx = recovered_ctx
         try:
             result = tools.execute(req.name, req.arguments, db, ctx)
         except ApiError as exc:
-            result = error_envelope(exc)
-        runtime.store.cache_call(turn["id"], req.call_id, request, result)
+            # Verify any advertised file against the same store the tool just used, so a read
+            # receipt cannot name a file the conversation download entry would refuse.
+            result = error_envelope(exc, tools._file_store(ctx))
+        if req.name == "connections.courses.import" and result["status"] in {"ok", "partial"}:
+            receipts = result["data"]["courses"]
+            verified = []
+            for item in receipts:
+                connection = db.get(m.Connection, item["connection_id"])
+                course = db.get(m.Course, item["id"])
+                ref = db.scalar(select(m.SourceRef).where(m.SourceRef.owner_type == "course",
+                                m.SourceRef.owner_id == item["id"], m.SourceRef.platform == item["platform"]))
+                if (connection is None or connection.id not in settings["connection_ids"]
+                        or connection.platform != item["platform"] or course is None
+                        or course.archived_at is not None or ref is None):
+                    raise ApiError(403, "SCOPE_DENIED", "无法确认导入课程的授权来源")
+                verified.append({"id": course.id, "connection_id": connection.id})
+            runtime.store.grant_imported_courses(conversation["id"], verified)
+        runtime.store.cache_call(turn["id"], req.call_id, cached_request, result)
         runtime.store.event(turn["id"], "tool_result", {"call_id": req.call_id, "name": req.name,
                             "arguments": req.arguments, "result": result})
+        if hasattr(runtime, 'defer_authentication'):
+            runtime.defer_authentication(turn, req.name, req.arguments, result)
         return result
 
 
@@ -506,7 +667,7 @@ def internal_model_lease(req: ModelLeaseRequest, authority=Depends(runtime_autho
     runtime, turn, conversation = authority
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
-    model.validated_config(db, conversation['settings'])
+    model.runtime_configuration(db, conversation['settings'])
     runtime.store.reserve_model(turn['id'])
     return {'ok': True}
 
@@ -516,6 +677,8 @@ def internal_tool_lease(req: NativeToolLeaseRequest, authority=Depends(runtime_a
     runtime, turn, conversation = authority
     if req.conversation_id != conversation['id'] or req.name.startswith('campus_'):
         raise ApiError(403, 'RUNTIME_DENIED', '通用工具租约不属于指定会话或工具类别')
+    if runtime.auth_resume_context(turn):
+        raise ApiError(403, 'RECOVERY_READ_ONLY', '自动认证续任务仅使用领域只读工具，不执行通用代码、网页或文件修改')
     with runtime.call_lock(turn['id']):
         runtime.store.reserve_native_tool(turn['id'], req.call_id, req.name)
     return {'ok': True}
@@ -529,13 +692,14 @@ def internal_publish_file(req: PublishFileRequest, authority=Depends(runtime_aut
     workspace = runtime.workspaces.get(turn['id'])
     if workspace is None:
         raise ApiError(409, 'RUNTIME_NOT_READY', '任务目录尚未就绪')
-    source = Path(req.path).expanduser()
-    if not source.is_absolute():
-        source = workspace / source
     with runtime.call_lock(turn['id']):
-        if runtime.store.turn(turn['id'])['status'] != 'running':
+        current_turn = runtime.store.turn(turn['id'])
+        if current_turn['status'] != 'running':
             raise ApiError(409, 'TURN_STOPPED', '本轮已停止')
-        item = runtime.files.publish(conversation['id'], source.resolve(), 'publish:' + turn['id'] + ':' + req.call_id)
+        # Authority comes only from the actual Harness root and persisted user
+        # attachment selection. Preserve the raw path for link/reparse checks.
+        item = runtime.files.publish(conversation['id'], Path(req.path), 'publish:' + turn['id'] + ':' + req.call_id,
+                                     workspace=workspace, attachment_ids=current_turn.get('attachment_ids', []))
         runtime.store.event(turn['id'], 'file.published', {'file': item})
     return item
 

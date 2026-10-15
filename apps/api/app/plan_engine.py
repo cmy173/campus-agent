@@ -26,6 +26,7 @@ from learning.schedule.engine import ScheduleConfig, ScheduleOptions, generate_p
 
 from . import models as m
 from .config import CONFIG_DEFAULTS_PATH
+from .campus_schedule_constraints import read_campus_evidence, campus_blocks, subtract_campus_blocks
 from .errors import ApiError
 from .plan_input import compute_input_revision
 from .repo import new_id, normalize_dt, refs_for
@@ -219,7 +220,11 @@ def preview_candidate(
     horizon_end_dt = datetime.combine(end + timedelta(days=1), dt.time.min, tz)  # 含 end 当天
     reference_time = (not_before or datetime.now(timezone.utc)).astimezone(tz).isoformat(timespec="minutes")
 
-    revision = compute_input_revision(db)
+    # Expansion and fingerprint consume the same cache snapshot; apply/current
+    # re-read it through compute_input_revision and reject changed/expired facts.
+    campus_evidence = read_campus_evidence()
+    occupied, campus_warnings = campus_blocks(campus_evidence, horizon_start_dt, horizon_end_dt)
+    revision = compute_input_revision(db, campus_evidence=campus_evidence)
     rows = list(db.execute(select(m.LearningTask).order_by(m.LearningTask.id)).scalars())
     excluded = _excluded_task_ids(db, rows)
     options = ScheduleOptions(
@@ -234,6 +239,8 @@ def preview_candidate(
         from .agent_bridge.constraints import temporary_availability
         availability_row = temporary_availability(availability_row, start, end, tz, temporary_blocked or [],
                                                  temporary_windows, options.locked_blocks)
+    if occupied:
+        availability_row = subtract_campus_blocks(availability_row, start, end, tz, occupied, options.locked_blocks)
     result = generate_plan(_map_tasks(rows, excluded, tz), _map_availability(availability_row), options)
 
     max_version = db.execute(select(func.max(m.Plan.version))).scalar() or 0
@@ -282,6 +289,8 @@ def preview_candidate(
                 details=w.details,
             )
         )
+    for warning in campus_warnings:
+        db.add(m.PlanWarning(plan_id=plan.id, **warning))
     if commit:
         db.commit()
     else:

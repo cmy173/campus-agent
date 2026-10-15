@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import hashlib
 import base64
 import logging
@@ -156,7 +157,12 @@ def requeue_stale(db: Session) -> int:
         .values(status="queued", started_at=None, finished_at=None, progress=0.0, errors=[], warnings=[])
     )
     db.commit()
-    return result.rowcount or 0
+    recovered = result.rowcount or 0
+    # A successful check may have committed before an interrupted worker could
+    # reach its terminal state/hook. Resume its durable auth checkpoint on restart.
+    for connection in db.execute(select(Connection).where(Connection.status == "ok")).scalars():
+        recovered += resume_auth_sync_jobs(db, connection)
+    return recovered
 
 
 def _claim_next(db: Session) -> Job | None:
@@ -224,6 +230,11 @@ def _finish(db: Session, job: Job, status: str, errors: list[dict], result_refs:
     if status in ("succeeded", "partial_failed"):
         fresh.progress = 1.0
     db.commit()
+    if fresh.type == "sync" and status in ("failed", "partial_failed") and (fresh.payload or {}).get("auth_required"):
+        # Check may have committed after the AUTH checkpoint but before _finish.
+        connection = db.get(Connection, fresh.payload.get("connection_id"))
+        if connection is not None:
+            resume_auth_sync_jobs(db, connection)
 
 
 def process_next_job() -> bool:
@@ -1281,14 +1292,99 @@ def handle_review_generate(db: Session, job: Job) -> JobResult:
 # ────────────────────────── 处理器：平台同步 ──────────────────────────
 
 
+def sync_pending_course_ids(payload: dict) -> list[str] | None:
+    """Durable continuation scope; None denotes a legacy job without a checkpoint."""
+    for key in ("pending_course_ids", "remaining_courses"):
+        value = payload.get(key)
+        if isinstance(value, list) and all(isinstance(c, str) and c for c in value):
+            scope = payload.get("course_ids")
+            return list(dict.fromkeys(c for c in value if not isinstance(scope, list) or c in scope))
+    return None
+
+
+def resume_auth_sync_jobs(db: Session, connection: Connection) -> int:
+    """Requeue auth-paused leaf jobs after a committed, successful connection check.
+
+    Reuse the original job/receipt instead of spawning tasks. Retry ancestry prevents
+    resuming both a parent and its retry; all ancestors must share connection/scope.
+    The conditional status update makes repeated/concurrent checks idempotent.
+    """
+    db.refresh(connection)
+    if connection.status != "ok":
+        return 0
+    jobs = list(db.execute(select(Job).where(Job.type == "sync")).scalars())
+    by_id = {job.id: job for job in jobs}
+
+    def valid_ancestry(job: Job) -> bool:
+        seen = {job.id}
+        while (job.payload or {}).get("parent_job_id"):
+            parent_id = job.payload["parent_job_id"]
+            if not isinstance(parent_id, str) or parent_id in seen:
+                return False
+            parent = by_id.get(parent_id)
+            if parent is None or (parent.payload or {}).get("connection_id") != connection.id:
+                return False
+            child_scope = (job.payload or {}).get("course_ids")
+            parent_scope = (parent.payload or {}).get("course_ids")
+            if not isinstance(child_scope, list) or not isinstance(parent_scope, list) or not set(child_scope) <= set(parent_scope):
+                return False
+            seen.add(parent_id)
+            job = parent
+        return True
+
+    superseded = {
+        (job.payload or {}).get("parent_job_id") for job in jobs
+        if (job.payload or {}).get("connection_id") == connection.id and valid_ancestry(job)
+    }
+    resumed = 0
+    for job in jobs:
+        payload = dict(job.payload or {})
+        if (payload.get("connection_id") != connection.id or job.id in superseded
+                or job.status not in ("failed", "partial_failed") or job.cancel_requested
+                or not payload.get("auth_required") or not sync_pending_course_ids(payload)
+                or not valid_ancestry(job)):
+            continue
+        payload["auth_required"] = False
+        payload["sync_errors"] = [e for e in payload.get("sync_errors", []) if e.get("code") != "AUTH_EXPIRED"]
+        claimed = db.execute(
+            update(Job).where(
+                Job.id == job.id, Job.status.in_(("failed", "partial_failed")), Job.cancel_requested.is_(False),
+                select(Connection.status).where(Connection.id == connection.id).scalar_subquery() == "ok",
+            ).values(status="queued", started_at=None, finished_at=None, errors=[], payload=payload)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        resumed += claimed or 0
+    db.commit()
+    db.expire_all()
+    return resumed
+
+
+def _sync_checkpoint(db: Session, job: Job, payload: dict, pending: list[str],
+                     errors: list[dict], refs: list[dict], *, phase: str) -> None:
+    payload.update(pending_course_ids=list(pending), remaining_courses=list(pending), sync_errors=list(errors))
+    job.payload = copy.deepcopy(payload)  # Never share nested mutable JSON with ORM's committed value.
+    job.phase = phase
+    job.errors = list(errors)
+    job.result_refs = list(refs)
+    job.progress = 1 - len(pending) / max(1, len(payload["course_ids"]))
+    db.commit()
+
+
+def _pause_auth_sync(db: Session, job: Job, connection: Connection, payload: dict,
+                     pending: list[str], errors: list[dict], refs: list[dict], exc: AdapterError) -> JobResult:
+    exc.retryable = False  # Never schedule automatic AUTH retries.
+    errors.append(adapter_error_entry(exc, pending[0]))
+    mark_auth_required(connection, action=exc.action, message=exc.message)
+    payload["auth_required"] = True
+    _sync_checkpoint(db, job, payload, pending, errors, refs, phase="auth_required")
+    return JobResult(status="partial_failed" if (payload.get("sync_succeeded_course_ids") or refs) else "failed",
+                     errors=errors, result_refs=refs)
+
+
 @handler("sync")
 def handle_sync(db: Session, job: Job) -> JobResult:
-    """按连接平台同步其已绑定来源的课程（逐课程为条目，单项隔离）。
-
-    认证失效（AUTH_EXPIRED）立即停止：连接置 auth_required 并写 recovery_action，任务携带 AUTH_EXPIRED 结束；
-    其余课程级失败进 errors[] 并继续；游标按 (connection, course) 持久化。
-    """
-    payload = job.payload or {}
+    """逐课程 checkpoint：元数据/游标和待下载附件同事务保留，AUTH 等待成功 check。"""
+    payload = dict(job.payload or {})
     connection_id = payload.get("connection_id")
     full = bool(payload.get("full", False))
     connection = db.get(Connection, connection_id) if isinstance(connection_id, str) else None
@@ -1296,100 +1392,138 @@ def handle_sync(db: Session, job: Job) -> JobResult:
         raise JobFailed("INVALID_PAYLOAD", f"连接不存在：{connection_id}", retryable=False)
     if connection.status == "disabled":
         raise JobFailed("CONFLICT", "连接已停用，任务不执行", retryable=False, details={"connection_id": connection.id})
-    try:
-        adapter = resolve_sync_adapter(connection.platform)
-    except AdapterMissing as exc:
-        raise JobFailed("DEPENDENCY_UNAVAILABLE", str(exc), retryable=False, details={"platform": connection.platform}) from None
-
-    # 任务参数即同步作用域（重试时仅含失败课程）；旧任务无 course_ids 时回退全部已绑定课程
     course_ids = payload.get("course_ids")
     if not isinstance(course_ids, list) or not course_ids or any(not isinstance(c, str) or not c for c in course_ids):
         course_ids = bound_courses(db, connection.platform)
     if not course_ids:
         raise JobFailed("INVALID_PAYLOAD", "连接下没有已绑定来源的课程", retryable=False)
+    payload["course_ids"] = list(dict.fromkeys(course_ids))
+    pending = sync_pending_course_ids(payload)
+    if pending is None:
+        pending = list(payload["course_ids"])
+    errors = list(payload.get("sync_errors") or [])
+    refs = list(job.result_refs or [])
+    succeeded = list(payload.get("sync_succeeded_course_ids") or [])
+    checkpoints = dict(payload.get("course_checkpoints") or {})
+    payload.update(sync_succeeded_course_ids=succeeded, course_checkpoints=checkpoints)
+    _sync_checkpoint(db, job, payload, pending, errors, refs, phase="sync")
+    # A stale/retried queued job must not probe credentials or loop AUTH failures.
+    if pending and (connection.status == "auth_required" or (payload.get("auth_required") and connection.status != "ok")):
+        errors = [e for e in errors if e.get("code") != "AUTH_EXPIRED"]
+        return _pause_auth_sync(db, job, connection, payload, pending, errors, refs,
+                                AdapterError("AUTH_EXPIRED", "登录已失效，请先检查连接", retryable=False))
+    if payload.get("auth_required") and connection.status == "ok":
+        # Check can commit while a crashed/finishing job is still running and thus
+        # not requeueable by the hook. The committed connection state authorizes
+        # its later stale-worker continuation; no login/check is attempted here.
+        payload["auth_required"] = False
+        errors = [e for e in errors if e.get("code") != "AUTH_EXPIRED"]
+        _sync_checkpoint(db, job, payload, pending, errors, refs, phase="sync")
+    try:
+        adapter = resolve_sync_adapter(connection.platform)
+    except AdapterMissing as exc:
+        raise JobFailed("DEPENDENCY_UNAVAILABLE", str(exc), retryable=False, details={"platform": connection.platform}) from None
 
     conn_info = {"platform": connection.platform, "connection_id": connection.id}
-    errors: list[dict] = []
-    refs: list[dict] = []
-    succeeded_courses = 0
-    total = len(course_ids)
-    for idx, course_id in enumerate(course_ids):
+    for course_id in list(pending):
         check_cancel(db, job)
-        since = None if full else get_cursor(db, connection.id, course_id)
-        try:
-            envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since, "full": full})
-            stats = apply_sync_result(db, connection=connection, course_id=course_id, envelope=envelope)
-            store_cursor(
-                db,
-                connection_id=connection.id,
-                course_id=course_id,
-                cursor=(envelope.get("cursor") or {}).get("next"),
-                mode=envelope.get("mode") or "incremental",
-            )
-        except AdapterError as exc:
-            entry = adapter_error_entry(exc, course_id)
-            errors.append(entry)
-            if exc.code == "AUTH_EXPIRED":
-                mark_auth_required(connection, action=exc.action, message=exc.message)
-                job.progress = (idx + 1) / total
-                job.errors = list(errors)
-                job.result_refs = list(refs)
-                db.commit()
-                return JobResult(
-                    status="partial_failed" if (succeeded_courses or refs) else "failed",
-                    errors=errors,
-                    result_refs=refs,
-                )
-            if exc.code == "NETWORK_ERROR":
-                mark_network_error(connection, exc.message)
-        except SyncResultInvalid as exc:
-            errors.append(
-                {"code": "INVALID_PAYLOAD", "message": str(exc), "retryable": False, "details": {"course_id": course_id}}
-            )
-        else:
-            succeeded_courses += 1
-            errors.extend(stats.errors)
-            refs.extend(stats.refs)
-            # 元数据成功后直接获取可下载的文件，不再依赖用户手工搬运到 /imports。
+        db.refresh(connection)
+        if connection.status == "disabled":
+            raise JobFailed("CONFLICT", "连接已停用，任务不执行", retryable=False)
+        if connection.status == "auth_required":
+            return _pause_auth_sync(db, job, connection, payload, pending, errors, refs,
+                                    AdapterError("AUTH_EXPIRED", "登录已失效，请先检查连接", retryable=False))
+        checkpoint = checkpoints.get(course_id)
+        if checkpoint is None:
+            since = None if full else get_cursor(db, connection.id, course_id)
+            try:
+                envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since, "full": full})
+                stats = apply_sync_result(db, connection=connection, course_id=course_id, envelope=envelope)
+                store_cursor(db, connection_id=connection.id, course_id=course_id,
+                             cursor=(envelope.get("cursor") or {}).get("next"),
+                             mode=envelope.get("mode") or "incremental")
+            except AdapterError as exc:
+                if exc.code == "AUTH_EXPIRED":
+                    return _pause_auth_sync(db, job, connection, payload, pending, errors, refs, exc)
+                errors.append(adapter_error_entry(exc, course_id))
+                if exc.code == "NETWORK_ERROR":
+                    mark_network_error(connection, exc.message)
+            except SyncResultInvalid as exc:
+                errors.append(job_error("INVALID_PAYLOAD", str(exc), retryable=False, details={"course_id": course_id}))
+            else:
+                if course_id not in succeeded:
+                    succeeded.append(course_id)
+                errors.extend(stats.errors)
+                for ref in stats.refs:
+                    if ref not in refs:
+                        refs.append(ref)
+                # Persist only source identities, never signed URLs/session material.
+                sources = []
+                for item in envelope["upserts"]["resources"]:
+                    source = item.get("source_ref") or {}
+                    resource_id = find_source_owner(db, OWNER_RESOURCE, connection.platform, source.get("external_id"))
+                    resource = db.get(Resource, resource_id) if resource_id else None
+                    if (resource is not None and resource.course_id == course_id
+                            and resource.access_level == "full" and resource.file_id is None):
+                        sources.append({"resource_id": resource.id, "external_id": source["external_id"]})
+                checkpoint = {"phase": "attachments", "remaining_resources": sources}
+                checkpoints[course_id] = checkpoint
+                _sync_checkpoint(db, job, payload, pending, errors, refs, phase="attachments")
+        if checkpoint is not None:
             factory = getattr(adapter, "protocol_factory", None)
+            fetch = None
             if factory is not None:
-                protocol = factory(platform=connection.platform, connection_id=connection.id)
-                fetch = getattr(protocol, "fetch_resource_bytes", None)
-                if fetch is not None:
-                    for item in envelope["upserts"]["resources"]:
-                        check_cancel(db, job)
-                        source = item.get("source_ref") or {}
-                        resource_id = find_source_owner(db, OWNER_RESOURCE, connection.platform, source.get("external_id"))
-                        resource = db.get(Resource, resource_id) if resource_id else None
-                        if resource is None or resource.access_level != "full" or resource.file_id is not None:
-                            continue
-                        try:
-                            _fetch_synced_document(db, resource, source, fetch)
-                        except JobFailed as exc:
-                            errors.append(job_error(exc.code, exc.message, retryable=exc.retryable,
-                                                    details={"course_id": course_id, "resource_id": resource.id}))
-                        except Exception as exc:
-                            translated = _translate_protocol_error(exc)
-                            if translated is None:
-                                raise
-                            errors.append(adapter_error_entry(translated, course_id))
-                            if translated.code == "AUTH_EXPIRED":
-                                mark_auth_required(connection, action=translated.action, message=translated.message)
-                                db.commit()
-                                return JobResult(status="partial_failed", errors=errors, result_refs=refs)
+                try:
+                    protocol = factory(platform=connection.platform, connection_id=connection.id)
+                    fetch = getattr(protocol, "fetch_resource_bytes", None)
+                except Exception as exc:
+                    translated = exc if isinstance(exc, AdapterError) else _translate_protocol_error(exc)
+                    if translated is not None and translated.code == "AUTH_EXPIRED":
+                        return _pause_auth_sync(db, job, connection, payload, pending, errors, refs, translated)
+                    raise
+            remaining = list(checkpoint.get("remaining_resources") or [])
+            for item in list(remaining) if fetch is not None else []:
+                check_cancel(db, job)
+                db.refresh(connection)
+                if connection.status == "disabled":
+                    raise JobFailed("CONFLICT", "连接已停用，任务不执行", retryable=False)
+                if connection.status == "auth_required":
+                    return _pause_auth_sync(db, job, connection, payload, pending, errors, refs,
+                                            AdapterError("AUTH_EXPIRED", "登录已失效，请先检查连接", retryable=False))
+                resource = db.get(Resource, item["resource_id"])
+                owner = find_source_owner(db, OWNER_RESOURCE, connection.platform, item["external_id"])
+                if (resource is not None and resource.id == owner and resource.course_id == course_id
+                        and resource.access_level == "full" and resource.file_id is None):
+                    source = {"platform": connection.platform, "external_id": item["external_id"],
+                              "observed_at": iso_utc(utc_now())}
+                    try:
+                        _fetch_synced_document(db, resource, source, fetch)
+                    except JobFailed as exc:
+                        if exc.code == "AUTH_EXPIRED":
+                            return _pause_auth_sync(db, job, connection, payload, pending, errors, refs,
+                                                    AdapterError(exc.code, exc.message, retryable=False))
+                        errors.append(job_error(exc.code, exc.message, retryable=exc.retryable,
+                                                details={"course_id": course_id, "resource_id": resource.id}))
+                    except Exception as exc:
+                        translated = exc if isinstance(exc, AdapterError) else _translate_protocol_error(exc)
+                        if translated is None:
+                            raise
+                        if translated.code == "AUTH_EXPIRED":
+                            return _pause_auth_sync(db, job, connection, payload, pending, errors, refs, translated)
+                        errors.append(adapter_error_entry(translated, course_id))
+                remaining.remove(item)
+                checkpoint["remaining_resources"] = list(remaining)
+                _sync_checkpoint(db, job, payload, pending, errors, refs, phase="attachments")
             enqueue_build_tasks_job(db, course_id=course_id, reason="sync")
-        job.progress = (idx + 1) / total
-        job.errors = list(errors)
-        job.result_refs = list(refs)
-        db.commit()
+            checkpoints.pop(course_id, None)
+        pending.remove(course_id)
+        _sync_checkpoint(db, job, payload, pending, errors, refs, phase="sync")
 
-    if succeeded_courses:
+    if succeeded:
         mark_connection_ok(connection)
-    db.commit()
+    _sync_checkpoint(db, job, payload, pending, errors, refs, phase="done")
     if errors:
-        return JobResult(
-            status="partial_failed" if (succeeded_courses or refs) else "failed", errors=errors, result_refs=refs
-        )
+        return JobResult(status="partial_failed" if (succeeded or refs) else "failed", errors=errors, result_refs=refs)
     return JobResult(status="succeeded", result_refs=refs)
 
 

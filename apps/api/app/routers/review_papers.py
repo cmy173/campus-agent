@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from .. import review, review_deps, review_engine, review_export, secrets_store
+from .. import review, review_deps, review_engine, review_export, review_service, secrets_store
 from ..db import get_db
 from ..errors import ApiError, not_found
 from ..models import (
@@ -55,66 +55,15 @@ ENDPOINT_GENERATE = "POST /review-papers/generate"
 ENDPOINT_REVISE = "POST /review-papers/revisions"
 
 
-def require_review_engine() -> str:
-    """D 出卷引擎必须在位（缺失 502，不伪造结果）；返回引擎版本（REVIEW_ENGINE_VERSION）。"""
-    module = review_deps.review_engine_module()
-    version = None
-    if module is not None:
-        version = getattr(module, "REVIEW_ENGINE_VERSION", None) or getattr(module, "ENGINE_VERSION", None)
-    if not version:
-        raise ApiError(
-            502,
-            "DEPENDENCY_UNAVAILABLE",
-            "出卷引擎模块未接入（learning.review / STUDY_REVIEW_ENGINE_MODULE），无法出卷",
-        )
-    return str(version)
-
-
-def require_questionbank_capabilities() -> dict[str, Any]:
-    """A 题库模块必须在位（bank/hybrid 缺失 502）；返回 get_questionbank_capabilities 结果。"""
-    module = review_deps.questionbank_module()
-    if module is None:
-        raise ApiError(
-            502,
-            "DEPENDENCY_UNAVAILABLE",
-            "题库模块未接入（connectors.questionbanks / STUDY_QUESTIONBANK_MODULE），无法使用 bank/hybrid 模式",
-        )
-    try:
-        return module.get_questionbank_capabilities(review_deps.questionbank_sources_config())
-    except Exception as exc:  # noqa: BLE001 —— 依赖内部故障如实上报
-        LOG.error("题库能力查询失败：%s: %s", type(exc).__name__, exc)
-        raise ApiError(502, "DEPENDENCY_UNAVAILABLE", "题库模块能力查询失败，请检查模块与来源配置") from exc
-
-
-def resolve_provider_block(db: Session, mode: str, provider_config_id: str | None) -> dict[str, Any]:
-    """预检/生成/修订共用的 provider 校验：ai/hybrid 须有配置且已存密钥；bank 须为 null。"""
-    if mode == "bank":
-        if provider_config_id is not None:
-            raise ApiError(
-                400,
-                "VALIDATION_FAILED",
-                "请求参数校验失败",
-                details={"fields": [{"field": "provider_config_id", "reason": "bank 模式不调用模型，provider_config_id 须为 null"}]},
-            )
-        return review.empty_provider_summary()
-    if not provider_config_id:
-        raise ApiError(
-            400,
-            "VALIDATION_FAILED",
-            "请求参数校验失败",
-            details={"fields": [{"field": "provider_config_id", "reason": "AI/混合模式必须选择 AI 服务配置"}]},
-        )
-    cfg = db.get(ProviderConfig, provider_config_id)
-    if cfg is None:
-        raise not_found("AI 服务配置", provider_config_id)
-    if not secrets_store.has_key(cfg.id):
-        raise ApiError(
-            400,
-            "VALIDATION_FAILED",
-            "请求参数校验失败",
-            details={"fields": [{"field": "provider_config_id", "reason": "该配置尚未保存密钥；请先填写并测试连接"}]},
-        )
-    return review.provider_summary(cfg, True)
+# 受理链（引擎/题库依赖、provider 校验、材料选择、限额、指纹、快照与入队）已抽到
+# `app.review_service`，与 Agent 工具共用同一实现；这里保留原名字以兼容既有调用与测试。
+require_review_engine = review_service.require_review_engine
+require_questionbank_capabilities = review_service.require_questionbank_capabilities
+resolve_provider_block = review_service.resolve_provider_block
+_check_preview = review_service.check_preview
+_require_bank_configured = review_service.require_bank_configured
+_freeze_snapshot = review_service.freeze_snapshot
+_enqueue_review_job = review_service.enqueue_job
 
 
 def _resolve_accept_context(
@@ -127,104 +76,7 @@ def _resolve_accept_context(
     constraints: dict[str, Any],
 ) -> dict[str, Any]:
     """预检/生成/修订共用受理链（只读；冻结/落库由调用方执行）。"""
-    unsupported = review_engine.unsupported_contract_types(constraints)
-    if unsupported:
-        raise ApiError(
-            400,
-            "VALIDATION_FAILED",
-            "请求参数校验失败",
-            details={"fields": [{
-                "field": "constraints.question_types",
-                "reason": f"题型暂不被出卷引擎支持：{'、'.join(unsupported)}（请改用支持的题型）",
-            }]},
-        )
-    provider_block = resolve_provider_block(db, mode, provider_config_id)
-    items, missing = review.resolve_selection(db, course.id, selection)
-    review.ensure_usable_selection(items, missing)
-    chars = review.total_chars(items)
-    review.validate_review_limits(notes, constraints, chars)
-    engine_version = require_review_engine()
-    capabilities = require_questionbank_capabilities() if mode in ("bank", "hybrid") else None
-    bank = review.bank_summary(mode, capabilities)
-    notes_pl = review.notes_payload(notes)
-    fingerprint = review.compute_fingerprint(course.id, mode, engine_version, notes_pl, constraints, items)
-    return {
-        "items": items,
-        "missing": missing,
-        "total_chars": chars,
-        "constraints": constraints,
-        "notes": notes_pl,
-        "provider": provider_block,
-        "engine_version": engine_version,
-        "bank": bank,
-        "fingerprint": fingerprint,
-    }
-
-
-def _check_preview(ctx: dict[str, Any], if_match: str | None) -> None:
-    if if_match is not None and if_match.strip('"') != ctx["fingerprint"]:
-        raise ApiError(409, "PREFLIGHT_FAILED", "资料或备注已变化，请重新预览后生成")
-
-
-def _require_bank_configured(ctx: dict[str, Any]) -> None:
-    if not ctx["bank"]["usable"]:
-        raise ApiError(
-            400,
-            "BANK_NOT_CONFIGURED",
-            "bank 模式需要至少一个可用题库来源，当前未配置（可改用 ai/hybrid 模式或配置题库来源）",
-            details={"bank": ctx["bank"]},
-        )
-
-
-def _freeze_snapshot(db: Session, course_id: str, ctx: dict[str, Any]) -> ReviewMaterialSnapshot:
-    snapshot = ReviewMaterialSnapshot(
-        id=new_id(db, ReviewMaterialSnapshot, "snp"),
-        course_id=course_id,
-        engine_version=ctx["engine_version"],
-        fingerprint=ctx["fingerprint"],
-        constraints=ctx["constraints"],
-        notes=ctx["notes"],
-        items=ctx["items"],
-        missing=ctx["missing"],
-        total_chars=ctx["total_chars"],
-    )
-    db.add(snapshot)
-    return snapshot
-
-
-def _enqueue_review_job(
-    db: Session,
-    *,
-    paper: ReviewPaper,
-    snapshot: ReviewMaterialSnapshot,
-    revision: int,
-    revision_reason: str,
-    based_on_revision: int | None,
-    provider_config_id: str | None,
-    title: str,
-) -> Job:
-    provider = db.get(ProviderConfig, provider_config_id) if provider_config_id else None
-    job = Job(
-        id=new_id(db, Job, "job"),
-        type="review_generate",
-        status="queued",
-        progress=0.0,
-        errors=[],
-        result_refs=[],
-        payload={
-            "paper_id": paper.id,
-            "snapshot_id": snapshot.id,
-            "revision": revision,
-            "revision_reason": revision_reason,
-            "based_on_revision": based_on_revision,
-            "mode": paper.mode,
-            "provider_config_id": provider_config_id,
-            "provider_snapshot": review.provider_summary(provider, True) if provider else None,
-            "title": title,
-        },
-    )
-    db.add(job)
-    return job
+    return review_service.resolve_accept_context(db, course, mode, provider_config_id, selection, notes, constraints)
 
 
 def _selection_from_snapshot(snapshot: ReviewMaterialSnapshot) -> dict[str, Any]:

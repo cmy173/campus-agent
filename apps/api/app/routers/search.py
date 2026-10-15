@@ -36,6 +36,17 @@ def search(
     cursor: str | None = Query(default=None),
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ) -> dict[str, Any]:
+    return search_scoped(db, q, course_id, kind, cursor, limit)
+
+
+def search_scoped(db: Session, q: str, course_id: str | None = None,
+                  kind: str | None = None, cursor: str | None = None,
+                  limit: int = DEFAULT_LIMIT, *, course_ids: frozenset[str] | None = None) -> dict[str, Any]:
+    """Shared query implementation; trusted course scope is not an HTTP parameter.
+
+    Filter before scoring/pagination so restricted agent searches never leak
+    another course's text, hit counts, identifiers, or pagination position.
+    """
     needle = q.lower()
     lowered = func.lower(ContentChunk.text)
     score_expr = (func.length(lowered) - func.length(func.replace(lowered, needle, ""))) * 1.0 / len(needle)
@@ -50,6 +61,8 @@ def search(
             lowered.like(_like_pattern(q), escape="\\"),
         )
     )
+    if course_ids is not None:
+        stmt = stmt.where(Resource.course_id.in_(course_ids))
     if course_id is not None:
         stmt = stmt.where(Resource.course_id == course_id)
     if kind is not None:

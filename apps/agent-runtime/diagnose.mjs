@@ -2,6 +2,8 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess';
+import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
+import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment';
 import { DeepSeekSearchProvider, DEEPSEEK_DEFAULT_BASE_URL, DEEPSEEK_DEFAULT_MODEL,
   DEEPSEEK_DEFAULT_API_VERSION } from '@deepseek-ai/dsh-web-search-deepseek';
 
@@ -9,7 +11,13 @@ const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk);
 const input = JSON.parse(Buffer.concat(chunks).toString());
 const started = performance.now();
 let client;
+let closeProxy;
 try {
+  // The regular Harness launcher installs this policy. This standalone settings
+  // process must use the same transport instead of silently testing direct only.
+  closeProxy = await installProxyFromEnvironment(createLaunchEnvironmentSnapshot([
+    { source: 'process', values: process.env },
+  ]), () => {});
   let result;
   if (input.kind === 'mcp') {
     const server = input.server;
@@ -43,4 +51,5 @@ try {
   console.log(JSON.stringify({ ok: false, latency_ms: Math.round(performance.now() - started), error: { code: known, message, retryable: true } }));
 } finally {
   if (client) await client.close();
+  if (closeProxy) await closeProxy();
 }

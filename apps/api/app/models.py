@@ -368,6 +368,40 @@ class AgentJobRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class AgentReviewReceipt(Base):
+    """Idempotency + ownership receipt for `reviews.generate`.
+
+    A review job is a charged, model-calling background job, so "same trusted call ID" must
+    return the existing job instead of enqueueing a second one, and `jobs.read` must be able
+    to prove the job belongs to this conversation rather than trusting a known job id.
+    """
+    __tablename__ = "agent_review_receipts"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(128), index=True)
+    request_key: Mapped[str] = mapped_column(String(256), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"))
+    paper_id: Mapped[str] = mapped_column(ForeignKey("review_papers.id"))
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"))
+    result: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AgentArtifactReceipt(Base):
+    """Replay receipt for `artifacts.export`.
+
+    The delivered files live in `conversation_files`; this row is what makes "same call ID
+    returns the same persistent file receipt" survive a lost response or a new turn.
+    """
+    __tablename__ = "agent_artifact_receipts"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(128), index=True)
+    request_key: Mapped[str] = mapped_column(String(256), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    result: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class AgentPlanAction(Base):
     """Immutable preview/target snapshot and durable mutation receipt in the business DB."""
     __tablename__ = "agent_plan_actions"
@@ -648,6 +682,7 @@ class ProviderConfig(Base):
     base_url: Mapped[str] = mapped_column(String(1024))
     model: Mapped[str] = mapped_column(String(256))
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_test_result: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -661,6 +696,7 @@ class ProviderConfig(Base):
             "base_url": self.base_url,
             "model": self.model,
             "has_api_key": has_api_key,
+            "enabled": self.enabled,
             "timeout_seconds": self.timeout_seconds,
             "created_at": iso_utc(self.created_at),
             "updated_at": iso_utc(self.updated_at),

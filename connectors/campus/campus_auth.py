@@ -103,7 +103,7 @@ class CampusAuthentication:
         self.execution = ''
         # A redirect alone is not successful authentication.
         if status not in (200, 302, 303) or not any(
-                c.name == 'iPlanetDirectoryPro' and c.value and not c.is_expired() for c in self.jar):
+                c.name == 'iPlanetDirectoryPro' and c.value and not c.is_expired() for c in self.cookies_for('zjuam.zju.edu.cn')):
             diagnostic = {'stage':'cas_login', 'host':'zjuam.zju.edu.cn', 'path':'/cas/login',
                           'method':'POST', 'http_status':status, 'reason':'AUTH_NOT_CONFIRMED'}
             if status == 429:
@@ -120,6 +120,11 @@ class CampusAuthentication:
             # explicit validation hint is evidence that interaction is required.
             if re.search(r'验证码(?:错误|不正确|不能为空|失效)|(?:captcha|authcode)[^<\n]{0,40}(?:incorrect|invalid|required)', text, re.I):
                 raise CampusError('CAPTCHA_REQUIRED', '校方提示验证码错误或失效，请重新填写新的验证码', diagnostic)
+            # The school answered with its own credential hint. This is a real,
+            # user-actionable outcome (unlike an unconfirmed redirect), so it is
+            # reported distinctly instead of being folded into CAS_REJECTED.
+            if re.search(r'用户名或密码错误|账号或密码错误|密码错误|用户名不存在|您输入的密码|incorrect (?:password|username)|invalid (?:password|username)|authentication failed', text, re.I):
+                raise CampusError('CREDENTIAL_REJECTED', '校方提示账号或密码不正确，请核对后重新保存凭据', diagnostic)
             if re.search(r'csrf|跨站请求|请求校验失败', text, re.I):
                 raise CampusError('AUTH_CONTEXT_INVALID', '认证请求上下文失效，请重新准备登录；未认定为密码错误', diagnostic)
             if re.search(r'二次认证|多因素|动态口令|短信验证码|MFA|two.factor', text, re.I):

@@ -6,6 +6,47 @@ from the conversation model or the runtime bridge payload.
 from __future__ import annotations
 
 import json
+import re
+
+# Context and tool output are untrusted material, not a channel for credentials.
+# Never fingerprint secrets here: redact values before any provider serialization.
+_REDACTED = '[REDACTED]'
+_AUTH_FIELD = re.compile(r'(?:authorization|proxy.?authorization|cookie|set.?cookie|password|passwd|pwd|secret|(?:api|access|refresh|id|auth|session|csrf|xsrf)[_-]?(?:key|token)|credential|client.?secret|private.?key|bearer|token)', re.I)
+_AUTH_VALUE = re.compile(
+    r'(?i)(\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:Bearer|Basic)\s+)[^\s,;\"\'<>]+'
+    r'|\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+'
+    r'|\bsk-[A-Za-z0-9_-]{8,}'
+    r'|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+)
+_AUTH_ASSIGNMENT = re.compile(
+    r'(?i)([\"\']?(?:authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|password|passwd|pwd|secret|(?:api|access|refresh|id|auth|session|csrf|xsrf)[_-]?(?:key|token)|credential|client[-_]?secret|private[-_]?key|token)[\"\']?\s*[:=]\s*)'
+    r'(?:\"(?:\\.|[^\"\\])*\"|\'(?:\\.|[^\'\\])*\'|[^\s,;\]\}]+)'
+)
+
+
+def redact_context(value, credentials=()):
+    """Copy nested model context, removing auth fields/patterns without logging it."""
+    if isinstance(value, dict):
+        return {key: _REDACTED if _AUTH_FIELD.search(str(key)) else redact_context(item, credentials)
+                for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_context(item, credentials) for item in value]
+    if not isinstance(value, str):
+        return value
+    # JSON embedded in text/tool arguments retains its type/shape after redaction.
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        parsed = None
+    if isinstance(parsed, (dict, list)):
+        return json.dumps(redact_context(parsed, credentials), ensure_ascii=False)
+    for credential in credentials:
+        if credential:
+            value = value.replace(credential, _REDACTED)
+    value = _AUTH_VALUE.sub(_REDACTED, value)
+    value = _AUTH_ASSIGNMENT.sub(lambda match: match[1] + '\"' + _REDACTED + '\"', value)
+    # URL userinfo is also authentication material; no remote origin is changed.
+    return re.sub(r'(?i)(https?://)[^\s/@]+(?::[^\s/@]*)?@', r'\1[REDACTED]@', value)
 
 import requests
 
@@ -49,10 +90,16 @@ def messages_for_provider(messages: list[dict]) -> list[dict]:
 
 def validated_config(db, settings: dict) -> ProviderConfig:
     cfg = db.get(ProviderConfig, settings["provider"]["id"])
-    if cfg is None or snapshot(cfg) != settings["provider"]:
-        raise ApiError(409, "PROVIDER_CHANGED", "模型配置已变化，请新建会话并重新确认发送范围")
-    if not settings["send_to_provider"]:
-        raise ApiError(403, "CONSENT_REQUIRED", "尚未授权向所选模型发送消息和工具返回的资料")
+    if cfg is None:
+        raise ApiError(409, "PROVIDER_CHANGED", "模型配置已删除，请选择可用服务")
+    if not cfg.enabled:
+        raise ApiError(403, "PROVIDER_DISABLED", "该模型服务已停用，请选择其他模型或在设置中启用")
+    # Cosmetic edits / enable toggles need no new consent. Changing the external
+    # recipient or protocol still cannot silently redirect an existing task.
+    current = snapshot(cfg)
+    prior = settings["provider"]
+    if any(current.get(k) != prior.get(k) for k in ("id", "base_url", "model", "protocol")):
+        raise ApiError(409, "PROVIDER_CHANGED", "模型服务地址或模型已变化，请使用所选服务新建对话")
     return cfg
 
 
@@ -60,9 +107,16 @@ def runtime_configuration(db, settings: dict) -> dict:
     cfg = validated_config(db, settings)
     url = urlsplit(cfg.base_url)
     official = url.scheme == 'https' and url.hostname == 'api.deepseek.com' and url.port in (None, 443) and url.path.rstrip('/') in ('', '/v1')
+    if official and not secrets_store.get_key(cfg.id):
+        # An official provider without a stored key would reuse a warm process's
+        # old credential. Require a live key instead of silently continuing.
+        raise ApiError(403, 'PROVIDER_KEY_MISSING', '该模型服务尚未配置密钥，请在设置中重新填写后使用')
+    # Non-secret credential version: clearing/replacing a key changes the runner
+    # signature without ever fingerprinting the key value.
+    revision = secrets_store.key_revision(cfg.id)
     # Returned only to the owned subprocess environment, never model/log/UI.
     return {'provider': 'deepseek-official' if official else 'campus-model', 'model': cfg.model,
-            'key': secrets_store.get_key(cfg.id) if official else None}
+            'provider_id': cfg.id, 'key_revision': revision, 'key': secrets_store.get_key(cfg.id) if official else None}
 
 
 def registry_schemas(items: list[dict] | None) -> list[dict]:
@@ -92,7 +146,9 @@ def call_model(db, settings: dict, messages: list[dict], max_tokens: int, runtim
     if key:
         headers["Authorization"] = "Bearer " + key
     tool_specs = registry_schemas(runtime_tools)
-    payload = {"model": cfg.model, "messages": messages_for_provider(messages), "stream": False,
+    # Credentials are never part of model context: redact before serialization.
+    safe_messages = redact_context(messages, (key,)) if key else redact_context(messages)
+    payload = {"model": cfg.model, "messages": messages_for_provider(safe_messages), "stream": False,
                "max_tokens": max_tokens,
                "tools": [{"type": "function", "function": s} for s in tool_specs], "tool_choice": "auto"}
     try:

@@ -7,6 +7,9 @@ import { existsSync, writeSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { createConnection } from '@playwright/mcp';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import { assertModelBrowserCall, isReadOnlyInteraction, isModelBrowserTool, isSensitiveElement,
+  SENSITIVE_SELECTOR, isAuthenticationURL, createNetworkGate, effectFingerprint } from './browser-action-policy.mjs';
+const networkGate = createNetworkGate();
 
 const home = resolve(process.env.CAMPUS_BROWSER_HOME);
 const token = process.env.CAMPUS_BROWSER_TOKEN;
@@ -47,11 +50,27 @@ async function launch() {
     channel, headless: !headed,
     ...(executablePath ? { executablePath } : {}),
     ...(proxy ? { proxy: { server: proxy } } : {}),
-    acceptDownloads: true, viewport: { width: 1280, height: 900 },
+    acceptDownloads: true, serviceWorkers: 'block', viewport: { width: 1280, height: 900 },
   });
   context.setDefaultTimeout(10000);
   context.setDefaultNavigationTimeout(60000);
   context.on('close', () => { context = undefined; });
+  // Install before exposing a page to the model. Context routing also covers
+  // popups, redirects, fetch/XHR and sendBeacon; service workers are disabled.
+  await context.route('**/*', async route => {
+    const request = route.request();
+    const allowed = networkGate.decide({ method: request.method(), url: request.url(),
+      body: request.postData() || '', resourceType: request.resourceType(), navigation: request.isNavigationRequest() });
+    if (allowed) await route.continue(); else await route.abort('blockedbyclient');
+  });
+  // WebSocket writes cannot be matched to reviewed HTTP payloads. Block model
+  // sockets (including messages from sockets opened earlier in human mode).
+  if (context.routeWebSocket) await context.routeWebSocket('**/*', ws => {
+    if (networkGate.guarded) { ws.close(); return; }
+    const remote = ws.connectToServer();
+    ws.onMessage(message => { if (networkGate.guarded) ws.close(); else remote.send(message); });
+    remote.onMessage(message => ws.send(message));
+  });
   context.on('request', request => {
     for (const [name, value] of Object.entries(request.headers())) {
       if (/^(authorization|proxy-authorization|x-api-key|api-key|x-auth-token)$/i.test(name) && value.length >= 8) {
@@ -99,7 +118,33 @@ async function connect() {
 }
 
 async function raw(name, args = {}) {
-  return (await connect()).callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+  const upstream = await connect();
+  if (name !== 'browser_take_screenshot') return upstream.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+  const pages = context.pages();
+  if (pages.some(page => isAuthenticationURL(page.url()))) throw fail('BROWSER_AUTH_REQUIRED',
+    '认证页面不向模型提供未脱敏截图，请由用户在浏览器中完成登录/MFA后读取普通页面。');
+  const masked = [];
+  try {
+    for (const page of pages) {
+      // Mask DOM before upstream captures/writes ANY image, not after base64 IO.
+      await page.locator(SENSITIVE_SELECTOR).evaluateAll(elements => {
+        for (const e of elements) {
+          if (e.hasAttribute('data-campus-secret-mask')) continue;
+          e.setAttribute('data-campus-secret-mask', e.getAttribute('style') || '');
+          e.style.setProperty('color', 'transparent', 'important');
+          e.style.setProperty('text-shadow', 'none', 'important');
+          e.style.setProperty('background', '#111', 'important');
+          e.style.setProperty('-webkit-text-security', 'disc', 'important');
+        }
+      });
+      masked.push(page);
+    }
+    return await upstream.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+  } finally {
+    for (const page of masked) await page.locator('[data-campus-secret-mask]').evaluateAll(elements => {
+      for (const e of elements) { e.setAttribute('style', e.getAttribute('data-campus-secret-mask')); e.removeAttribute('data-campus-secret-mask'); }
+    }).catch(() => {});
+  }
 }
 
 function evaluation(result) {
@@ -110,14 +155,13 @@ function evaluation(result) {
   return JSON.parse(match[1].trim());
 }
 
-// This is an interaction contract for standard forms, not a sandbox around
-// arbitrary C-tier code. Explicit JS/application actions use prepare_action.
+// Inspect with owned code only. Arbitrary model scripts are rejected at dispatch.
 const inspectForm = element => {
   const target = element || document.activeElement;
   const button = target?.closest('button,input[type=submit],input[type=image]');
   const form = target?.form || target?.closest('form');
   if (!form) return null;
-  const visible = item => item.type !== 'hidden' && item.type !== 'password' && !item.disabled &&
+  const visible = item => item.type !== 'hidden' && item.type !== 'password' && !/^(current-password|new-password|one-time-code)$/.test(item.autocomplete || '') && !item.disabled &&
     (!['submit', 'button', 'reset', 'image'].includes(item.type) || (item === button && item.name));
   const fields = [...form.elements].filter(visible).map(item => ({
     name: item.labels?.[0]?.innerText?.trim() || item.name || item.id || item.type,
@@ -147,21 +191,41 @@ async function formReview(target) {
   return value;
 }
 
+async function interactionTarget(target) {
+  return evaluation(await raw('browser_evaluate', {
+    ...(target ? { target, element: '检查操作目标' } : {}),
+    function: `${target ? '(element)' : '()'} => {
+      const e = ${target ? 'element' : 'document.activeElement'};
+      if (!e) return null;
+      const t = e.closest('a,button,input,[role="button"],[role="link"]') || e;
+      const sensitive = t.type === 'password' || /^(current-password|new-password|one-time-code)$/.test(t.autocomplete || '');
+      return { tag: t.tagName.toLowerCase(), role: t.getAttribute('role'), sensitive,
+        text: sensitive ? '[由用户手动填写的认证字段]' : (t.innerText?.trim() || t.value || t.getAttribute('aria-label') || ''),
+        href: t.href || null, method: t.getAttribute('data-method') || t.getAttribute('formmethod'),
+        scripted: !!t.getAttribute('onclick'),
+        editable: t.isContentEditable || t.tagName === 'TEXTAREA' ||
+          (t.tagName === 'INPUT' && !['button','submit','image','checkbox','radio','file'].includes(t.type)),
+        is_submit: ['submit','image'].includes(t.type) };
+    }`,
+  }));
+}
+
 async function explicitReview(args) {
   const state = evaluation(await raw('browser_evaluate', { function: `() => {
     const controls = [...document.querySelectorAll('input,textarea,select,[contenteditable="true"]')];
     const value = e => e.type === 'file' ? [...e.files].map(f => f.name).join(', ') :
       ['checkbox', 'radio'].includes(e.type) ? String(e.checked) : e.value ?? e.innerText ?? '';
     return { page_url: location.href,
-      fields: controls.filter(e => e.type !== 'hidden' && e.type !== 'password' && !e.disabled && e.getClientRects().length)
+      fields: controls.filter(e => e.type !== 'hidden' && e.type !== 'password' && !/^(current-password|new-password|one-time-code)$/.test(e.autocomplete || '') && !e.disabled && e.getClientRects().length)
         .map(e => ({ name: e.labels?.[0]?.innerText?.trim() || e.getAttribute('aria-label') || e.name || e.id || '内容', value: value(e) })),
       private_values: controls.map(e => [e.name || e.id, e.type, value(e)]) };
   }` }));
   const private_state = hash(state.private_values);
   delete state.private_values;
+  const target_state = await interactionTarget(args.target);
   return { kind: 'explicit', description: args.description, recipient: args.recipient,
     content: args.content, attachments: args.attachments || [], ...state, private_state,
-    target_text: evaluation(await raw('browser_evaluate', { target: args.target, function: '(e) => e.innerText || e.value || ""' })),
+    target_text: target_state?.text || '', target_state,
   };
 }
 
@@ -236,7 +300,8 @@ async function dispatch(body) {
   if (body.turn_id && stoppedTurns.has(body.turn_id)) throw fail('BROWSER_STOPPED', '本轮浏览器操作已停止');
   if (body.method === 'tools') {
     const result = await (await connect()).listTools();
-    return { tools: [...result.tools, { name: 'browser_prepare_action',
+    return { tools: [...result.tools.filter(tool => isModelBrowserTool(tool.name)).map(tool =>
+      tool.name === 'browser_network_request' ? { ...tool, description: tool.description + ' Campus policy: specify part=response-body; request payloads and cookie-bearing headers are not available to the model.' } : tool), { name: 'browser_prepare_action',
       description: 'Prepare a concrete external click/send action for one user confirmation. Use for non-form submit buttons.',
       inputSchema: { type: 'object', properties: { target: { type: 'string' }, description: { type: 'string' },
         recipient: { type: 'string' }, content: { type: 'string' }, attachments: { type: 'array', items: { type: 'string' } } },
@@ -246,6 +311,14 @@ async function dispatch(body) {
     pages: context ? await Promise.all(context.pages().map(async (p, index) => ({ index, url: p.url(), title: await p.title().catch(() => '') }))) : [],
     reviews: ledger.reviews.filter(r => r.conversation_id === cid).map(({ call, fingerprint, private_state, ...rest }) => rest),
     downloads: ledger.downloads.filter(r => r.conversation_id === cid) });
+  // Private owner bridge only: never registered as a model tool, no browser launch.
+  // These bytes go directly to the API's reviewed campus adapter, never to status/logs.
+  if (body.method === 'campus-session') {
+    if (cid !== 'campus-session' || body.turn_id) throw fail('BROWSER_DENIED', '不支持的会话授权');
+    if (!context) throw fail('BROWSER_AUTH_REQUIRED', '请先在浏览器窗口中完成校园登录');
+    const allowed = new Set(['zjuam.zju.edu.cn', 'zdbk.zju.edu.cn', 'eta.zju.edu.cn', 'zju.edu.cn']);
+    return { cookies: (await context.cookies()).filter(cookie => allowed.has(cookie.domain.replace(/^\./, '').toLowerCase())) };
+  }
   activeConversation = cid;
   if (body.method === 'open') {
     if (!headed || !context) { await stop(); headed = true; await launch(); }
@@ -258,7 +331,7 @@ async function dispatch(body) {
     const publicAction = () => ({ ...review, call: undefined, fingerprint: undefined, private_state: undefined });
     if (review.status !== 'pending') return { action: publicAction() };
     if (body.method === 'reject') { review.status = 'rejected'; await persist(); return { action: publicAction() }; }
-    const current = review.preview.kind === 'explicit' ? await explicitReview({ ...review.preview, target: review.call.arguments.target }) :
+    const current = review.preview.kind === 'explicit' ? await explicitReview({ ...review.preview, target: review.call.review_target || review.call.arguments.target }) :
       await formReview(review.call.review_target || review.call.arguments.target);
     const { private_state, ...publicPreview } = current || {};
     if (hash({ call: review.call, preview: await redact(current ? publicPreview : null), private_state }) !== review.fingerprint) {
@@ -275,7 +348,15 @@ async function dispatch(body) {
   }
   if (body.method !== 'call') throw fail('INVALID_INPUT', '不支持的浏览器操作');
   const { name, arguments: args = {} } = body;
-  if (name === 'browser_run_code_unsafe') unsafeTurns.add(body.turn_id || 'manual');
+  assertModelBrowserCall(name, args);
+  // Inspect before any model-driven fill, even when no submit was requested.
+  // Password/OTP values belong in the human browser, never in tool arguments.
+  const fillTargets = name === 'browser_type' ? [args.target] :
+    name === 'browser_fill_form' ? (args.fields || []).map(field => field.target) : [];
+  for (const target of fillTargets) {
+    if ((await interactionTarget(target))?.sensitive) throw fail('BROWSER_AUTH_REQUIRED',
+      '密码和一次性验证码请由用户在浏览器窗口中手动填写，不要复制到对话或工具参数。');
+  }
   if (name === 'browser_close') { await stop(); return text({ running: false, message: '浏览器已关闭，登录配置保留。' }); }
   const began = generation;
   let result, executeName = name, executeArgs = args;
@@ -283,18 +364,24 @@ async function dispatch(body) {
     const call = { name: 'browser_click', arguments: { target: args.target } };
     return pending(cid, call, await explicitReview(args));
   }
-  if (name === 'browser_click' || (name === 'browser_type' && args.submit) || (name === 'browser_press_key' && args.key === 'Enter')) {
+  if (name === 'browser_click' || (name === 'browser_type' && args.submit) || (name === 'browser_press_key' && ['Enter', 'Space', ' '].includes(args.key))) {
     if (name === 'browser_type') await raw(name, { ...args, submit: false });
     const preview = await formReview(args.target);
-    if (preview && !preview.read_only_search && (preview.is_submit || name !== 'browser_click')) {
+    if (preview && !preview.read_only_search && (preview.is_submit || (name !== 'browser_click' && !['Space', ' '].includes(args.key)))) {
       const call = name === 'browser_type' ? { name: 'browser_press_key', arguments: { key: 'Enter' } } : { name, arguments: args };
       // For Enter, retain the input target for rechecking the same form.
       if (name === 'browser_type') call.review_target = args.target;
       return pending(cid, call, await redact(preview));
     }
     if (name === 'browser_type') {
-      if (!preview?.read_only_search) return text({ status: 'filled', message: '字段已填写，未发现标准表单；需要对外操作时先准备具体预览。' });
       executeName = 'browser_press_key'; executeArgs = { key: 'Enter' };
+    }
+    if (!preview?.read_only_search && !isReadOnlyInteraction(await interactionTarget(args.target), executeArgs.key)) {
+      const call = { name: executeName, arguments: executeArgs };
+      if (name === 'browser_type') call.review_target = args.target;
+      return pending(cid, call, await explicitReview({ target: args.target,
+        description: '检查并执行当前页面操作', recipient: '当前页面显示的目标',
+        content: '按预览中的实际字段和目标执行；网站成功仍需核对回执。' }));
     }
   }
   try { result = await raw(executeName, executeArgs); }
@@ -341,7 +428,7 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     res.statusCode = 409;
     res.end(JSON.stringify({ ok: false, code: typeof error.code === 'string' && /^(BROWSER_|INVALID_INPUT|NOT_FOUND)/.test(error.code) ? error.code : 'BROWSER_OPERATION_FAILED',
-      message: ['BROWSER_ACTION_CHANGED', 'BROWSER_TARGET_CHANGED'].includes(error.code) ? error.message : '浏览器操作未完成，请检查页面、浏览器安装或网络后重试。' }));
+      message: ['BROWSER_ACTION_CHANGED', 'BROWSER_TARGET_CHANGED', 'BROWSER_APPROVAL_REQUIRED', 'BROWSER_AUTH_REQUIRED'].includes(error.code) ? error.message : '浏览器操作未完成，请检查页面、浏览器安装或网络后重试。' }));
   }
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));

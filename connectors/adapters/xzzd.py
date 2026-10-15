@@ -253,7 +253,7 @@ class XzzdAdapter:
                 details={"path": path},
             ) from exc
         status = resp.status_code
-        if status in (401, 419):
+        if status in (301, 302, 303, 307, 308, 401, 419):
             raise AdapterError(
                 "AUTH_EXPIRED", f"HTTP {status}（登录态失效）", retryable=False,
                 details={"action": _login_action(), "http_status": status},
@@ -343,12 +343,20 @@ class XzzdAdapter:
         status = resp.status_code
         if status == 200:
             try:
-                resp.json()
+                payload = resp.json()
             except ValueError:
                 # 200 但非 JSON：SSO 登录页 HTML（A5b 佐证：无凭据请求被重定向至认证入口）
                 return self._state("auth_required", checked_at, action=_login_action())
+            if isinstance(payload, dict) and str(payload.get("code")) in ("401", "419"):
+                return self._state("auth_required", checked_at, action=_login_action(),
+                                   detail="只读接口要求重新登录")
+            if (not isinstance(payload, dict) or payload.get("success") is False
+                    or not any(
+                isinstance(payload.get(key), list) for key in ("courses", "list", "data")
+            )):
+                return self._state("blocked", checked_at, detail="只读接口返回未确认的 JSON 结构")
             return self._state("ok", checked_at)
-        if status in (401, 419):
+        if status in (301, 302, 303, 307, 308, 401, 419):
             return self._state("auth_required", checked_at, action=_login_action(),
                                detail=f"HTTP {status}")
         if status == 429:
@@ -760,7 +768,7 @@ class XzzdAdapter:
             )
         except DownloadError as exc:
             status = exc.status_code
-            if status in (401, 419):
+            if status in (301, 302, 303, 307, 308, 401, 419):
                 raise AdapterError(
                     "AUTH_EXPIRED", f"下载通道 HTTP {status}（登录态失效）", retryable=False,
                     details={"action": _login_action(), "http_status": status},

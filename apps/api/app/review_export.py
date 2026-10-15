@@ -85,6 +85,17 @@ def _meta_pairs(paper: dict[str, Any], course_title: str | None) -> list[tuple[s
         pairs.append(("建议时长", f"{constraints['duration_minutes']} 分钟"))
     reason = REASON_LABELS.get(str(paper.get("revision_reason")), str(paper.get("revision_reason") or ""))
     pairs.append(("版本", f"v{paper.get('revision')}（{reason}）"))
+    # The delivered file must be auditable on its own: keep the frozen material snapshot id and
+    # fingerprint next to the version so a reader can match this export back to the exact frozen
+    # material without a second API call. Absent snapshot data is omitted, never invented.
+    snapshot = paper.get("snapshot") or {}
+    if snapshot.get("id"):
+        pairs.append(("材料快照", str(snapshot["id"])))
+    if snapshot.get("fingerprint"):
+        pairs.append(("材料指纹", str(snapshot["fingerprint"])))
+    engine_version = paper.get("engine_version") or snapshot.get("engine_version")
+    if engine_version:
+        pairs.append(("出卷引擎", str(engine_version)))
     pairs.append(("生成时间", str(paper.get("created_at") or "")))
     return pairs
 

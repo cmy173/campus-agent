@@ -298,6 +298,10 @@ class CheckResultInvalid(Exception):
 
 _CHECK_STATES = ("ok", "auth_required", "network_error", "blocked", "unsupported", "service_unavailable")
 
+# Codes that describe the *request*, not the connection: the caller asked for a filter or a
+# shape this platform version does not accept. Never downgrade the connection for these.
+_CALLER_PARAMETER_CODES = {"VALIDATION_FAILED", "INVALID_INPUT", "BAD_REQUEST", "INVALID_ARGUMENT"}
+
 _STATE_ERRORS: dict[str, tuple[str, bool, str]] = {
     "auth_required": ("AUTH_EXPIRED", False, "登录已失效，需要用户重新登录"),
     "network_error": ("NETWORK_ERROR", True, "网络失败"),
@@ -405,7 +409,22 @@ def apply_connection_state(connection: Connection, result: Any) -> None:
 
 
 def record_check_failure(connection: Connection, exc: AdapterError) -> None:
-    """检查调用整体失败（适配器抛 AdapterError）：按码标记连接，不抛出。"""
+    """检查调用整体失败（适配器抛 AdapterError）：按码标记连接，不抛出。
+
+    A caller-parameter rejection says nothing about the connection itself: an agent asking
+    for a filter the platform does not implement used to flip the whole connection to
+    `blocked`, which then hid the platform from later turns. Those codes only record the
+    error and leave the connection state untouched.
+    """
+    if exc.code in _CALLER_PARAMETER_CODES:
+        connection.last_error = {
+            "code": exc.code,
+            "message": exc.message,
+            "retryable": exc.retryable,
+            "details": {"platform": connection.platform, **(scrub_session_material(exc.details) or {})},
+        }
+        connection.updated_at = utc_now()
+        return
     if exc.code == "AUTH_EXPIRED":
         mark_auth_required(connection, action=exc.action, message=exc.message)
         return

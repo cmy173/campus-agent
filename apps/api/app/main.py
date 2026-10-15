@@ -84,6 +84,18 @@ app = FastAPI(
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request.state.request_id = request.headers.get(REQUEST_ID_HEADER) or f"req_{uuid.uuid4().hex[:12]}"
+    if request.url.path.startswith('/api/v1'):
+        import os
+        # Uniform control-plane protection: legacy APIs must not be the anonymous
+        # bypass for model-facing tool scopes or browser approvals.
+        if request.url.hostname not in {'127.0.0.1', 'localhost', '::1', 'testserver'}:
+            return error_response(request, 403, 'LOCAL_ONLY', '当前工作台仅供本机访问', False, None)
+        origin = request.headers.get('origin')
+        allowed = {str(request.base_url).rstrip('/')} | set(os.environ.get('CAMPUS_WEB_ORIGINS', 'http://127.0.0.1:5173,http://localhost:5173').split(','))
+        if origin and origin.rstrip('/') not in allowed or request.headers.get('sec-fetch-site') == 'cross-site':
+            return error_response(request, 403, 'ORIGIN_DENIED', '不接受外部网页访问本地工作台数据', False, None)
+        if request.headers.get('authorization', '').startswith('Bearer ') and not request.url.path.startswith('/api/v1/agent/internal/'):
+            return error_response(request, 403, 'RUNTIME_DENIED', '运行时凭据不能调用账户设置与人工审批接口', False, None)
     response = await call_next(request)
     response.headers[REQUEST_ID_HEADER] = request.state.request_id
     return response
@@ -138,3 +150,7 @@ for r in (
 from .routers.campus import install_campus_router  # noqa: E402
 
 install_campus_router(app, agent.browser_owner)
+
+from .routers.agent_data import install_agent_data_router  # noqa: E402
+
+install_agent_data_router(app, agent.browser_owner)

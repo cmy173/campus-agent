@@ -6,31 +6,24 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
 import { prepareProfile, mcpCredentialEnvironment } from './prepare-profile.mjs';
+import { calculatorReply } from './mcp-verification-case.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const directory = await mkdtemp(resolve(root, 'var/v2-mcp-'));
 const audit = resolve(directory, 'server.jsonl');
 const requests = [], results = [];
-const messageText = message => (message?.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n');
 const server = createServer(async (req, res) => {
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
   if (req.url.endsWith('/schemas')) return res.end('[]');
   if (req.url.endsWith('/tool-lease')) return res.end('{"ok":true}');
   requests.push(body);
-  const user = [...body.messages].reverse().find(m => m.role === 'user' && messageText(m).includes('MCP_CASE_'));
-  const name = messageText(user);
-  const responses = body.messages.slice(body.messages.lastIndexOf(user) + 1).filter(m => m.role === 'tool');
   res.setHeader('Content-Type', 'application/json');
-  if (!responses.length) {
-    if (!body.tools.some(t => t.name === 'mcp__calculator__multiply')) {
-      res.statusCode = 500;
-      return res.end(JSON.stringify({ error: { message: 'Actual MCP discovery did not register the tool' } }));
-    }
-    const args = { a: 36, b: 7, ...(name.includes('ERROR') ? { report_error: true } : {}),
-      ...(name.includes('DROP') ? { disconnect_once: true } : {}) };
-    res.end(JSON.stringify({ content: '', tool_calls: [{ id: 'mcp_' + requests.length, name: 'mcp__calculator__multiply', arguments: args }] }));
-  } else res.end(JSON.stringify({ content: responses.map(messageText).join('\n'), tool_calls: [] }));
+  try { res.end(JSON.stringify(calculatorReply(body, requests.length))); }
+  catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: { message: error.message } }));
+  }
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 const mcpServers = [{
@@ -54,7 +47,10 @@ try {
     if (name === 'RECOVER') await new Promise(done => setTimeout(done, 1500));
     const result = await harness.run('MCP_CASE_' + name + ' Use the calculator service.', { sessionId: 'mcp_' + name.toLowerCase() });
     results.push({ name, response: result.finalResponse, events: result.events });
-    const toolResult = result.events.find(e => e.type === 'tool/result');
+    const toolResults = result.events.filter(e => e.type === 'tool/result');
+    assert.equal(toolResults.length, 2, 'Discovery and MCP execution must both finish');
+    assert.equal(toolResults[0].data.message.isError, false, 'Discovery failed');
+    const toolResult = toolResults.at(-1);
     assert(toolResult, 'No actual MCP result');
     if (['OK', 'RECOVER'].includes(name)) {
       assert.match(result.finalResponse, /MCP computed: 252/);

@@ -1,12 +1,14 @@
 """Do not report stopped until both the worker and its API mutation have ended."""
 import threading
 import time
+import pytest
 
 from app.agent_bridge.store import Store
 from test_agent_gateway import gateway, conversation, turn, internal  # noqa: F401
 
 
-def test_cancel_waits_for_worker_and_original_inflight_lock(gateway):
+@pytest.mark.parametrize('lock_prefix', ['', 'browser-call:'])
+def test_cancel_waits_for_worker_and_original_inflight_lock(gateway, lock_prefix):
     client, runtime, tokens, _ = gateway
     cid = conversation(client)
     tid = turn(client, cid)
@@ -14,7 +16,7 @@ def test_cancel_waits_for_worker_and_original_inflight_lock(gateway):
     worker = threading.Thread(target=lambda: worker_release.wait(5))
     runtime.threads[tid] = worker
     worker.start()
-    original_lock = runtime.call_lock(tid)
+    original_lock = runtime.call_lock(lock_prefix + tid)
     def mutation():
         with original_lock:
             api_entered.set()
@@ -34,7 +36,7 @@ def test_cancel_waits_for_worker_and_original_inflight_lock(gateway):
         worker.join(2)
         # Runner teardown removes this entry; the stop worker must retain the
         # original lock rather than recreating an unlocked object here.
-        runtime.call_locks.pop(tid, None)
+        runtime.call_locks.pop(lock_prefix + tid, None)
         assert runtime.store.turn(tid)['status'] == 'stopping'
         api_release.set()
         api_worker.join(2)

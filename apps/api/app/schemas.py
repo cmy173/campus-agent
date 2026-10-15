@@ -174,6 +174,7 @@ class UpsertProviderRequest(StrictModel):
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1, max_length=200)
     timeout_seconds: int = Field(default=120, ge=5, le=600)
+    enabled: bool = True
     api_key: str | None = Field(default=None, min_length=1, max_length=4096)
 
 
@@ -185,6 +186,7 @@ class PatchProviderRequest(StrictModel):
     base_url: str | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1, max_length=200)
     timeout_seconds: int | None = Field(default=None, ge=5, le=600)
+    enabled: bool | None = None
     api_key: str | None = Field(default=None, min_length=1, max_length=4096)
 
 

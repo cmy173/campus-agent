@@ -67,7 +67,9 @@ from connectors.browser.controlled_login import (  # noqa: E402
     _launch,
     _wait_for_session,
     default_profile_dir,
+    writable_profile_dir,
 )
+from connectors.browser.session_cookies import _requests_session
 from connectors.redact import RedactingFilter  # noqa: E402
 from connectors.sync import SyncOrchestrator  # noqa: E402
 
@@ -220,6 +222,20 @@ class CourseMapper:
 # ────────────────────────── 受控浏览器会话 ──────────────────────────
 
 
+def _target_closed(exc: BaseException) -> bool:
+    """True when Playwright reports that the browser/context/page is already gone.
+
+    Matched by class name so no import-time dependency on Playwright internals is added.
+    """
+    for error in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if error is not None and type(error).__name__ in {"TargetClosedError", "Error"}:
+            text = str(error).lower()
+            if "closed" in text or "target page, context or browser has been closed" in text:
+                return True
+    text = str(exc).lower()
+    return "has been closed" in text or "target closed" in text
+
+
 class BrowserSession:
     """受控浏览器（独立 profile）+ 内存会话快照。
 
@@ -238,6 +254,7 @@ class BrowserSession:
         self._page: Any = None
         self._lock = threading.Lock()
         self._snapshot: list[dict[str, Any]] = []
+        self._closed = False
         self._refresh_requests: queue.Queue[threading.Event] = queue.Queue()
         self._home_url = ZYKT_ENTRY_URL if urllib.parse.urlsplit(entry_url).hostname == "classroom.zju.edu.cn" else XZZD_API_BASE + "/"
 
@@ -267,11 +284,29 @@ class BrowserSession:
                 self._page.wait_for_timeout(300)
             except Exception:
                 pass
-        cookies = list(self._context.cookies())
+        try:
+            cookies = list(self._context.cookies())
+        except Exception as exc:  # noqa: BLE001 —— 用户随时可能关掉受控窗口
+            if not _target_closed(exc):
+                raise
+            # A closed controlled window is a lost session, not a service failure. Dropping
+            # the snapshot (and keeping the HTTP service alive) lets the app report
+            # "需要重新登录" instead of the launcher tearing down the whole stack.
+            with self._lock:
+                self._snapshot = []
+                self._closed = True
+            LOG.warning("受控浏览器窗口已关闭，会话快照已清空；请重启该平台连接器并在窗口内重新登录")
+            for event in pending:
+                event.set()
+            return
         with self._lock:
-            self._snapshot = cookies
+            self._snapshot = [dict(cookie) for cookie in cookies]
         for event in pending:
             event.set()
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     def refresh_for_check(self) -> bool:
         """服务线程请求主线程复用平台/SSO 会话，不跨线程操作 Playwright。"""
@@ -281,38 +316,21 @@ class BrowserSession:
 
     def cookies_snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
-            return list(self._snapshot)
+            return [dict(cookie) for cookie in self._snapshot]
 
     def session(self) -> Any:
         """cookies 快照 → requests.Session（内存）；快照为空视为无会话。"""
-        cookies = self.cookies_snapshot()
-        if not cookies:
-            return None
-        import requests  # 仅内存会话层；值不落盘/不打印
-
-        session = requests.Session()
-        # 平台默认直连，避免系统代理导致 TLS EOF，并避免隐式读取 .netrc。
-        # 如网络确需代理，须显式设置 STUDY_PLATFORM_PROXY；保留 TLS 证书校验。
-        session.trust_env = False
-        proxy = os.environ.get("STUDY_PLATFORM_PROXY")
-        if proxy:
-            session.proxies.update({"http": proxy, "https": proxy})
-        for ck in cookies:
-            try:
-                kwargs: dict[str, Any] = {"path": ck.get("path") or "/"}
-                domain = str(ck.get("domain") or "")
-                if domain:
-                    kwargs["domain"] = domain
-                session.cookies.set(str(ck.get("name", "")), str(ck.get("value", "")), **kwargs)
-            except Exception:  # noqa: BLE001 —— 单条 cookie 形态异常跳过
-                continue
-        return session
+        host = urllib.parse.urlsplit(self._home_url).hostname
+        return _requests_session(self.cookies_snapshot(), host)
 
     def wait_for_session(self, timeout_s: float) -> dict[str, Any]:
         """主线程只读探针等待登录（复用 A17 原型）；返回探测信息（不含 cookie 值）。"""
         return _wait_for_session(self._context, timeout_s)
 
     def stop(self) -> None:
+        # 停止连接器后不允许服务线程复用旧内存快照；磁盘 profile 保留供显式重启。
+        with self._lock:
+            self._snapshot = []
         try:
             if self._context is not None:
                 self._context.close()
@@ -374,7 +392,7 @@ class ConnectorService:
             return 200, {"ok": False, "error": exc.error}
         except Exception as exc:  # noqa: BLE001 —— 兜底不静默：如实标注内部错误
             return 500, self._error(
-                "INTERNAL_ERROR", f"连接器服务内部错误：{type(exc).__name__}: {exc}"[:300], retryable=False)
+                "INTERNAL_ERROR", f"连接器服务内部错误：{type(exc).__name__}", retryable=False)
 
     def _dispatch(self, op: str, body: dict[str, Any]) -> dict[str, Any]:
         if body.get("platform", self.platform) != self.platform:
@@ -745,7 +763,7 @@ def run_sync(args: argparse.Namespace) -> int:
             failure = _translate_adapter_error(exc)
             record = {"tag": args.tag, "step": "sync",
                       "error": failure.error if failure else {"code": "INTERNAL_ERROR",
-                                                              "message": f"{type(exc).__name__}: {exc}"[:300]}}
+                                                              "message": type(exc).__name__}}
             path = _write_result(args.result_dir, args.tag, record)
             LOG.info("同步失败，记录已写入：%s", path)
             print(json.dumps({"tag": args.tag,
@@ -792,7 +810,7 @@ def run_fetch(args: argparse.Namespace) -> int:
             failure = _translate_adapter_error(exc)
             record = {"tag": args.tag, "step": "fetch",
                       "error": failure.error if failure else {"code": "INTERNAL_ERROR",
-                                                              "message": f"{type(exc).__name__}: {exc}"[:300]}}
+                                                              "message": type(exc).__name__}}
             path = _write_result(args.result_dir, args.tag, record)
             LOG.info("获取失败，记录已写入：%s", path)
             print(json.dumps({"tag": args.tag, "verdict": record["error"]["code"]}, ensure_ascii=False))
@@ -871,6 +889,11 @@ def run_serve(args: argparse.Namespace) -> int:
     LOG.info("B 侧配置：STUDY_SYNC_ADAPTERS={\"xzzd\": \"connectors.bridge:XzzdBridgeAdapter\"}")
     try:
         while True:
+            if getattr(browser, "closed", False):
+                # Keep serving /health and /check so the app can report a lost session and
+                # the user can restart this connector deliberately.
+                time.sleep(COOKIE_SNAPSHOT_INTERVAL_S)
+                continue
             browser.pump_once()
             time.sleep(COOKIE_SNAPSHOT_INTERVAL_S)
     except KeyboardInterrupt:
@@ -945,6 +968,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     sp_list.add_argument("--wait", type=float, default=0.0)
 
     args = parser.parse_args(argv)
+    args.profile_dir = writable_profile_dir(args.profile_dir)
     args.result_dir = args.result_dir or _default_result_dir(args.profile_dir)
     if hasattr(args, "download_dir"):
         args.download_dir = args.download_dir or _default_download_dir(args.profile_dir)

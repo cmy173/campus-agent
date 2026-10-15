@@ -111,6 +111,23 @@ def check_url(url):
     return url
 
 
+# How long an off-campus decision is trusted before the campus host is probed again.
+CHANNEL_CACHE_SECONDS = 300
+
+
+def host_reachable(host, *, port=443, timeout=3.0):
+    """Cheap, side-effect-free campus reachability probe (TCP connect only).
+
+    No HTTP request, no session, no cookie: choosing a channel must not create
+    server-side state or count against the school's read budget.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -149,12 +166,77 @@ class CampusTransport:
         self.opener = build_opener(self.policy, self.jar)
         self.deadline = float('inf')
         self.last_request = 0
+        # Channel selection is per host and cached; it is only ever 'webvpn' when a
+        # WebVPN credential is actually stored for this machine, so a default install
+        # performs no probe and behaves exactly like the direct-only client.
+        self.channels = {}
+        self.last_channel = None
+        self._tunnel_provider = None
 
     def start_operation(self):
         self.deadline = time.monotonic() + 45
 
     def close(self):
         self.jar.clear()
+        # A detached client must not keep a channel decision from a previous owner.
+        self.channels.clear()
+        # Detached clients must not advertise authentication after disconnect.
+        self.authenticated = False
+        self.passport_authenticated = False
+        self.eta_authenticated = False
+
+    # ------------------------------------------------------------- channels
+    def tunnel(self):
+        """The process-wide WebVPN channel, resolved lazily to avoid an import cycle."""
+        if self._tunnel_provider is not None:
+            return self._tunnel_provider()
+        from . import webvpn_tunnel
+        return webvpn_tunnel.tunnel()
+
+    def channel_for(self, host):
+        """'direct' unless the campus host is unreachable and a portal credential exists."""
+        from . import webvpn_tunnel
+        mode = webvpn_tunnel.channel_mode()
+        if mode == webvpn_tunnel.MODE_DIRECT:
+            return 'direct'
+        cached = self.channels.get(host)
+        if cached:
+            return cached
+        tunnel = self.tunnel()
+        if not tunnel.uses_channel(host):
+            # No stored WebVPN credential (or an unmapped host): never probe, never
+            # rewrite the request target.
+            self.channels[host] = 'direct'
+            return 'direct'
+        if mode == webvpn_tunnel.MODE_WEBVPN or not host_reachable(host):
+            self.channels[host] = 'webvpn'
+        else:
+            self.channels[host] = 'direct'
+        return self.channels[host]
+
+    def cookies_for(self, host):
+        """Cookies that actually carry this host's session, whichever channel serves it."""
+        if self.channel_for(host) == 'webvpn':
+            jar = self.tunnel().session_jar()
+            if jar is not None:
+                return jar
+        return self.jar
+
+    def _open_mapped(self, url, form, headers, timeout):
+        """One bounded portal attempt; an expired portal session is re-established once."""
+        from . import webvpn_tunnel
+        tunnel = self.tunnel()
+        try:
+            return tunnel.request(url, form=urlencode(form) if form is not None else None,
+                                  headers=headers, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            # Same contract as the direct channel: a status is a response, not a
+            # transport failure.
+            return exc
+        except CampusError:
+            raise
+        except Exception:
+            raise CampusError('WEBVPN_UNAVAILABLE', 'WebVPN 通道请求未能完成，请检查网络后重试') from None
 
     def request_navigation(self, url):
         """Consume status/cookies/Location; an SSO landing body is not data."""
@@ -181,13 +263,22 @@ class CampusTransport:
         self.last_request = time.monotonic()
         started = self.last_request
         READ_BUDGET.take(parsed.hostname)
-        req = urllib.request.Request(url, data=urlencode(form).encode('utf-8') if form is not None else None,
-                                     headers=options['headers'])
+        channel = self.channel_for(parsed.hostname)
+        self.last_channel = channel
+        diagnostic['channel'] = channel
+        timeout = min(options['timeout'], remaining)
         try:
-            try:
-                response = self.opener.open(req, timeout=min(options['timeout'], remaining))
-            except urllib.error.HTTPError as exc:
-                response = exc
+            if channel == 'webvpn':
+                # The portal URL is derived here, never accepted from a caller, and the
+                # original campus URL was validated by check_url above.
+                response = self._open_mapped(url, form, options['headers'], timeout)
+            else:
+                req = urllib.request.Request(url, data=urlencode(form).encode('utf-8') if form is not None else None,
+                                             headers=options['headers'])
+                try:
+                    response = self.opener.open(req, timeout=timeout)
+                except urllib.error.HTTPError as exc:
+                    response = exc
             with response:
                 if response.code in options['reject_statuses']:
                     reason = 'HTTP_RATE_LIMIT' if response.code == 429 else 'HTTP_ACCESS_REJECTED'

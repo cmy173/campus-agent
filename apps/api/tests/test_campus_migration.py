@@ -189,9 +189,14 @@ def test_new_campus_tools_read_same_workspace_and_validate_model_scope(tmp_path,
             with pytest.raises(ApiError): execute("campus.status", {}, db, ToolContext("other", "conversation"))
             entry = execute("campus.webvpn.entry", {"service": "cas"}, db, context)
             assert entry["data"]["url"].startswith("https://webvpn.zju.edu.cn/https/")
-            assert not entry["data"]["direct_connector_uses_webvpn"]
+            # Truthful by construction: without a stored WebVPN credential the backend
+            # does not own the channel, so the only available path is the browser.
+            from connectors.campus import webvpn_tunnel
+            assert entry["data"]["direct_connector_uses_webvpn"] is webvpn_tunnel.tunnel().uses_channel("zjuam.zju.edu.cn")
+            assert entry["data"]["direct_connector_uses_webvpn"] is False
+            assert entry["data"]["execution"] == "browser"
         spec = next(s for s in schemas() if s["name"] == "campus.sync")
-        assert spec["effects"] == "write" and spec["input_schema"]["additionalProperties"] is False
+        assert spec["effects"] == "read" and spec["input_schema"]["additionalProperties"] is False
     finally: workspace.close()
 
 

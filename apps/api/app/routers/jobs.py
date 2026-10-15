@@ -112,6 +112,29 @@ def _retry_payload(db: Session, job: Job) -> dict[str, Any]:
             payload.update(revision=paper.latest_revision + 1, revision_reason="regenerate",
                            based_on_revision=paper.latest_revision)
         return payload
+    if job.type == "sync":
+        from ..worker import sync_pending_course_ids
+        pending = sync_pending_course_ids(payload)
+        if pending:
+            # AUTH aborts before later courses can produce errors: errors alone lose
+            # untouched courses. Preserve attachment phase even after cursor advance.
+            failed = {
+                e["details"].get("course_id") for e in (job.errors or [])
+                if isinstance(e, dict) and isinstance(e.get("details"), dict)
+            }
+            scope = payload.get("course_ids") or pending
+            payload["course_ids"] = [c for c in scope if c in pending or c in failed]
+            payload["pending_course_ids"] = list(payload["course_ids"])
+            payload["remaining_courses"] = list(payload["course_ids"])
+            payload["sync_errors"] = []
+            payload["sync_succeeded_course_ids"] = [
+                c for c in payload.get("sync_succeeded_course_ids", []) if c in payload["course_ids"]
+            ]
+            return payload
+        # A completed batch's normal retry must start fresh for the failed items.
+        for key in ("pending_course_ids", "remaining_courses", "sync_errors", "sync_succeeded_course_ids",
+                    "course_checkpoints", "auth_required"):
+            payload.pop(key, None)
     if job.status != "partial_failed":
         return payload
     item_key = {"import": "file_id", "sync": "course_id"}.get(job.type)
@@ -159,6 +182,9 @@ def retry_job(
         status_code, payload = replay
         return JSONResponse(status_code=status_code, content=payload)
 
+    retry_payload = _retry_payload(db, job)
+    if job.type == "sync":
+        retry_payload["parent_job_id"] = job.id
     new_job = Job(
         id=new_id(db, Job, "job"),
         type=job.type,
@@ -166,7 +192,7 @@ def retry_job(
         progress=0.0,
         errors=[],
         result_refs=[],
-        payload=_retry_payload(db, job),
+        payload=retry_payload,
     )
     db.add(new_job)
     db.flush()

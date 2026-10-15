@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import re
 import sys
 import unittest
@@ -125,6 +126,78 @@ class TestProfileDir(unittest.TestCase):
         self.assertEqual("https://course.zju.edu.cn/ua/login", cl.LOGIN_ENTRY_URL)
         self.assertTrue(cl.LOGOUT_URL.startswith("https://courses.zju.edu.cn/ua/logout"))
         self.assertTrue(cl.READ_CHECK_PAGE.startswith("https://courses.zju.edu.cn/"))
+
+
+class TestBrowserTempDir(unittest.TestCase):
+    def test_default_temp_prefers_profile_sibling_and_checks_writable(self):
+        profile = Path("C:/data/zjulearn/controlled-browser/profile")
+        expected = profile.parent / "tmp"
+        with mock.patch.dict(os.environ, {cl.BROWSER_TEMP_ENV: ""}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=lambda path: path) as ensure:
+            self.assertEqual(expected, cl.browser_temp_dir(profile))
+        ensure.assert_called_once_with(expected)
+
+    def test_explicit_env_override(self):
+        target = Path("D:/writable/browser-tmp")
+        profile = Path("C:/data/zjulearn/controlled-browser/profile")
+        with mock.patch.dict(os.environ, {cl.BROWSER_TEMP_ENV: str(target)}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=lambda path: path) as ensure:
+            self.assertEqual(target, cl.browser_temp_dir(profile))
+        ensure.assert_called_once_with(target)
+
+    def test_falls_back_to_repo_var_when_profile_sibling_is_unwritable(self):
+        profile = Path("C:/readonly/profile")
+        expected = cl._ROOT / "var" / "tmp"
+
+        def ensure(path):
+            if path == profile.parent / "tmp":
+                raise PermissionError(str(path))
+            return path
+
+        with mock.patch.dict(os.environ, {cl.BROWSER_TEMP_ENV: ""}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=ensure):
+            self.assertEqual(expected, cl.browser_temp_dir(profile))
+
+    def test_configure_browser_temp_sets_process_and_node_env(self):
+        target = Path("D:/writable/browser-tmp")
+        profile = Path("C:/data/zjulearn/controlled-browser/profile")
+        with mock.patch.object(cl, "browser_temp_dir", return_value=target), \
+                mock.patch.dict(os.environ, {"TEMP": "old", "TMP": "old"}, clear=False), \
+                mock.patch.object(cl.tempfile, "tempdir", "old"):
+            self.assertEqual(target, cl.configure_browser_temp(profile))
+            self.assertEqual(str(target), os.environ["TEMP"])
+            self.assertEqual(str(target), os.environ["TMP"])
+            self.assertEqual(str(target), cl.tempfile.tempdir)
+
+
+class TestWritableProfileDir(unittest.TestCase):
+    def test_prefers_requested_profile_dir(self):
+        profile = Path("C:/data/zjulearn/controlled-browser/profile")
+        with mock.patch.dict(os.environ, {cl.BROWSER_PROFILE_ENV: ""}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=lambda path: path) as ensure:
+            self.assertEqual(profile, cl.writable_profile_dir(profile))
+        ensure.assert_called_once_with(profile)
+
+    def test_falls_back_to_repo_var_when_requested_not_writable(self):
+        profile = Path("C:/readonly/profile")
+        expected = cl._ROOT / "var" / "controlled-browser" / "profile"
+
+        def ensure(path):
+            if path == profile:
+                raise PermissionError(str(path))
+            return path
+
+        with mock.patch.dict(os.environ, {cl.BROWSER_PROFILE_ENV: ""}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=ensure):
+            self.assertEqual(expected, cl.writable_profile_dir(profile))
+
+    def test_explicit_env_override_wins(self):
+        target = Path("D:/writable/browser-profile")
+        profile = Path("C:/readonly/profile")
+        with mock.patch.dict(os.environ, {cl.BROWSER_PROFILE_ENV: str(target)}, clear=False), \
+                mock.patch.object(cl, "_ensure_writable_dir", side_effect=lambda path: path) as ensure:
+            self.assertEqual(target, cl.writable_profile_dir(profile))
+        ensure.assert_called_once_with(target)
 
 
 class TestRedactionIntegration(unittest.TestCase):

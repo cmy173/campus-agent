@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,7 @@ if str(_ROOT) not in sys.path:
 
 from connectors.adapters.transport import RequestsTransport  # noqa: E402
 from connectors.adapters.xzzd import LOGIN_ENTRY_URL, XzzdAdapter  # noqa: E402
+from connectors.browser.session_cookies import _requests_session
 from connectors.redact import RedactingFilter, redact, redact_url  # noqa: E402
 
 LOG = logging.getLogger("connectors.browser")
@@ -68,6 +70,104 @@ def default_profile_dir() -> Path:
         return Path(base) / "zjulearn" / "controlled-browser" / "profile"
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     return Path(base) / "zjulearn" / "controlled-browser" / "profile"
+
+
+BROWSER_TEMP_ENV = "STUDY_BROWSER_TEMP_DIR"
+BROWSER_PROFILE_ENV = "STUDY_BROWSER_PROFILE_DIR"
+
+
+def _normalized_path(path: Path) -> Path:
+    path = Path(path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    # 只做 normpath；不要 resolve()，避免把 8.3 短路径展开到 ACL/完整性级别不同的长路径。
+    return Path(os.path.normpath(str(path)))
+
+
+def _temp_dir_candidates(profile_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    explicit = os.environ.get(BROWSER_TEMP_ENV, "").strip()
+    if explicit:
+        candidates.append(_normalized_path(Path(explicit)))
+    profile = _normalized_path(profile_dir)
+    candidates.append(profile.parent / "tmp")
+    candidates.append(_ROOT / "var" / "tmp")
+    return candidates
+
+
+def _ensure_writable_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    probe = path / f".campus-agent-write-test-{os.getpid()}-{time.time_ns()}"
+    try:
+        with probe.open("xb") as stream:
+            stream.write(b"")
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+    return path
+
+
+def browser_temp_dir(profile_dir: Path) -> Path:
+    """返回一个确实可写的浏览器临时目录。
+
+    Playwright/Chromium 在 Windows 上会调用 ``mkdtemp``。若系统 ``%TEMP%``
+    被安全软件、ACL 或完整性级别限制，用户会看到
+    ``EPERM: operation not permitted, mkdtemp ...playwright-artifacts-XXXXXX``。
+    这里不依赖系统临时目录，优先使用 profile 同级目录；可用
+    ``STUDY_BROWSER_TEMP_DIR`` 显式覆盖。
+    """
+    errors: list[str] = []
+    for candidate in _temp_dir_candidates(profile_dir):
+        try:
+            return _ensure_writable_dir(candidate)
+        except OSError as exc:
+            errors.append(f"{candidate}: {exc}")
+    raise RuntimeError(
+        "找不到可写的浏览器临时目录；可用 STUDY_BROWSER_TEMP_DIR 指定一个可写目录。"
+        + "；".join(errors)
+    )
+
+
+def _profile_dir_candidates(profile_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    explicit = os.environ.get(BROWSER_PROFILE_ENV, "").strip()
+    if explicit:
+        candidates.append(_normalized_path(Path(explicit)))
+    requested = _normalized_path(profile_dir)
+    candidates.append(requested)
+    candidates.append(_ROOT / "var" / "controlled-browser" / requested.name)
+    return candidates
+
+
+def writable_profile_dir(profile_dir: Path) -> Path:
+    r"""返回一个确实可写的持久化 profile 目录。
+
+    用户数据目录可能被 ACL/完整性级别限制到无法创建
+    ``%LOCALAPPDATA%\zjulearn``。优先使用调用方传入的目录；不可写时回退到
+    仓库的 ``var/controlled-browser/``，可用 ``STUDY_BROWSER_PROFILE_DIR``
+    显式覆盖。
+    """
+    errors: list[str] = []
+    for candidate in _profile_dir_candidates(profile_dir):
+        try:
+            return _ensure_writable_dir(candidate)
+        except OSError as exc:
+            errors.append(f"{candidate}: {exc}")
+    raise RuntimeError(
+        "找不到可写的浏览器 profile 目录；可用 STUDY_BROWSER_PROFILE_DIR 指定一个可写目录。"
+        + "；".join(errors)
+    )
+
+
+def configure_browser_temp(profile_dir: Path) -> Path:
+    """把当前进程及 Playwright Node/browser 子进程的临时目录切到可写位置。"""
+    temp_dir = browser_temp_dir(profile_dir)
+    os.environ["TEMP"] = str(temp_dir)
+    os.environ["TMP"] = str(temp_dir)
+    tempfile.tempdir = str(temp_dir)
+    return temp_dir
 
 
 def utc_now() -> str:
@@ -106,10 +206,10 @@ def classify_read_result(status: int, content_type: str, json_parsed: bool,
                          redirected: bool) -> str:
     """只读请求结果判定：ok / auth_required / unexpected（不含任何响应正文）。"""
     ct = (content_type or "").lower()
+    if redirected or status in (301, 302, 303, 307, 308, 401, 419):
+        return "auth_required"
     if status == 200 and "json" in ct and json_parsed:
         return "ok"
-    if redirected or status in (301, 302, 303, 307, 308):
-        return "auth_required"
     if status == 200 and "html" in ct:
         return "auth_required"  # 200 但落到登录页 HTML（A5b 实测形态）
     return "unexpected"
@@ -125,16 +225,19 @@ async () => {
       body: JSON.stringify({page: 1, page_size: 1}), signal: ctl.signal});
     const ct = (r.headers.get('content-type') || '').toLowerCase();
     const loc = new URL(r.url);
-    let parsed = false, count = null;
+    let parsed = false, count = null, authFailed = false;
     if (ct.includes('json')) {
       try {
-        const j = await r.json(); parsed = true;
-        for (const k of ['list', 'courses', 'data']) {
-          if (Array.isArray(j[k])) { count = j[k].length; break; }
+        const j = await r.json();
+        authFailed = !!j && [401, 419, '401', '419'].includes(j.code);
+        if (j && j.success !== false && !authFailed) {
+          for (const k of ['list', 'courses', 'data']) {
+            if (Array.isArray(j[k])) { parsed = true; count = j[k].length; break; }
+          }
         }
       } catch (e) {}
     }
-    return {status: r.status, content_type: ct, json_parsed: parsed,
+    return {status: authFailed ? 401 : r.status, content_type: ct, json_parsed: parsed,
             item_count: count, redirected: r.redirected,
             final_origin: loc.origin, final_path: loc.pathname};
   } catch (e) {
@@ -186,32 +289,27 @@ def read_check_with_requests(cookies: list[dict[str, Any]]) -> dict[str, Any]:
     """路径(b)：读取 cookie 到内存 → requests.Session → 走既有适配器/传输代码链。"""
     started = utc_now()
     result: dict[str, Any] = {"step": "read-check/requests", "at": started}
+    session = None
     try:
-        import requests  # 会话层依赖；值只在内存
-        session = requests.Session()
-        skipped = 0
-        for ck in cookies:
-            try:
-                kwargs: dict[str, Any] = {"path": ck.get("path") or "/"}
-                domain = str(ck.get("domain") or "")
-                if domain:
-                    kwargs["domain"] = domain
-                session.cookies.set(str(ck.get("name", "")), str(ck.get("value", "")), **kwargs)
-            except Exception:
-                skipped += 1
+        session = _requests_session(cookies, "courses.zju.edu.cn")
+        if session is None:
+            result.update({"cookies_loaded": 0, "state": "auth_required", "verdict": "auth_required"})
+            return result
         transport = RequestsTransport("https://courses.zju.edu.cn", session, timeout=20.0)
         adapter = XzzdAdapter(connection_id="a17-feasibility", transport=transport)
         state = adapter.check_connection()
         result.update({
-            "cookies_loaded": len(session.cookies), "cookies_skipped": skipped,
+            "cookies_loaded": len(session.cookies), "cookies_skipped": len(cookies) - len(session.cookies),
             "state": state.get("state"),
             "verdict": state.get("state"),
         })
         if state.get("detail"):
             result["detail"] = redact(str(state["detail"]))
-        session.close()
     except Exception as exc:
         result.update({"verdict": "unexpected", "error": type(exc).__name__})
+    finally:
+        if session is not None:
+            session.close()
     return result
 
 
@@ -235,6 +333,8 @@ def _engine_info() -> dict[str, Any]:
 def _launch(profile_dir: Path, channel: str) -> tuple[Any, Any, Any]:
     """返回 (playwright, context, page)。playwright 延迟导入（离线测试无需安装）。"""
     from playwright.sync_api import sync_playwright
+    # Windows 上系统 %TEMP% 可能不可写；必须在启动 Node driver 前切换。
+    configure_browser_temp(profile_dir)
     pw = sync_playwright().start()
     proxy = os.environ.get("STUDY_PLATFORM_PROXY")
     extra = {"proxy": {"server": proxy}} if proxy else {}
@@ -266,35 +366,46 @@ def _wait_for_session(context: Any, timeout_s: float) -> dict[str, Any]:
     last_progress = -30.0
     history: list[dict[str, Any]] = []
     last_count: Optional[int] = None
-    while time.time() - t0 < timeout_s:
-        cookies = context.cookies()
-        count = len(cookies)
-        if count != last_count:
-            last_count = count
-            history.append({"at": utc_now(), "count": count})
-        changed = count != last_probe_count
-        due = last_probe is None or time.time() - last_probe >= 120.0
-        cooled = last_probe is None or time.time() - last_probe >= 15.0
-        if cooled and (has_session_marker(cookies) or changed or due):
-            last_probe = time.time()
-            last_probe_count = count
-            attempts += 1
-            if probe_page is None:
-                probe_page = context.new_page()
-            r = read_check_in_page(probe_page, "session-probe")
-            if r.get("error"):
-                probe_page = None  # 探针页异常（例如被关闭），下次重建
-            if r.get("verdict") == "ok":
-                return {"detected": True, "elapsed_s": round(time.time() - t0, 1),
-                        "probe_attempts": attempts, "probe": r,
-                        "cookie_count_history": history}
-        now = time.time() - t0
-        if now - last_progress >= 30:
-            last_progress = now
-            LOG.info("等待登录中… 已 %.0fs（当前 cookie 数 %d）", now, count)
-        time.sleep(3)
-    return {"detected": False, "elapsed_s": round(time.time() - t0, 1),
-            "probe_attempts": attempts, "cookie_count_history": history}
+    try:
+        while time.time() - t0 < timeout_s:
+            cookies = context.cookies()
+            count = len(cookies)
+            if count != last_count:
+                last_count = count
+                history.append({"at": utc_now(), "count": count})
+            changed = count != last_probe_count
+            due = last_probe is None or time.time() - last_probe >= 120.0
+            cooled = last_probe is None or time.time() - last_probe >= 15.0
+            if cooled and (has_session_marker(cookies) or changed or due):
+                last_probe = time.time()
+                last_probe_count = count
+                attempts += 1
+                if probe_page is None:
+                    probe_page = context.new_page()
+                r = read_check_in_page(probe_page, "session-probe")
+                if r.get("error"):
+                    try:
+                        probe_page.close()
+                    except Exception:
+                        pass
+                    probe_page = None  # 探针页异常（例如被关闭），下次重建
+                if r.get("verdict") == "ok":
+                    return {"detected": True, "elapsed_s": round(time.time() - t0, 1),
+                            "probe_attempts": attempts, "probe": r,
+                            "cookie_count_history": history}
+            now = time.time() - t0
+            if now - last_progress >= 30:
+                last_progress = now
+                LOG.info("等待登录中… 已 %.0fs（当前 cookie 数 %d）", now, count)
+            time.sleep(3)
+        return {"detected": False, "elapsed_s": round(time.time() - t0, 1),
+                "probe_attempts": attempts, "cookie_count_history": history}
+    finally:
+        if probe_page is not None:
+            try:
+                probe_page.close()
+            except Exception:
+                pass
 
 
 def run_verify(profile_dir: Path, entry_url: str, channel: str, timeout_s: float,
@@ -316,24 +427,21 @@ def run_verify(profile_dir: Path, entry_url: str, channel: str, timeout_s: float
         result["steps"].append({"at": utc_now(), "step": "launch",
                                 "pre_existing_session": pre_marker,
                                 "cookie_count": len(pre_cookies)})
-        if not pre_marker:
-            entry_step: dict[str, Any] = {"at": utc_now(), "step": "open-login-entry"}
-            try:
-                page.goto(entry_url, wait_until="domcontentloaded", timeout=60000)
-            except Exception as nav_exc:
-                if "ERR_ABORTED" not in str(nav_exc):
-                    raise
-                # 已登录/即时重定向链的常见形态：不阻断，直接进入实测
-                entry_step["nav_warning"] = type(nav_exc).__name__
-                page.wait_for_timeout(1500)
-            entry_step["landed_host"] = redact_url(page.url or "")
-            result["steps"].append(entry_step)
-            LOG.info("== 受控浏览器已启动（独立 profile、可见窗口）==")
-            LOG.info("请在窗口内登录（学在浙大官方登录页）；登录完成后本程序自动检测并继续。")
-            wait = _wait_for_session(context, timeout_s)
-        else:
-            LOG.info("== 检测到持久化 profile 已有会话，直接验证 ==")
-            wait = {"detected": True, "elapsed_s": 0.0, "probe_attempts": 0, "reused": True}
+        # 标记只用于诊断，不足以证明有效。先到平台首页复用持久化/学校 SSO；
+        # 由平台决定是否需要登录，而不是强制跳登录表单或相信陈旧 JWTUser。
+        entry_step: dict[str, Any] = {"at": utc_now(), "step": "open-platform-home"}
+        try:
+            page.goto(READ_CHECK_PAGE, wait_until="domcontentloaded", timeout=60000)
+        except Exception as nav_exc:
+            if "ERR_ABORTED" not in str(nav_exc):
+                raise
+            entry_step["nav_warning"] = type(nav_exc).__name__
+            page.wait_for_timeout(1500)
+        entry_step["landed_host"] = redact_url(page.url or "")
+        result["steps"].append(entry_step)
+        LOG.info("== 受控浏览器已启动；先验证持久化/学校 SSO 会话 ==")
+        LOG.info("如平台需要登录，请在官方页面自行登录，连接器不会提交凭据。")
+        wait = _wait_for_session(context, timeout_s)
         result["steps"].append({"at": utc_now(), "step": "session-wait", **wait})
 
         cookies = context.cookies()
@@ -364,7 +472,7 @@ def run_verify(profile_dir: Path, entry_url: str, channel: str, timeout_s: float
             else f"degraded:{','.join(str(v) for v in page_verdicts)}"
     except Exception as exc:
         result["verdict"] = "error"
-        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["error"] = type(exc).__name__
         LOG.error("verify 失败：%s", type(exc).__name__)
     finally:
         if context is not None:
@@ -411,7 +519,7 @@ def run_logout_test(profile_dir: Path, channel: str, result_dir: Path, tag: str)
         result["verdict"] = f"post_logout:{r.get('verdict')}"
     except Exception as exc:
         result["verdict"] = "error"
-        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["error"] = type(exc).__name__
     finally:
         if context is not None:
             try:
@@ -459,7 +567,7 @@ def run_reset_session(profile_dir: Path, channel: str, result_dir: Path, tag: st
         result["verdict"] = f"reset:{r.get('verdict')}"
     except Exception as exc:
         result["verdict"] = "error"
-        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["error"] = type(exc).__name__
     finally:
         if context is not None:
             try:
@@ -507,6 +615,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     add_common(sp_reset)
 
     args = parser.parse_args(argv)
+    args.profile_dir = writable_profile_dir(args.profile_dir)
     result_dir = args.result_dir or _default_result_dir(args.profile_dir)
 
     if args.cmd == "verify":
