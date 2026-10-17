@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "zju-study": {
+      "command": "<PROJECT_ROOT>/apps/api/.venv/Scripts/python.exe",
+      "args": [
+        "<PROJECT_ROOT>/tools/agent_plugin.py"
+      ],
+      "env": {
+        "ZJU_STUDY_API_URL": "http://127.0.0.1:8000/api/v1"
+      }
+    }
+  }
+}

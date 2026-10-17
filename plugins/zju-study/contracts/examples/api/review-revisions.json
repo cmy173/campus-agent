@@ -1,0 +1,57 @@
+{
+  "items": [
+    {
+      "paper_id": "pap_7c1a02",
+      "revision": 2,
+      "revision_reason": "revise",
+      "based_on_revision": 1,
+      "title": "数据结构基础 复习卷（线性表与单链表）",
+      "created_at": "2026-10-11T09:10:00+08:00",
+      "mode": "ai",
+      "engine_version": "0.1.0",
+      "fingerprint": "sha256:558ccbada7569a59bcd34659913c800ceb5c695af4b81d91f78ffb892cf2d811",
+      "provider": {
+        "config_id": "prv_cloud02",
+        "name": "示例兼容网关",
+        "protocol": "openai_chat_completions",
+        "base_url": "https://api.example.com/v1",
+        "model": "example-chat-1"
+      },
+      "summary": {
+        "question_count": 8,
+        "total_points": 90,
+        "estimated_minutes": 90,
+        "type_counts": { "single_choice": 4, "calculation": 2, "short_answer": 2 },
+        "difficulty_counts": { "easy": 2, "medium": 4, "hard": 2 },
+        "origin_counts": { "ai": 6, "bank": 1, "adapted_bank": 1 }
+      }
+    },
+    {
+      "paper_id": "pap_7c1a02",
+      "revision": 1,
+      "revision_reason": "initial",
+      "based_on_revision": null,
+      "title": "数据结构基础 复习卷（线性表）",
+      "created_at": "2026-10-11T09:04:30+08:00",
+      "mode": "ai",
+      "engine_version": "0.1.0",
+      "fingerprint": "sha256:617542d7cf42fc3db016c916c47e596563aa258190eb985954a6213f078adc61",
+      "provider": {
+        "config_id": "prv_cloud02",
+        "name": "示例兼容网关",
+        "protocol": "openai_chat_completions",
+        "base_url": "https://api.example.com/v1",
+        "model": "example-chat-1"
+      },
+      "summary": {
+        "question_count": 6,
+        "total_points": 65,
+        "estimated_minutes": 70,
+        "type_counts": { "single_choice": 3, "calculation": 1, "short_answer": 2 },
+        "difficulty_counts": { "easy": 1, "medium": 3, "hard": 2 },
+        "origin_counts": { "ai": 6 }
+      }
+    }
+  ],
+  "next_cursor": null
+}

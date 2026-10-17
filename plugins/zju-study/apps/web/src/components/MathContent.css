@@ -1,0 +1,8 @@
+.math-content { overflow-wrap: anywhere; line-height: 1.7; }
+.math-content p { margin: 0 0 6px; white-space: pre-wrap; }
+.math-content p:last-child { margin-bottom: 0; }
+.math-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+.math-content pre { white-space: pre-wrap; }
+@media print { .math-content .katex-display { overflow: visible; } }
+
+.math-content-compact, .math-content-compact p { display: inline; }

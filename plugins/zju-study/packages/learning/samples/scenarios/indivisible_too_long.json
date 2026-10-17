@@ -1,0 +1,55 @@
+{
+  "name": "indivisible_too_long",
+  "description": "不可拆分长任务：每天只有 30 分钟窗口、共 4 天。90 分钟不可拆任务→“任务太长不可拆分”；90 分钟可拆任务（最小块 45 分钟）→“窗口碎片化”；25 分钟任务可正常安排。",
+  "tasks": [
+    {
+      "id": "t_big_indiv",
+      "course_id": "crs_demo",
+      "type": "assignment",
+      "title": "示例：不可拆分长任务",
+      "estimated_minutes": 90,
+      "splittable": false
+    },
+    {
+      "id": "t_big_frag",
+      "course_id": "crs_demo",
+      "type": "practice",
+      "title": "示例：可拆分但窗口碎片化",
+      "estimated_minutes": 90,
+      "splittable": true
+    },
+    {
+      "id": "t_small",
+      "course_id": "crs_demo",
+      "type": "review",
+      "title": "示例：小任务",
+      "estimated_minutes": 25
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "19:30"},
+      {"weekday": 1, "start": "19:00", "end": "19:30"},
+      {"weekday": 2, "start": "19:00", "end": "19:30"},
+      {"weekday": 3, "start": "19:00", "end": "19:30"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-17T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": ["t_small"],
+    "unassigned": {
+      "t_big_indiv": "TASK_TOO_LONG_INDIVISIBLE",
+      "t_big_frag": "FRAGMENTED_WINDOW"
+    }
+  }
+}

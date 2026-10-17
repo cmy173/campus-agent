@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContentChunk",
+  "description": "从资源版本解析出的文本片段，用于搜索与计划引擎引用。",
+  "type": "object",
+  "required": ["id", "resource_id", "resource_version", "ordinal", "text", "locator", "provenance", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "resource_id": { "$ref": "common.schema.json#/$defs/id" },
+    "resource_version": { "type": "integer", "minimum": 1, "description": "片段所属的资源版本，保证解析结果可追溯到具体版本。" },
+    "ordinal": { "type": "integer", "minimum": 0, "description": "片段在该版本内的顺序号，从 0 开始。" },
+    "text": { "type": "string", "minLength": 1 },
+    "locator": { "$ref": "#/$defs/Locator" },
+    "provenance": { "$ref": "#/$defs/Provenance" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Locator": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "页码定位（如 PDF）",
+          "required": ["kind", "page"],
+          "properties": {
+            "kind": { "const": "page" },
+            "page": { "type": "integer", "minimum": 1, "description": "页码从 1 开始。" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "幻灯片定位（如 PPTX）",
+          "required": ["kind", "slide"],
+          "properties": {
+            "kind": { "const": "slide" },
+            "slide": { "type": "integer", "minimum": 1, "description": "幻灯片号从 1 开始。" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "时间区间定位（如回放转写）",
+          "required": ["kind", "start_seconds"],
+          "properties": {
+            "kind": { "const": "timestamp" },
+            "start_seconds": { "type": "number", "minimum": 0 },
+            "end_seconds": { "type": "number", "minimum": 0, "description": "须大于等于 start_seconds。" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "文本位置定位（如 DOCX 段落）",
+          "required": ["kind", "start_offset"],
+          "properties": {
+            "kind": { "const": "text" },
+            "start_offset": { "type": "integer", "minimum": 0, "description": "字符偏移，从 0 开始。" },
+            "end_offset": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Provenance": {
+      "type": "object",
+      "required": ["extractor", "extractor_version", "job_id", "fact_source", "observed_at"],
+      "properties": {
+        "extractor": { "type": "string", "minLength": 1, "examples": ["pdf-text", "pptx-text", "docx-text", "asr"] },
+        "extractor_version": { "type": "string", "minLength": 1, "description": "解析器版本，用于解释结果差异。" },
+        "job_id": { "$ref": "common.schema.json#/$defs/id", "description": "产生该片段的解析任务。" },
+        "fact_source": { "$ref": "common.schema.json#/$defs/fact_source" },
+        "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

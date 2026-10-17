@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankSearchRequest",
+  "description": "题库检索需求（D 产出 → B 转交 → A 的 search_candidates 输入）。只传提炼后的检索词，默认不上传整份学校课件/作业/备注原文。",
+  "type": "object",
+  "required": ["id", "course_title", "query_terms", "knowledge_points", "question_type", "difficulty", "language", "count", "domains"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "description": "检索请求 ID（同一蓝图内稳定；D 生成）。" },
+    "course_title": { "type": ["string", "null"], "description": "学科/课程名（可空；不含学校内部标识）。" },
+    "query_terms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "同义词/专业术语组合后的检索词。"
+    },
+    "knowledge_points": { "type": "array", "items": { "type": "string" } },
+    "question_type": { "$ref": "common.schema.json#/$defs/question_type" },
+    "difficulty": { "oneOf": [{ "$ref": "common.schema.json#/$defs/difficulty" }, { "type": "null" }] },
+    "language": { "type": "string", "minLength": 1, "description": "语言（如 zh-CN）。" },
+    "count": { "type": "integer", "minimum": 1, "maximum": 50, "description": "候选数量上限。" },
+    "domains": { "type": "array", "items": { "type": "string" }, "description": "可选网站域名限制；空数组=不限定。" }
+  },
+  "additionalProperties": false
+}

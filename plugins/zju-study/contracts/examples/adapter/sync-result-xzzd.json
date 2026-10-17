@@ -1,0 +1,112 @@
+{
+  "platform": "xzzd",
+  "connection_id": "conn_2a9f",
+  "course_id": "crs_3f8a21",
+  "mode": "incremental",
+  "cursor": {
+    "previous": "cur_x9f3a7b21",
+    "next": "cur_x7c1d44e0"
+  },
+  "upserts": {
+    "resources": [
+      {
+        "id": "res_01a7",
+        "kind": "slides",
+        "title": "第03讲-线性表.pdf",
+        "source_ref": {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33001",
+          "canonical_url": "https://course.zju.edu.cn/file/33001",
+          "observed_at": "2026-10-09T09:05:00+08:00"
+        },
+        "version": 2,
+        "content_hash": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+        "size_bytes": 1893000,
+        "mime_type": "application/pdf",
+        "access_level": "full",
+        "source_updated_at": "2026-10-07T16:40:00+08:00",
+        "extent_value": 46,
+        "extent_unit": "slide"
+      },
+      {
+        "kind": "handout",
+        "title": "讲义-附录A(1).pdf",
+        "source_ref": {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33003",
+          "canonical_url": "https://course.zju.edu.cn/file/33003",
+          "observed_at": "2026-10-09T09:05:00+08:00"
+        },
+        "version": 1,
+        "content_hash": "sha256:c1a8e37f02d96b4e85f3c1a96e207d54b3f8a1c647d05e92a6c3b8f15e94d270",
+        "size_bytes": 512000,
+        "mime_type": "application/pdf",
+        "access_level": "full",
+        "source_updated_at": "2026-09-28T11:05:00+08:00",
+        "extent_value": 12,
+        "extent_unit": "page"
+      },
+      {
+        "id": "res_01d4",
+        "kind": "scan",
+        "title": "实验指导书(受限).pdf",
+        "source_ref": {
+          "platform": "xzzd",
+          "external_id": "xzzd-file-33020",
+          "canonical_url": "https://course.zju.edu.cn/file/33020",
+          "observed_at": "2026-10-09T09:05:00+08:00"
+        },
+        "version": 1,
+        "content_hash": null,
+        "size_bytes": null,
+        "mime_type": "application/pdf",
+        "access_level": "preview_only",
+        "source_updated_at": "2026-09-25T14:20:00+08:00"
+      }
+    ],
+    "assignments": [
+      {
+        "id": "asg_a101",
+        "title": "作业3：树与二叉树",
+        "instructions": "完成教材第6章习题 6.1-6.8，提交 PDF。",
+        "due_at": "2026-10-01T23:59:00+08:00",
+        "due_precision": "datetime",
+        "submission_status": "not_submitted",
+        "source_ref": {
+          "platform": "xzzd",
+          "external_id": "xzzd-assign-55001",
+          "canonical_url": "https://course.zju.edu.cn/assignment/55001",
+          "observed_at": "2026-10-09T09:05:00+08:00"
+        }
+      }
+    ],
+    "recordings": []
+  },
+  "deletions": [
+    {
+      "kind": "resource",
+      "external_id": "xzzd-file-33099",
+      "reason": "explicit_delete_signal",
+      "observed_at": "2026-10-09T09:05:00+08:00"
+    }
+  ],
+  "errors": [
+    {
+      "code": "PERMISSION_DENIED",
+      "message": "无法获取该资源的元数据",
+      "retryable": false,
+      "details": {
+        "kind": "resource",
+        "external_id": "xzzd-file-33021"
+      },
+      "request_id": "req_7f3a91"
+    }
+  ],
+  "stats": {
+    "scanned": 14,
+    "upserted": 4,
+    "deleted": 1,
+    "failed": 1
+  },
+  "observed_at": "2026-10-09T09:06:00+08:00"
+}

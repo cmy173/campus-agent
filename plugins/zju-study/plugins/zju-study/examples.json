@@ -1,0 +1,56 @@
+{
+  "classroom_summary": {
+    "recording_id": "rec_example",
+    "request": {
+      "provider_id": "prv_example",
+      "detail": "brief",
+      "transcript": "[00:00] 这里填写经用户核对的课堂转写。"
+    }
+  },
+  "review_generate": {
+    "request": {
+      "course_id": "crs_example",
+      "mode": "ai",
+      "provider_config_id": "prv_example",
+      "title": "章节复习卷",
+      "materials": {
+        "resources": [
+          {
+            "resource_id": "res_example",
+            "version": 1
+          }
+        ],
+        "assignments": []
+      },
+      "notes": "以课件与作业为主，历年卷仅参考题型。",
+      "constraints": {
+        "question_types": [
+          {
+            "type": "short_answer",
+            "count": 3,
+            "points_each": 10
+          }
+        ],
+        "difficulty": "medium",
+        "total_points": 30,
+        "duration_minutes": 30,
+        "answer_display": "separate"
+      }
+    },
+    "idempotency_key": "example-review-request-001"
+  },
+  "sync": {
+    "connection_id": "conn_xzzd",
+    "request": {
+      "full": false
+    },
+    "idempotency_key": "example-sync-request-001"
+  },
+  "import_past_paper": {
+    "course_id": "crs_example",
+    "file_path": "C:/selected/reference.pdf",
+    "purpose": "reference",
+    "title": "历年卷参考：示例试卷",
+    "idempotency_key": "example-import-request-001"
+  }
+}

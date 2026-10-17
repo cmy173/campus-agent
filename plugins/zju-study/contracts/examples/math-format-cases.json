@@ -1,0 +1,54 @@
+[
+  {
+    "input": "下列哪个级数是 e^z 在 z=0 处的泰勒级数？",
+    "expected": "下列哪个级数是 $e^z$ 在 $z=0$ 处的泰勒级数？"
+  },
+  {
+    "input": "sum_{n=0}^{∞} z^n/n!",
+    "expected": "$\\sum_{n=0}^{\\infty } z^n/n!$"
+  },
+  {
+    "input": "答案为 \\(\\frac{a}{b}\\)。",
+    "expected": "答案为 $\\frac{a}{b}$。"
+  },
+  {
+    "input": "设 f(z)=z^2+2\\\\bar z",
+    "expected": "设 $f(z)=z^2+2\\bar z$"
+  },
+  {
+    "input": "```latex\n\\frac{a}{b}\n```",
+    "expected": "\n\n$$\n\\frac{a}{b}\n$$\n\n"
+  },
+  {
+    "input": "```python\nx = 1\nprint(x)\n```",
+    "expected": "```python\nx = 1\nprint(x)\n```"
+  },
+  {
+    "input": "Python 与 `user_id`，日期 2026-10-17。",
+    "expected": "Python 与 `user_id`，日期 2026-10-17。"
+  },
+  {
+    "input": "\\[\\int_0^1 x^2\\,dx=\\frac13\\]",
+    "expected": "\n\n$$\n\\int_0^1 x^2\\,dx=\\frac13\n$$\n\n"
+  },
+  {
+    "input": "共轭 f(z)=u+iv",
+    "expected": "共轭 $f(z)=u+iv$"
+  },
+  {
+    "input": "极限 lim_{z→0} sin z / z",
+    "expected": "极限 $\\lim_{z→0} \\sin z / z$"
+  },
+  {
+    "input": "$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$",
+    "expected": "$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$"
+  },
+  {
+    "input": "$\\text{sin x}+\\frac{1}{2}$",
+    "expected": "$\\text{sin x}+\\frac{1}{2}$"
+  },
+  {
+    "input": "答案 \\\\(\\\\frac{a}{b}\\\\)",
+    "expected": "答案 $\\frac{a}{b}$"
+  }
+]

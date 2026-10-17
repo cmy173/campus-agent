@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Availability",
+  "description": "用户可用时间约束。周窗口按 timezone 解释；date_exceptions 覆盖特定日期。",
+  "type": "object",
+  "required": ["timezone", "weekly_windows", "date_exceptions", "daily_limit_minutes", "updated_at"],
+  "properties": {
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IANA 时区名，默认 Asia/Shanghai。",
+      "examples": ["Asia/Shanghai"]
+    },
+    "weekly_windows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/WeeklyWindow" },
+      "description": "每周固定可用时段（按 timezone）。"
+    },
+    "date_exceptions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DateException" },
+      "description": "特定日期的可用时间覆盖；windows 为空数组表示该日完全不可用。"
+    },
+    "daily_limit_minutes": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "每日学习上限（分钟）；null 表示未设置。"
+    },
+    "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "TimePoint": {
+      "type": "string",
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      "description": "本地时刻 HH:MM（24 小时制）。"
+    },
+    "WeeklyWindow": {
+      "type": "object",
+      "required": ["weekday", "start", "end"],
+      "properties": {
+        "weekday": { "type": "integer", "minimum": 1, "maximum": 7, "description": "ISO 星期：1=周一 … 7=周日。" },
+        "start": { "$ref": "#/$defs/TimePoint" },
+        "end": { "$ref": "#/$defs/TimePoint", "description": "须晚于 start；跨天窗口拆分为两条。" }
+      },
+      "additionalProperties": false
+    },
+    "DateException": {
+      "type": "object",
+      "required": ["date", "windows", "note"],
+      "properties": {
+        "date": { "$ref": "common.schema.json#/$defs/date" },
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["start", "end"],
+            "properties": {
+              "start": { "$ref": "#/$defs/TimePoint" },
+              "end": { "$ref": "#/$defs/TimePoint" }
+            },
+            "additionalProperties": false
+          },
+          "description": "该日可用时段；空数组=完全不可用（如考试日）。"
+        },
+        "note": { "type": ["string", "null"], "description": "可选备注（如“考试日”）。" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

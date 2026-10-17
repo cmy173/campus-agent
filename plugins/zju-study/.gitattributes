@@ -1,0 +1,15 @@
+# 统一文本换行处理，二进制文件不做转换
+* text=auto
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.pptx binary
+*.docx binary
+*.mp4 binary
+*.mp3 binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,28 @@
+{
+  "timezone": "Asia/Shanghai",
+  "weekly_windows": [
+    { "weekday": 1, "start": "19:00", "end": "22:30" },
+    { "weekday": 2, "start": "19:00", "end": "22:30" },
+    { "weekday": 3, "start": "19:00", "end": "22:30" },
+    { "weekday": 4, "start": "19:00", "end": "22:30" },
+    { "weekday": 5, "start": "19:00", "end": "22:30" },
+    { "weekday": 6, "start": "09:00", "end": "12:00" },
+    { "weekday": 6, "start": "14:00", "end": "17:30" },
+    { "weekday": 7, "start": "09:00", "end": "12:00" },
+    { "weekday": 7, "start": "14:00", "end": "17:30" }
+  ],
+  "date_exceptions": [
+    {
+      "date": "2026-10-16",
+      "windows": [],
+      "note": "校运动会，不可用"
+    },
+    {
+      "date": "2026-10-17",
+      "windows": [{ "start": "09:00", "end": "12:00" }],
+      "note": "周六下午预约了实验室"
+    }
+  ],
+  "daily_limit_minutes": 180,
+  "updated_at": "2026-10-09T08:00:00+08:00"
+}

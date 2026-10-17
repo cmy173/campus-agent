@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plan",
+  "description": "学习计划。预览产生 candidate；应用后成为 active 并取代旧计划；旧计划保留为 superseded/revoked。",
+  "type": "object",
+  "required": [
+    "id", "version", "status", "input_revision", "horizon_start", "horizon_end",
+    "blocks", "unassigned", "warnings", "summary", "based_on_plan_id",
+    "created_at", "applied_at", "revoked_at", "superseded_by"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "version": { "type": "integer", "minimum": 1, "description": "用户维度的计划序号，从 1 递增。" },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "active", "superseded", "revoked"],
+      "description": "candidate=预览候选（不影响生效计划）；active=当前生效；superseded=被新计划取代；revoked=被撤销。"
+    },
+    "input_revision": {
+      "type": "string",
+      "minLength": 1,
+      "description": "生成本计划时的输入指纹（任务、截止时间、可用时间、反馈的汇总哈希）。应用时与当前输入不一致则拒绝（PLAN_STALE）。"
+    },
+    "horizon_start": { "$ref": "common.schema.json#/$defs/date" },
+    "horizon_end": { "$ref": "common.schema.json#/$defs/date" },
+    "blocks": { "type": "array", "items": { "$ref": "#/$defs/PlanBlock" } },
+    "unassigned": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/UnassignedItem" },
+      "description": "无法安排的任务及原因，不可行时必须明确暴露缺口。"
+    },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/Warning" } },
+    "summary": { "$ref": "#/$defs/PlanSummary" },
+    "based_on_plan_id": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }],
+      "description": "生成该候选时所基于的生效计划（首个计划为 null）。"
+    },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "applied_at": { "type": ["string", "null"], "format": "date-time" },
+    "revoked_at": { "type": ["string", "null"], "format": "date-time" },
+    "superseded_by": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/id" }, { "type": "null" }],
+      "description": "取代本计划的计划 ID（本计划被取代/撤销后填写）。"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "PlanBlock": {
+      "type": "object",
+      "required": ["id", "task_id", "starts_at", "ends_at", "locked"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "task_id": { "$ref": "common.schema.json#/$defs/id" },
+        "starts_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "ends_at": { "$ref": "common.schema.json#/$defs/timestamp", "description": "须晚于 starts_at；同一计划内块与块不得重叠。" },
+        "locked": { "type": "boolean", "description": "锁定块：重排时必须原样保留（如用户手动固定的时间）。" }
+      },
+      "additionalProperties": false
+    },
+    "PlanSummary": {
+      "type": "object",
+      "description": "计划容量摘要（学习引擎生成，B 落库时随计划持久化）。",
+      "required": [
+        "capacity_minutes", "scheduled_minutes", "locked_minutes",
+        "scheduled_task_count", "unassigned_task_count"
+      ],
+      "properties": {
+        "capacity_minutes": { "type": "integer", "minimum": 0, "description": "期限内可用窗口总分钟数。" },
+        "scheduled_minutes": { "type": "integer", "minimum": 0, "description": "已排入分钟数。" },
+        "locked_minutes": { "type": "integer", "minimum": 0, "description": "锁定块分钟数。" },
+        "scheduled_task_count": { "type": "integer", "minimum": 0 },
+        "unassigned_task_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "UnassignedItem": {
+      "type": "object",
+      "required": ["task_id", "reason_code", "shortage_minutes", "message", "suggestion"],
+      "properties": {
+        "task_id": { "$ref": "common.schema.json#/$defs/id" },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "DEADLINE_PASSED", "INSUFFICIENT_WINDOW_BEFORE_DUE", "INSUFFICIENT_TOTAL_TIME",
+            "TASK_TOO_LONG_INDIVISIBLE", "FRAGMENTED_WINDOW", "DEPENDENCY_CONFLICT", "INVALID_TASK"
+          ],
+          "description": "未安排原因码（D5 口径）：DEADLINE_PASSED=截止已过；INSUFFICIENT_WINDOW_BEFORE_DUE=截止前窗口不足；INSUFFICIENT_TOTAL_TIME=期限内总时间不足；TASK_TOO_LONG_INDIVISIBLE=任务过长且不可拆；FRAGMENTED_WINDOW=窗口碎片化；DEPENDENCY_CONFLICT=依赖冲突；INVALID_TASK=任务数据无效。启发式失败不宣称数学不可行。"
+        },
+        "shortage_minutes": { "type": ["integer", "null"], "minimum": 0, "description": "预计缺口分钟数（可计算时）。" },
+        "message": { "type": ["string", "null"] },
+        "suggestion": { "type": ["string", "null"], "description": "给用户的处理建议（如拆小任务块、调整期限），UI 展示用。" }
+      },
+      "additionalProperties": false
+    },
+    "Warning": {
+      "type": "object",
+      "required": ["code", "message", "task_ids", "details"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "examples": ["DAILY_LIMIT_REACHED", "DUPLICATE_CONTENT", "TASK_VERSION_UPDATED", "FRAGMENTED_WINDOW"] },
+        "message": { "type": "string", "minLength": 1 },
+        "task_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/id" },
+          "description": "相关任务 ID（可为空数组）。"
+        },
+        "details": { "type": ["object", "null"], "additionalProperties": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}

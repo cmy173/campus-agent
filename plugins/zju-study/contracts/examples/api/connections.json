@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "id": "conn_2a9f",
+      "platform": "xzzd",
+      "display_name": "学在浙大",
+      "status": "ok",
+      "last_checked_at": "2026-10-09T18:50:00+08:00",
+      "last_sync_at": "2026-10-09T09:06:00+08:00",
+      "last_error": null,
+      "recovery_action": null,
+      "entry_url": "https://course.zju.edu.cn/ua/login",
+      "created_at": "2026-10-01T10:00:00+08:00",
+      "updated_at": "2026-10-09T18:50:00+08:00"
+    },
+    {
+      "id": "conn_8c1de",
+      "platform": "zykt",
+      "display_name": "智云课堂",
+      "status": "auth_required",
+      "last_checked_at": "2026-10-09T18:50:00+08:00",
+      "last_sync_at": "2026-10-08T09:50:00+08:00",
+      "last_error": {
+        "code": "AUTH_EXPIRED",
+        "message": "登录已失效",
+        "retryable": false,
+        "details": {
+          "platform": "zykt",
+          "action": {
+            "type": "user_login",
+            "entry_url": "https://classroom.zju.edu.cn/"
+          }
+        }
+      },
+      "recovery_action": {
+        "type": "user_login",
+        "entry_url": "https://classroom.zju.edu.cn/",
+        "message": "登录已失效，请在连接器窗口完成登录后重试"
+      },
+      "entry_url": "https://classroom.zju.edu.cn/",
+      "created_at": "2026-10-01T10:05:00+08:00",
+      "updated_at": "2026-10-09T18:50:00+08:00"
+    }
+  ],
+  "next_cursor": null
+}

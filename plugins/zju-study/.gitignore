@@ -1,0 +1,50 @@
+# 根级配置由智能体 B 维护；修改前请先在协作消息中说明。
+# 网页端特有规则请写入 apps/web/.gitignore。
+
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+build/
+*.exe
+coverage/
+
+# 环境变量（密钥不入库；样例文件以 .example 结尾可入库）
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志与缓存
+*.log
+.cache/
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+
+# 运行时数据与本地存储
+var/
+*.sqlite3
+*.db
+
+# 智能体 worktree（git worktree add 生成，不属于主检出目录）
+.worktrees/
+
+# PDF.js assets regenerated from the locked npm package at dev/build startup
+/apps/web/public/pdfjs/

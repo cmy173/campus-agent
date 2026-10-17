@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "version",
+    "interfaces",
+    "runtime",
+    "capabilities",
+    "host_instructions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "interfaces": {
+      "type": "object"
+    },
+    "runtime": {
+      "type": "object"
+    },
+    "capabilities": {
+      "type": "object"
+    },
+    "host_instructions": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

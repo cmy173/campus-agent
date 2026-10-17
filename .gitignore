@@ -8,3 +8,14 @@ data/
 .test-tmp/
 *.sqlite3*
 *.log
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.egg-info/
+plugins/zju-study/var/
+plugins/zju-study/build/
+plugins/zju-study/apps/web/dist/
+.worktrees/
+*.db

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewQuestion",
+  "description": "复习卷题目：题干/选项/标准答案/解析/评分要点/知识点/难度/分值/来源与校验状态。source_refs 必须能回到真实材料（本卷快照内的资源版本/片段、作业、或题库候选来源），不得编造页码、URL 或标题；缺答案/缺解析的题不得标 valid。",
+  "type": "object",
+  "required": [
+    "id", "ordinal", "question_type", "stem", "options", "answer", "explanation",
+    "grading_points", "knowledge_points", "difficulty", "points", "origin", "source_refs", "validation"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "题目 ID（qst_ 前缀）。" },
+    "ordinal": { "type": "integer", "minimum": 1, "description": "卷内题号（1 起，连续）。" },
+    "question_type": { "$ref": "common.schema.json#/$defs/question_type" },
+    "stem": { "type": "string", "minLength": 1 },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "text"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1, "maxLength": 8 },
+          "text": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "选择题选项（键如 A/B/C/D，顺序即展示顺序）；非选择题为空数组。"
+    },
+    "answer": { "type": "string", "minLength": 1, "description": "标准答案。选择题为选项键（如 \"A\" 或 \"AB\"）；其余题型为答案原文。缺失不得留空——由校验标 incomplete 并说明。" },
+    "explanation": { "type": "string", "minLength": 1, "description": "解析（非空）。" },
+    "grading_points": { "type": "array", "items": { "type": "string" }, "description": "评分要点/步骤（主观题与计算题；客观题可为空数组）。" },
+    "knowledge_points": { "type": "array", "items": { "type": "string" } },
+    "difficulty": { "$ref": "common.schema.json#/$defs/difficulty" },
+    "points": { "type": "integer", "minimum": 1, "description": "本题分值。" },
+    "origin": {
+      "type": "object",
+      "required": ["kind", "candidate_id", "note"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["ai", "bank", "adapted_bank"], "description": "ai=模型生成 / bank=网络原题 / adapted_bank=改编题（保留原出处）。" },
+        "candidate_id": { "type": ["string", "null"], "description": "kind=bank/adapted_bank 时对应 BankCandidate.id；ai 为 null。" },
+        "note": { "type": ["string", "null"], "description": "补充说明（如改编范围）；无则 null。" }
+      },
+      "additionalProperties": false
+    },
+    "source_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "resource_id", "chunk_id", "assignment_id", "url", "site_name", "locator"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["resource", "assignment", "web", "note"], "description": "resource=课件/附件片段 / assignment=作业 / web=网络原题 / note=用户备注原文（locator 记行号说明）。" },
+          "resource_id": { "type": ["string", "null"] },
+          "chunk_id": { "type": ["string", "null"] },
+          "assignment_id": { "type": ["string", "null"] },
+          "url": { "type": ["string", "null"], "description": "kind=web 时的原题页 URL（非搜索页）；其余为 null。" },
+          "site_name": { "type": ["string", "null"] },
+          "locator": { "type": ["string", "null"], "description": "页/幻灯片/题号定位说明；缺失为 null（客户端不得显示假链接）。" }
+        },
+        "additionalProperties": false
+      },
+      "description": "题目来源引用（至少一项）。kind=resource 时 resource_id+chunk_id 必须存在于本卷材料快照；kind=note 时 locator 指向备注原文行（其余 ID/URL 字段为 null）；kind=web 时须对应本次检索的真实候选。"
+    },
+    "validation": {
+      "type": "object",
+      "required": ["status", "messages"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["valid", "repaired", "low_confidence", "incomplete"],
+          "description": "valid=通过校验（不代表学术绝对正确）/ repaired=经有限修复 / low_confidence=低置信度需人工检查 / incomplete=缺答案或缺解析等，不得计入“完整成功”。"
+        },
+        "messages": { "type": "array", "items": { "type": "string" }, "description": "校验/修复说明。" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

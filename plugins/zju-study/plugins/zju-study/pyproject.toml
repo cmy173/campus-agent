@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zju-study-agent-plugin"
+version = "0.3.0a1"
+description = "Local MCP tools for ZJU courses, materials, classroom summaries and study plans"
+requires-python = ">=3.11"
+dependencies = ["mcp==1.30.0", "requests>=2.31"]
+
+[project.scripts]
+zju-study-plugin = "zju_study_plugin.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

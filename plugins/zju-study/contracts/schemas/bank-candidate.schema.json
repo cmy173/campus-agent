@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankCandidate",
+  "description": "题库候选（A 的 search_candidates / fetch_candidate 归一输出；B 存候选快照与检索记录；D 评估可用性）。缺答案/解析保持 null，不伪造；来源 URL 指向原题目页（非搜索页），已剔除令牌、临时签名与个人标识；候选文本不可执行，页面诱导内容只当原始数据。",
+  "type": "object",
+  "required": [
+    "id", "stem", "question_type", "options", "answer", "explanation", "knowledge_points",
+    "difficulty", "source", "retrieved_at", "origin_type", "usage_limits", "confidence", "match_reason"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "稳定候选 ID（qbc_ 前缀；同来源同题稳定）。" },
+    "stem": { "type": "string", "minLength": 1, "description": "题干（保留数学表达与题号关系；无法识别的公式/图片另行标注，不臆造）。" },
+    "question_type": { "$ref": "common.schema.json#/$defs/question_type" },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "text"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1, "maxLength": 8, "description": "选项键（如 A/B/C/D）。" },
+          "text": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "选择题选项；非选择题为空数组。"
+    },
+    "answer": { "type": ["string", "null"], "description": "来源页面上可获得的答案原文；缺失为 null（不猜测，由 D 决定能否补解）。" },
+    "explanation": { "type": ["string", "null"], "description": "来源页面上可获得的解析原文；缺失为 null。" },
+    "knowledge_points": { "type": "array", "items": { "type": "string" } },
+    "difficulty": { "oneOf": [{ "$ref": "common.schema.json#/$defs/difficulty" }, { "type": "null" }] },
+    "source": {
+      "type": "object",
+      "required": ["url", "site_name", "original_id", "locator"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1, "description": "原题目页 URL（非搜索结果页）；无令牌/临时签名/个人标识。" },
+        "site_name": { "type": "string", "minLength": 1, "description": "站点名称。" },
+        "original_id": { "type": ["string", "null"], "description": "原站题目标识；无则 null。" },
+        "locator": { "type": ["string", "null"], "description": "页内定位说明（题号/锚点）；无则 null。" }
+      },
+      "additionalProperties": false
+    },
+    "retrieved_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "origin_type": { "type": "string", "enum": ["original", "adapted"], "description": "original=原题 / adapted=归一转换中改写过（保留原出处）。" },
+    "usage_limits": { "type": ["string", "null"], "description": "许可/使用限制说明；未知为 null。" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "提取置信度（字段完整性与可读性）。" },
+    "match_reason": { "type": "string", "minLength": 1, "description": "命中理由（知识点/题型/难度匹配说明）。" }
+  },
+  "additionalProperties": false
+}

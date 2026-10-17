@@ -1,0 +1,18 @@
+# connectors（智能体 A）测试与联调依赖声明 —— X5 收尾补（B 执行协调者指派项）
+#
+# 背景：此前本目录无独立依赖声明；缺 requests 时 tests/test_transport.py 模块级导入失败，
+# 套件在收集期整体中断（表象像“代码坏了”）。安装指引：
+#   python -m pip install -r connectors/requirements.txt   （任意工作目录，本文件无相对路径引用）
+# 全套件（仓库根执行，全离线）：
+#   python -m pytest connectors/tests -q
+# 环境完整性自检：tests/test_env_integrity.py（缺依赖时显式失败并给出本安装指引）
+
+requests>=2.31       # tests/test_transport.py 模块级导入（本机 stdlib HTTP 服务真实数据流）；
+                     # 真实会话链使用（browser/session_runner.py 内延迟导入的 requests.Session）
+jsonschema>=4.20     # tests/validate_samples.py：connectors/samples 按 contracts/schemas 全量校验
+referencing>=0.28    # 上者的注册表（schema 间 $ref 解析；validate_samples.py 直接导入）
+pytest>=8.0          # 套件运行器（亦可用 python -m unittest discover -s connectors/tests）
+
+# 真实受控浏览器会话阶段（A17/A20–A22，会话侧独立环境）另需 playwright——
+# 全为延迟导入，离线测试不依赖：pip install playwright；用法与通道见 docs/A6、docs/A21-A22。
+# playwright>=1.40

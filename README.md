@@ -1,5 +1,18 @@
 # Campus Agent
 
+## 浙大学习插件（2026-10-17 更新）
+
+新版插件源码位于 [`plugins/zju-study`](plugins/zju-study)，提供学在浙大/智云课堂同步、学习计划、课堂总结和复习卷生成，包含数学公式渲染与离线导出修复。完整安装、学校登录、API 配置和 MCP 接入步骤见 **[学习插件使用说明](docs/zju-study-plugin.md)**。
+
+```powershell
+./start-study-plugin.ps1 -Setup  # 首次安装依赖
+./start-study-plugin.ps1         # 启动学习插件
+```
+
+Windows 用户也可下载 [新版 Windows 启动包](releases/zju-study-plugin-0.3.0-alpha.1-20261017-math-windows.zip)，完整解压后按说明初始化。根目录中 20261012 的两个压缩包为旧版本。
+
+学习插件目前独立运行，可通过 MCP 或 REST 被其他 Agent 调用；本仓库的 Campus Agent 主程序尚未实现自动加载该插件。两者使用独立环境和数据，启动脚本会自动避让端口。以下说明介绍主程序本身。
+
 面向浙江大学学生的校园资料工作台。**v0.2 已实现可运行的本地 Web 闭环**：上传资料、提取待办、检索原文、核对时间及删除资料。支持由用户在本机配置的 OpenAI 接口，默认关闭。
 
 这不是学校官方服务。目前未接入真实校园账号、实时通知、自动报名或真实学分认定。

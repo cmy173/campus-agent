@@ -1,0 +1,59 @@
+{
+  "$schema": "./plugins/zju-study/plugin.schema.json",
+  "schema_version": "1.0",
+  "id": "zju-study",
+  "name": "浙大学习插件",
+  "version": "0.3.0-alpha.1",
+  "description": "供宿主 Agent 调用的本地浙江大学学习能力：课程资料、作业、回放转写、课堂总结、学习计划和复习卷。",
+  "kind": "local-agent-tool-provider",
+  "manifest_format": "project-defined; not a proprietary host marketplace format",
+  "interfaces": {
+    "mcp": {
+      "transport": "stdio",
+      "entrypoint": "tools/agent_plugin.py",
+      "installed_command": "zju-study-plugin",
+      "tools_schema": "plugins/zju-study/tools.json"
+    },
+    "rest": {
+      "base_url_env": "ZJU_STUDY_API_URL",
+      "default": "http://127.0.0.1:8000/api/v1",
+      "openapi": "contracts/openapi/openapi.yaml"
+    }
+  },
+  "runtime": {
+    "python": ">=3.11",
+    "backend_required": true,
+    "backend_setup": [
+      "python tools/dev.py --setup"
+    ],
+    "adapter_setup": [
+      "apps/api/.venv/Scripts/python.exe -m pip install -e plugins/zju-study"
+    ],
+    "backend_start": [
+      "python tools/dev.py --platforms xzzd zykt"
+    ]
+  },
+  "configuration": {
+    "ZJU_STUDY_API_URL": {
+      "type": "string",
+      "default": "http://127.0.0.1:8000/api/v1",
+      "description": "仅本机回环 HTTP API，必须包含 /api/v1；自动换端口后需相应更新。"
+    }
+  },
+  "permissions": {
+    "platforms": "read-only, authenticated browser session stays local",
+    "local_files": "only explicit file paths passed to study_import_file",
+    "ai": "selected text sent only when the host invokes generation; provider key stays in local backend",
+    "platform_writes": false
+  },
+  "capabilities": {
+    "courses_and_materials": "available",
+    "existing_platform_transcripts": "available",
+    "classroom_summary_brief": "live-verified",
+    "classroom_summary_detailed": "automated-tests-only",
+    "full_audio_asr": "experimental-not-bundled",
+    "blackboard_ocr": "not-implemented"
+  },
+  "host_instructions": "plugins/zju-study/AGENT_GUIDE.md",
+  "web_ui": "http://127.0.0.1:5173"
+}

@@ -1,0 +1,1685 @@
+[
+  {
+    "name": "study_import_file",
+    "title": null,
+    "description": "Import one explicitly selected local PDF/PPT/PPTX/DOCX/ZIP into a course. Local transfer only; does not send it to AI. purpose=reference marks past-paper reference.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Absolute path of the file explicitly selected by the user",
+          "title": "File Path",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Title"
+        },
+        "purpose": {
+          "default": "material",
+          "description": "",
+          "enum": [
+            "material",
+            "reference"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "textbook_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Textbook Id"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Idempotency Key"
+        }
+      },
+      "required": [
+        "course_id",
+        "file_path"
+      ],
+      "title": "study_import_fileArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_import_fileDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_status",
+    "title": null,
+    "description": "Check whether the local study backend is ready.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_statusArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_statusDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_connections",
+    "title": null,
+    "description": "List platform connection and login status; no credentials returned.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_connectionsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_connectionsDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_check_connection",
+    "title": null,
+    "description": "Recheck an existing school login. Human authentication may be required.",
+    "inputSchema": {
+      "properties": {
+        "connection_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Connection Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection_id"
+      ],
+      "title": "study_check_connectionArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_check_connectionDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_courses",
+    "title": null,
+    "description": "List local courses; follow next_cursor until null.",
+    "inputSchema": {
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "study_coursesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_coursesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_discover_courses",
+    "title": null,
+    "description": "Read courses from the connected school platform.",
+    "inputSchema": {
+      "properties": {
+        "connection_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Cursor"
+        },
+        "term": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Term"
+        }
+      },
+      "required": [
+        "connection_id"
+      ],
+      "title": "study_discover_coursesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_discover_coursesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_import_courses",
+    "title": null,
+    "description": "Attach selected discovered courses to the local library. Does not enroll or modify school courses.",
+    "inputSchema": {
+      "properties": {
+        "connection_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "connection_id",
+        "request"
+      ],
+      "title": "study_import_coursesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_import_coursesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_sync",
+    "title": null,
+    "description": "Start asynchronous sync of bound courses; return a job immediately. School data is read only.",
+    "inputSchema": {
+      "properties": {
+        "connection_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Optional {full:false}",
+          "title": "Request",
+          "type": "object"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reuse the same 8-128 character key when retrying a request",
+          "title": "Idempotency Key"
+        }
+      },
+      "required": [
+        "connection_id"
+      ],
+      "title": "study_syncArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_syncDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_resources",
+    "title": null,
+    "description": "List course documents and parsing state.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "study_resourcesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_resourcesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_chunks",
+    "title": null,
+    "description": "Read parsed document text with provenance and page locators.",
+    "inputSchema": {
+      "properties": {
+        "resource_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "title": "study_chunksArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_chunksDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_assignments",
+    "title": null,
+    "description": "Read course homework and due dates.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "study_assignmentsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_assignmentsDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_recordings",
+    "title": null,
+    "description": "List synchronized classroom sessions for a course.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "study_recordingsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_recordingsDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_transcript",
+    "title": null,
+    "description": "Read existing platform speech-recognition text for one synchronized session; this does not re-transcribe audio.",
+    "inputSchema": {
+      "properties": {
+        "recording_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Recording Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recording_id"
+      ],
+      "title": "study_transcriptArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_transcriptDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_classroom_sessions",
+    "title": null,
+    "description": "List own synchronized past classroom sessions, including course and teacher.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_classroom_sessionsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_classroom_sessionsDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_summarize_class",
+    "title": null,
+    "description": "Send user-reviewed transcript to the selected configured AI API. Costs API usage. request={provider_id, detail:brief|detailed, transcript}; returns job, not final summary.",
+    "inputSchema": {
+      "properties": {
+        "recording_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Recording Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "recording_id",
+        "request"
+      ],
+      "title": "study_summarize_classArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_summarize_classDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_class_summaries",
+    "title": null,
+    "description": "Read saved classroom summaries and jobs, newest first.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_class_summariesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_class_summariesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_providers",
+    "title": null,
+    "description": "List configured AI service IDs and models; no API keys are returned.",
+    "inputSchema": {
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "study_providersArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_providersDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_job",
+    "title": null,
+    "description": "Poll asynchronous task status. Only succeeded means complete; inspect errors and warnings.",
+    "inputSchema": {
+      "properties": {
+        "job_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "study_jobArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_jobDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_cancel_job",
+    "title": null,
+    "description": "Request cancellation of a local background job.",
+    "inputSchema": {
+      "properties": {
+        "job_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "study_cancel_jobArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_cancel_jobDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_retry_job",
+    "title": null,
+    "description": "Retry a failed local job. AI generation jobs may incur API usage again.",
+    "inputSchema": {
+      "properties": {
+        "job_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Idempotency Key"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "study_retry_jobArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_retry_jobDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_tasks",
+    "title": null,
+    "description": "List learning tasks, optionally scoped to a course.",
+    "inputSchema": {
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "course_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Course Id"
+        }
+      },
+      "title": "study_tasksArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_tasksDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_build_tasks",
+    "title": null,
+    "description": "Build local learning tasks from parsed materials. Optional request={course_id}.",
+    "inputSchema": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "title": "study_build_tasksArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_build_tasksDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_task_feedback",
+    "title": null,
+    "description": "Record local learning progress using FeedbackRequest; does not submit homework.",
+    "inputSchema": {
+      "properties": {
+        "task_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "request"
+      ],
+      "title": "study_task_feedbackArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_task_feedbackDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_availability",
+    "title": null,
+    "description": "Read study availability and timezone.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_availabilityArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_availabilityDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_set_availability",
+    "title": null,
+    "description": "Save local study availability using the REST availability schema.",
+    "inputSchema": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "study_set_availabilityArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_set_availabilityDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_preview_plan",
+    "title": null,
+    "description": "Create a candidate study schedule; does not activate it. request may contain horizon_start, horizon_end, respect_locked.",
+    "inputSchema": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "title": "study_preview_planArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_preview_planDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_current_plan",
+    "title": null,
+    "description": "Read the active local learning schedule.",
+    "inputSchema": {
+      "properties": {},
+      "title": "study_current_planArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_current_planDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_apply_plan",
+    "title": null,
+    "description": "Activate a previously previewed local plan after the user selects it.",
+    "inputSchema": {
+      "properties": {
+        "plan_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Plan Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id"
+      ],
+      "title": "study_apply_planArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_apply_planDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_review_materials",
+    "title": null,
+    "description": "List available PPT, assignments and review-paper reference materials.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "study_review_materialsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_review_materialsDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_review_preflight",
+    "title": null,
+    "description": "Validate a review-paper request without calling an AI model.",
+    "inputSchema": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "study_review_preflightArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_review_preflightDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_generate_review",
+    "title": null,
+    "description": "Generate a review paper using the selected AI API. Costs API usage; request follows ReviewRequest in OpenAPI. Returns asynchronous job; never claim completed before job succeeds.",
+    "inputSchema": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Idempotency Key"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "study_generate_reviewArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_generate_reviewDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_revise_review",
+    "title": null,
+    "description": "Revise a generated paper using the REST ReviewRevisionRequest schema; costs AI API usage.",
+    "inputSchema": {
+      "properties": {
+        "paper_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Paper Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Idempotency Key"
+        }
+      },
+      "required": [
+        "paper_id",
+        "request"
+      ],
+      "title": "study_revise_reviewArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_revise_reviewDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_review_papers",
+    "title": null,
+    "description": "List saved review papers.",
+    "inputSchema": {
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opaque next_cursor from previous page",
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1 to 200",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "course_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "",
+          "title": "Course Id"
+        }
+      },
+      "title": "study_review_papersArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_review_papersDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_review_paper",
+    "title": null,
+    "description": "Read one generated review paper.",
+    "inputSchema": {
+      "properties": {
+        "paper_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Paper Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "paper_id"
+      ],
+      "title": "study_review_paperArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_review_paperDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_export_review",
+    "title": null,
+    "description": "Read a generated paper as Markdown or student/answer text.",
+    "inputSchema": {
+      "properties": {
+        "paper_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Paper Id",
+          "type": "string"
+        },
+        "format": {
+          "default": "markdown",
+          "description": "",
+          "enum": [
+            "markdown",
+            "student",
+            "answers"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "paper_id"
+      ],
+      "title": "study_export_reviewArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_export_reviewDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_textbooks",
+    "title": null,
+    "description": "List confirmed and candidate textbooks for one course.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "course_id"
+      ],
+      "title": "study_textbooksArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_textbooksDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_save_textbook",
+    "title": null,
+    "description": "Save textbook identity and file association; confirm exact edition before exercise matching. Uses BookInput schema.",
+    "inputSchema": {
+      "properties": {
+        "course_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Course Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "course_id",
+        "request"
+      ],
+      "title": "study_save_textbookArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_save_textbookDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_index_textbook",
+    "title": null,
+    "description": "Find exercise candidates in an already parsed local book. Candidates require checking.",
+    "inputSchema": {
+      "properties": {
+        "textbook_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Textbook Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "textbook_id"
+      ],
+      "title": "study_index_textbookArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_index_textbookDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_exercises",
+    "title": null,
+    "description": "Read numbered textbook exercise candidates and confirmation state.",
+    "inputSchema": {
+      "properties": {
+        "textbook_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Textbook Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "textbook_id"
+      ],
+      "title": "study_exercisesArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_exercisesDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  },
+  {
+    "name": "study_confirm_exercise",
+    "title": null,
+    "description": "Save a user-checked exercise statement and edition association using ExerciseInput.",
+    "inputSchema": {
+      "properties": {
+        "textbook_id": {
+          "description": "Opaque ID returned by a previous tool",
+          "title": "Textbook Id",
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "JSON request matching the corresponding REST endpoint; see bundled OpenAPI",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "textbook_id",
+        "request"
+      ],
+      "title": "study_confirm_exerciseArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "study_confirm_exerciseDictOutput",
+      "type": "object"
+    },
+    "icons": null,
+    "annotations": {
+      "title": null,
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "meta": null,
+    "execution": null
+  }
+]

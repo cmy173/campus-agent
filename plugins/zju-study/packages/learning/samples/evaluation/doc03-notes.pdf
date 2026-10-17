@@ -1,0 +1,72 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 196 >>
+stream
+BT /F1 12 Tf 72 720 Td 16 TL
+(1 Introduction) Tj
+T*
+( ) Tj
+T*
+(This handout reviews arrays and linked lists and compares their costs for indexing, insertion, and deletion in the worst case.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 158 >>
+stream
+BT /F1 12 Tf 72 720 Td 16 TL
+(1.1 Arrays) Tj
+T*
+( ) Tj
+T*
+(Arrays store elements in contiguous memory so that random access by index costs O\(1\) time.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 179 >>
+stream
+BT /F1 12 Tf 72 720 Td 16 TL
+(1.2 Linked lists) Tj
+T*
+( ) Tj
+T*
+(Linked lists walk from the head to a position in O\(n\) time, while inserting at a known node costs O\(1\).) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000253 00000 n 
+0000000500 00000 n 
+0000000626 00000 n 
+0000000835 00000 n 
+0000000961 00000 n 
+0000001191 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1261
+%%EOF

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewPaper",
+  "description": "复习卷（指定 revision 的完整内容）：蓝图、题目、材料与备注快照、生成配置快照、警告与摘要。id 为卷的稳定标识，revision 从 1 递增，历史版本各自保留快照可复查；重做/修订产生新版本，不覆盖旧版。",
+  "type": "object",
+  "required": [
+    "id", "course_id", "revision", "revision_reason", "based_on_revision", "title", "created_at",
+    "mode", "constraints", "provider", "engine_version", "snapshot", "blueprint",
+    "questions", "warnings", "summary"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id", "description": "试卷稳定 ID（pap_ 前缀）。" },
+    "course_id": { "$ref": "common.schema.json#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1, "description": "版本号（从 1 递增；历史版本可读）。" },
+    "revision_reason": { "type": "string", "enum": ["initial", "regenerate", "revise"], "description": "本版产生原因：首次生成 / 原参数重做 / 修改备注或约束后重做。" },
+    "based_on_revision": { "type": ["integer", "null"], "minimum": 1, "description": "修订所基于的上一版 revision；首版为 null。" },
+    "title": { "type": "string", "minLength": 1, "description": "用户可读标题（不得以内部 ID 兜底）。" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "mode": { "$ref": "common.schema.json#/$defs/review_mode" },
+    "constraints": { "$ref": "review-request.schema.json#/$defs/Constraints" },
+    "provider": { "$ref": "#/$defs/ProviderSnapshot" },
+    "engine_version": { "type": "string", "minLength": 1 },
+    "snapshot": { "$ref": "material-snapshot.schema.json", "description": "本版材料与备注快照（含实际发送正文原文）。" },
+    "blueprint": { "$ref": "paper-blueprint.schema.json" },
+    "questions": { "type": "array", "minItems": 1, "items": { "$ref": "review-question.schema.json" } },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/Warning" }, "description": "非致命告警（题库无结果、缺口未补齐、低置信度、修复等）；成功也不掩盖缺题。" },
+    "summary": { "$ref": "#/$defs/Summary" }
+  },
+  "$defs": {
+    "ProviderSnapshot": {
+      "type": "object",
+      "description": "生成配置快照（不含密钥；bank 模式未用模型时字段为 null）。",
+      "required": ["config_id", "name", "protocol", "base_url", "model"],
+      "properties": {
+        "config_id": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"] },
+        "protocol": { "oneOf": [{ "type": "string", "const": "openai_chat_completions" }, { "type": "null" }] },
+        "base_url": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "Warning": {
+      "type": "object",
+      "required": ["code", "message", "question_ids", "details"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["BANK_NO_RESULTS", "BANK_PARTIAL", "DEFICIT_UNFILLED", "LOW_CONFIDENCE", "MATERIAL_GAP", "REPAIR_APPLIED", "INCOMPLETE_QUESTIONS"],
+          "description": "告警码（SCREAMING_SNAKE_CASE，开放集合；语义由 D/B 维护）。"
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "question_ids": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/id" }, "description": "相关题目 ID（可为空数组）。" },
+        "details": { "type": ["object", "null"], "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "Summary": {
+      "type": "object",
+      "description": "展示用汇总（与 questions 一致；不一致不得标成功）。",
+      "required": ["question_count", "total_points", "estimated_minutes", "type_counts", "difficulty_counts", "origin_counts"],
+      "properties": {
+        "question_count": { "type": "integer", "minimum": 0 },
+        "total_points": { "type": "integer", "minimum": 0 },
+        "estimated_minutes": { "type": "integer", "minimum": 0 },
+        "type_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }, "description": "题型 → 题目数（键为 question_type 值）。" },
+        "difficulty_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }, "description": "难度 → 题目数（键为 easy/medium/hard）。" },
+        "origin_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }, "description": "来源 → 题目数（键为 ai/bank/adapted_bank）。" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,50 @@
+{
+  "name": "insufficient_total",
+  "description": "总时间不足：两天各 60 分钟窗口，三项 60 分钟任务。前两项可安排，第三项因计划范围容量耗尽归为“总时间不足”。",
+  "tasks": [
+    {
+      "id": "t_suf_a",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：任务 A",
+      "estimated_minutes": 60
+    },
+    {
+      "id": "t_suf_b",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：任务 B",
+      "estimated_minutes": 60
+    },
+    {
+      "id": "t_suf_c",
+      "course_id": "crs_demo",
+      "type": "reading",
+      "title": "示例：任务 C",
+      "estimated_minutes": 60
+    }
+  ],
+  "availability": {
+    "timezone": "Asia/Shanghai",
+    "weekly_windows": [
+      {"weekday": 0, "start": "19:00", "end": "20:00"},
+      {"weekday": 1, "start": "19:00", "end": "20:00"}
+    ],
+    "date_exceptions": [],
+    "daily_limit_minutes": null
+  },
+  "schedule_options": {
+    "horizon_start": "2026-10-12T00:00+08:00",
+    "horizon_end": "2026-10-19T00:00+08:00",
+    "reference_time": "2026-10-09T12:00+08:00",
+    "input_revision": 1
+  },
+  "expected": {
+    "plan_warnings": [],
+    "allowed_violations": [],
+    "scheduled_tasks": ["t_suf_a", "t_suf_b"],
+    "unassigned": {
+      "t_suf_c": "INSUFFICIENT_TOTAL_TIME"
+    }
+  }
+}

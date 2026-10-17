@@ -1,0 +1,41 @@
+{
+  "examples": [
+    {
+      "status": "ok",
+      "handle": {
+        "kind": "local_file",
+        "ref": "var/spool/fetch/res_01a7-v2.pdf",
+        "expires_at": "2026-10-09T10:30:00+08:00",
+        "sha256": "sha256:7f2e9c053b8d1a64e0c9f27b45a1d83e9c6b05f28e4d71a3b90f2c68d5a37e14",
+        "size": 1893000
+      },
+      "denial": null
+    },
+    {
+      "status": "denied",
+      "handle": null,
+      "denial": {
+        "reason": "preview_only",
+        "message": "该文件仅可在线预览，未获取内容。"
+      }
+    },
+    {
+      "status": "denied",
+      "handle": null,
+      "denial": {
+        "reason": "copyright_restricted",
+        "message": "版权限制：不允许下载。"
+      }
+    },
+    {
+      "status": "gone",
+      "handle": null,
+      "denial": null
+    },
+    {
+      "status": "transient_error",
+      "handle": null,
+      "denial": null
+    }
+  ]
+}

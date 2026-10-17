@@ -1,0 +1,122 @@
+{
+  "items": [
+    {
+      "id": "pln_7a1b",
+      "version": 2,
+      "status": "candidate",
+      "input_revision": "fp_2f9c41ab9d",
+      "horizon_start": "2026-10-12",
+      "horizon_end": "2026-10-25",
+      "blocks": [
+        {
+          "id": "blk_7a01",
+          "task_id": "tsk_0f3a91",
+          "starts_at": "2026-10-13T19:00:00+08:00",
+          "ends_at": "2026-10-13T20:00:00+08:00",
+          "locked": false
+        },
+        {
+          "id": "blk_7a02",
+          "task_id": "tsk_0f3a91",
+          "starts_at": "2026-10-14T19:00:00+08:00",
+          "ends_at": "2026-10-14T19:32:00+08:00",
+          "locked": false
+        },
+        {
+          "id": "blk_7a03",
+          "task_id": "tsk_1b7c02",
+          "starts_at": "2026-10-15T19:00:00+08:00",
+          "ends_at": "2026-10-15T20:30:00+08:00",
+          "locked": true
+        },
+        {
+          "id": "blk_7a04",
+          "task_id": "tsk_3d9e24",
+          "starts_at": "2026-10-17T09:00:00+08:00",
+          "ends_at": "2026-10-17T09:30:00+08:00",
+          "locked": false
+        }
+      ],
+      "unassigned": [
+        {
+          "task_id": "tsk_2c8d13",
+          "reason_code": "DEADLINE_PASSED",
+          "shortage_minutes": null,
+          "message": "截止时间已过（2026-10-01 23:59），不再排入计划。",
+          "suggestion": "如仍需完成，请更新截止时间或直接补记学习记录。"
+        },
+        {
+          "task_id": "tsk_8g3c58",
+          "reason_code": "INSUFFICIENT_TOTAL_TIME",
+          "shortage_minutes": 60,
+          "message": "当前策略下可用时间不足：还差约 60 分钟，未能安排。",
+          "suggestion": "可减少其他任务、放宽每日上限或延后处理。"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "TASK_VERSION_UPDATED",
+          "message": "同名资料存在新版本，已按最新版本估算时长。",
+          "task_ids": ["tsk_0f3a91"],
+          "details": {
+            "resource_id": "res_01a7",
+            "previous_version": 1,
+            "current_version": 2
+          }
+        }
+      ],
+      "summary": {
+        "capacity_minutes": 1020,
+        "scheduled_minutes": 212,
+        "locked_minutes": 90,
+        "scheduled_task_count": 3,
+        "unassigned_task_count": 2
+      },
+      "based_on_plan_id": "pln_6a0b",
+      "created_at": "2026-10-09T20:00:00+08:00",
+      "applied_at": null,
+      "revoked_at": null,
+      "superseded_by": null
+    },
+    {
+      "id": "pln_6a0b",
+      "version": 1,
+      "status": "active",
+      "input_revision": "fp_1a2b3c4d05",
+      "horizon_start": "2026-10-06",
+      "horizon_end": "2026-10-19",
+      "blocks": [
+        {
+          "id": "blk_6a01",
+          "task_id": "tsk_6f2b47",
+          "starts_at": "2026-10-08T19:00:00+08:00",
+          "ends_at": "2026-10-08T21:00:00+08:00",
+          "locked": false
+        }
+      ],
+      "unassigned": [
+        {
+          "task_id": "tsk_2c8d13",
+          "reason_code": "DEADLINE_PASSED",
+          "shortage_minutes": null,
+          "message": "截止时间已过（2026-10-01 23:59），不再排入计划。",
+          "suggestion": "如仍需完成，请更新截止时间或直接补记学习记录。"
+        }
+      ],
+      "warnings": [],
+      "summary": {
+        "capacity_minutes": 630,
+        "scheduled_minutes": 120,
+        "locked_minutes": 0,
+        "scheduled_task_count": 1,
+        "unassigned_task_count": 1
+      },
+      "based_on_plan_id": null,
+      "created_at": "2026-10-06T17:55:00+08:00",
+      "applied_at": "2026-10-06T18:00:00+08:00",
+      "revoked_at": null,
+      "superseded_by": null
+    }
+  ],
+  "next_cursor": null
+}

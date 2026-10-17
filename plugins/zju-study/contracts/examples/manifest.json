@@ -1,0 +1,29 @@
+{
+  "description": "样例清单：file（相对本目录）→ schema（相对本目录）→ target（root 或 <key>[*]）。由 validate_examples.py 消费。",
+  "examples": [
+    { "file": "api/courses.json", "schema": "../schemas/course.schema.json", "target": "items[*]", "cover": "两门课程；同一门课跨平台两条记录（xzzd/zykt）" },
+    { "file": "api/resources.json", "schema": "../schemas/resource.schema.json", "target": "items[*]", "cover": "重复文件（同内容哈希合并为多 source_refs）、同名新版本、preview_only 受限件、extent 篇幅、chunk_count" },
+    { "file": "api/resource-versions.json", "schema": "../schemas/resource-version.schema.json", "target": "items[*]", "cover": "同名新版本的历史版本链" },
+    { "file": "api/content-chunks.json", "schema": "../schemas/content-chunk.schema.json", "target": "items[*]", "cover": "解析片段：幻灯片/页码定位、ordinal 顺序、provenance 解析任务追溯（res_01a7/res_01b2 全量枚举，chunk_count 校验一致）" },
+    { "file": "api/assignments.json", "schema": "../schemas/assignment.schema.json", "target": "items[*]", "cover": "逾期作业、无截止作业、已提交作业、平台提交状态" },
+    { "file": "api/recordings.json", "schema": "../schemas/recording.schema.json", "target": "items[*]", "cover": "无字幕回放（unavailable）、字幕就绪（ready）、字幕待生成（pending）" },
+    { "file": "api/tasks.json", "schema": "../schemas/learning-task.schema.json", "target": "items[*]", "cover": "生成任务/用户任务、watching 类型、前置依赖、完成/取消归档、match_key" },
+    { "file": "api/plans.json", "schema": "../schemas/plan.schema.json", "target": "items[*]", "cover": "候选+生效计划；锁定块、逾期未安排、时间不足、每日限额内排程、summary" },
+    { "file": "api/availability.json", "schema": "../schemas/availability.schema.json", "target": "root", "cover": "每周窗口、日期例外（整日不可用/窗口覆盖）、每日限额 180" },
+    { "file": "api/connections.json", "schema": "../schemas/connection.schema.json", "target": "items[*]", "cover": "登录过期（auth_required + recovery_action）与正常连接" },
+    { "file": "api/jobs.json", "schema": "../schemas/job.schema.json", "target": "items[*]", "cover": "后台任务多态：succeeded（import/parse/review_generate，产物 review_paper）/running（sync 与 review_generate 含 phase 阶段）/partial_failed（含 errors 明细）" },
+    { "file": "api/providers.json", "schema": "../schemas/provider-config.schema.json", "target": "items[*]", "cover": "AI 服务配置：已设置密钥（has_api_key=true，密钥本身不出现）与未设置；本地 http 地址样例；last_test_result 摘要" },
+    { "file": "api/review-materials.json", "schema": "../schemas/review-material.schema.json", "target": "items[*]", "cover": "复习材料选择：已解析课件、待解析、受限不可访问（not_accessible）、作业正文+附件（asg_a102 → res_01b2）" },
+    { "file": "api/review-preflight.json", "schema": "../schemas/review-preflight.schema.json", "target": "root", "cover": "出卷预检：将发送材料+备注完整预览、缺失清单、目标 API、限制与 fingerprint 预览（不发送正文）" },
+    { "file": "api/review-paper.json", "schema": "../schemas/review-paper.schema.json", "target": "root", "cover": "复习卷 rev2（修订）：8 题/90 分、AI+网络原题+改编题、答案/解析/评分点/出处、材料快照含备注原文、警告（材料缺口/修复/低置信度）" },
+    { "file": "api/review-revisions.json", "schema": "../schemas/review-paper-revision.schema.json", "target": "items[*]", "cover": "试卷版本历史：rev2（revise）与 rev1（initial）索引，旧版可复查原快照" },
+    { "file": "api/questionbank-capabilities.json", "schema": "../schemas/questionbank-capabilities.schema.json", "target": "root", "cover": "题库能力：搜索服务/题库 API/用户链接导入三来源，未配置如实标记" },
+    { "file": "api/capabilities-xzzd.json", "schema": "../schemas/capabilities.schema.json", "target": "root", "cover": "能力三态清单（未实测必须 unknown）" },
+    { "file": "api/error-responses.json", "schema": "../schemas/error.schema.json", "target": "examples[*]", "cover": "错误信封：PLAN_STALE/AUTH_EXPIRED/VALIDATION_FAILED/REVISION_MISMATCH/RATE_LIMITED/NOT_FOUND" },
+    { "file": "adapter/connection-state.json", "schema": "../schemas/connection-state.schema.json", "target": "examples[*]", "cover": "适配器 check_connection 输出三态" },
+    { "file": "adapter/sync-result-xzzd.json", "schema": "../schemas/sync-result.schema.json", "target": "root", "cover": "同步信封：upserts/deletions/errors/stats、游标、显式删除信号、单项失败隔离" },
+    { "file": "adapter/fetch-outcome.json", "schema": "../schemas/fetch-outcome.schema.json", "target": "examples[*]", "cover": "文件获取：ok/denied(preview_only,copyright)/gone/transient_error" },
+    { "file": "adapter/mapping-candidate.json", "schema": "../schemas/mapping-candidate.schema.json", "target": "candidates[*]", "cover": "跨平台课程映射候选（左/右课程 + 证据 + 置信度）" },
+    { "file": "adapter/bank-candidates.json", "schema": "../schemas/bank-candidate.schema.json", "target": "candidates[*]", "cover": "题库候选归一：带答案原题与缺答案原题（缺失保持 null 不伪造）；来源 URL 指原题目页" }
+  ]
+}

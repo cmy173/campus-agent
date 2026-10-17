@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResourceVersion",
+  "description": "资源历史版本。每个版本对应一次内容获取（同步或导入）。",
+  "type": "object",
+  "required": [
+    "resource_id", "version", "content_hash", "mime_type", "size_bytes",
+    "file_id", "extent_value", "extent_unit", "fetched_at", "parse_status",
+    "source_updated_at", "created_at"
+  ],
+  "properties": {
+    "resource_id": { "$ref": "common.schema.json#/$defs/id" },
+    "version": { "type": "integer", "minimum": 1 },
+    "content_hash": { "$ref": "common.schema.json#/$defs/content_hash" },
+    "mime_type": { "type": ["string", "null"] },
+    "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+    "file_id": { "type": ["string", "null"] },
+    "extent_value": { "type": ["integer", "null"], "minimum": 0 },
+    "extent_unit": {
+      "oneOf": [
+        { "type": "string", "enum": ["page", "slide"] },
+        { "type": "null" }
+      ]
+    },
+    "fetched_at": { "type": ["string", "null"], "format": "date-time" },
+    "parse_status": {
+      "type": "string",
+      "enum": ["pending", "processing", "ready", "failed", "skipped"]
+    },
+    "source_updated_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourceRef",
+  "description": "平台来源引用。平台 ID 只存在于 external_id，与内部 ID 严格分离。",
+  "type": "object",
+  "required": ["platform", "external_id", "observed_at"],
+  "properties": {
+    "platform": {
+      "type": "string",
+      "minLength": 1,
+      "description": "平台标识。已知值：xzzd（学在浙大）、zykt（智云课堂）、manual（手动导入）。为开放集合，新平台由 A 的适配器注册后补充。",
+      "examples": ["xzzd", "zykt", "manual"]
+    },
+    "external_id": { "type": "string", "minLength": 1, "description": "平台侧资源 ID，原样保存，不做转换。" },
+    "canonical_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "可长期引用的规范 URL。临时签名下载 URL 不得放这里。"
+    },
+    "observed_at": {
+      "$ref": "common.schema.json#/$defs/timestamp",
+      "description": "该来源信息被观测（同步）到的时间。"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Job",
+  "description": "后台任务。写操作/同步/解析/导出等长任务返回 job，通过 GET /jobs/{id} 查询。",
+  "type": "object",
+  "required": [
+    "id", "type", "status", "progress", "errors", "warnings", "result_refs",
+    "cancel_requested", "created_at", "started_at", "finished_at"
+  ],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "type": {
+      "type": "string",
+      "enum": ["import", "parse", "sync", "export", "build_tasks", "review_generate", "textbook_sync", "classroom_summary"],
+      "description": "任务类型。为开放集合预留：新增类型需契约版本提升。review_generate=复习卷生成（B 调用模型；阶段见 phase，产物 result_refs 含 review_paper）。"
+    },
+    "phase": {
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+      "description": "阶段进度（仅部分任务类型使用；其余为 null 或省略）。review_generate：materials/blueprint/bank_search/generation/validation/saving（开放集合）。配合 progress 使用，不用固定定时器伪造进度。",
+      "examples": ["materials", "blueprint", "bank_search", "generation", "validation", "saving"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "succeeded", "partial_failed", "failed", "cancelled"],
+      "description": "partial_failed=部分条目成功部分失败（errors 必填具体项）。"
+    },
+    "progress": {
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "null" }
+      ],
+      "description": "进度 0–1；无法估计时为 null。"
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "error.schema.json#/$defs/ErrorInfo" },
+      "description": "失败原因列表；成功时为空数组。保留可读错误与诊断信息。"
+    },
+    "warnings": {
+      "type": "array",
+      "description": "非致命告警（如任务生成的内容重复合并、估算回退）；成功任务也可能带告警。",
+      "items": { "$ref": "#/$defs/Warning" }
+    },
+    "result_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "id"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "产物类型，如 resource、resource_version、plan、export_file。",
+            "examples": ["resource", "plan", "export_file"]
+          },
+          "id": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "additionalProperties": false
+      },
+      "description": "任务产物引用（如生成的候选计划、可下载的导出文件）。"
+    },
+    "cancel_requested": { "type": "boolean", "description": "是否已请求取消（取消为协作式，状态可能短暂仍为 running）。" },
+    "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "started_at": { "type": ["string", "null"], "format": "date-time" },
+    "finished_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "Warning": {
+      "type": "object",
+      "required": ["code", "message", "task_ids", "details"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "examples": ["DUPLICATE_CONTENT", "TASK_VERSION_UPDATED", "UNSUPPORTED_EXTENT", "MISSING_DURATION", "EXISTING_TASK_UNMATCHED"] },
+        "message": { "type": "string", "minLength": 1 },
+        "task_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/id" },
+          "description": "相关任务 ID 或稳定匹配键（可为空数组）。"
+        },
+        "details": { "type": ["object", "null"], "additionalProperties": true }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
