@@ -208,6 +208,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agent/benchmark/tool-exposure:
+    get:
+      tags:
+      - campus-agent
+      summary: Benchmark Tool Exposure
+      description: Benchmark-only readback of whether deferred tool groups are enabled.
+      operationId: benchmark_tool_exposure_api_v1_agent_benchmark_tool_exposure_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/agent/internal/model-observation:
+    post:
+      tags:
+      - campus-agent
+      summary: Internal Model Observation
+      description: Records one model call observation for the owning runtime turn.
+      operationId: internal_model_observation_api_v1_agent_internal_model_observation_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelObservationRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agent/settings/mcp/{server_name}/test:
     post:
       tags:
@@ -2435,6 +2482,37 @@ components:
       - message
       - retryable
       title: ModelErrorRequest
+    ModelObservationRequest:
+      properties:
+        conversation_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Conversation Id
+        duration_ms:
+          type: number
+          maximum: 600000
+          minimum: 0
+          title: Duration Ms
+        tools:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          maxItems: 256
+          title: Tools
+        selected_tools:
+          items:
+            type: string
+          type: array
+          maxItems: 64
+          title: Selected Tools
+      additionalProperties: false
+      type: object
+      required:
+      - conversation_id
+      - duration_ms
+      title: ModelObservationRequest
     ModelLeaseRequest:
       properties:
         conversation_id:
