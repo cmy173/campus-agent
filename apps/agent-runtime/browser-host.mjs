@@ -2,7 +2,7 @@
 import { createServer } from 'node:http';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { existsSync, writeSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { createConnection } from '@playwright/mcp';
@@ -15,6 +15,14 @@ const home = resolve(process.env.CAMPUS_BROWSER_HOME);
 const token = process.env.CAMPUS_BROWSER_TOKEN;
 if (!token || token.length < 32) throw new Error('Missing browser authority');
 await mkdir(home, { recursive: true });
+// Model-visible browser files (screenshots/PDFs/console dumps) must land inside the
+// conversation workspace: the capability policy refuses reads from the private browser
+// home, so the default output directory is the workspace when the API provides one.
+const clientWorkspace = process.env.CAMPUS_BROWSER_WORKSPACE
+  ? resolve(process.env.CAMPUS_BROWSER_WORKSPACE) : resolve(home, 'outputs');
+const clientOutputDir = process.env.CAMPUS_BROWSER_WORKSPACE
+  ? resolve(clientWorkspace, 'browser-outputs') : clientWorkspace;
+await mkdir(clientOutputDir, { recursive: true });
 const ledgerPath = resolve(home, 'actions.json');
 let ledger;
 try { ledger = JSON.parse(await readFile(ledgerPath, 'utf8')); }
@@ -104,7 +112,7 @@ async function connect() {
   if (client) return client;
   const upstream = await createConnection({
     browser: { browserName: 'chromium', isolated: false },
-    outputDir: resolve(home, 'outputs'), imageResponses: 'allow', filePaths: 'absolute',
+    outputDir: clientOutputDir, imageResponses: 'allow', filePaths: 'absolute',
     allowUnrestrictedFileAccess: true, saveSession: false, webmcp: true,
     console: { level: 'error' }, timeouts: { action: 10000, navigation: 60000 },
   }, launch);
@@ -117,9 +125,25 @@ async function connect() {
   return client;
 }
 
+/** Resolve every model-chosen file output inside the conversation workspace.
+ *
+ * Playwright MCP resolves relative filenames against the caller's workspace root and
+ * honours absolute names as-is. Both would let a screenshot/PDF land outside the
+ * capability scope (or overwrite source files), so absolute names are reduced to their
+ * basename and `_meta.cwd` pins the workspace root for the upstream tool.
+ */
+function clientArgs(args = {}) {
+  const forwarded = { ...args, _meta: { ...(args._meta ?? {}), cwd: clientOutputDir } };
+  if (typeof forwarded.filename === 'string' && isAbsolute(forwarded.filename)) {
+    forwarded.filename = basename(forwarded.filename);
+  }
+  return forwarded;
+}
+
 async function raw(name, args = {}) {
   const upstream = await connect();
-  if (name !== 'browser_take_screenshot') return upstream.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+  const forwarded = clientArgs(args);
+  if (name !== 'browser_take_screenshot') return upstream.callTool({ name, arguments: forwarded }, undefined, { timeout: 120000 });
   const pages = context.pages();
   if (pages.some(page => isAuthenticationURL(page.url()))) throw fail('BROWSER_AUTH_REQUIRED',
     '认证页面不向模型提供未脱敏截图，请由用户在浏览器中完成登录/MFA后读取普通页面。');
@@ -139,7 +163,7 @@ async function raw(name, args = {}) {
       });
       masked.push(page);
     }
-    return await upstream.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+    return await upstream.callTool({ name, arguments: forwarded }, undefined, { timeout: 120000 });
   } finally {
     for (const page of masked) await page.locator('[data-campus-secret-mask]').evaluateAll(elements => {
       for (const e of elements) { e.setAttribute('style', e.getAttribute('data-campus-secret-mask')); e.removeAttribute('data-campus-secret-mask'); }
@@ -250,7 +274,7 @@ async function redact(result) {
   };
   // Upstream writes snapshots/logs in outputDir. Sanitize their contents too,
   // before a model-visible path can be read by ordinary file tools.
-  const output = resolve(home, 'outputs');
+  const output = clientOutputDir;
   for (const entry of await readdir(output, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isFile() || !/\.(yml|yaml|log|txt|json)$/.test(entry.name)) continue;
     const path = resolve(output, entry.name);
@@ -323,6 +347,8 @@ async function dispatch(body) {
   if (body.method === 'open') {
     if (!headed || !context) { await stop(); headed = true; await launch(); }
     if (body.url) await raw('browser_navigate', { url: body.url });
+    const page = context.pages().at(-1);
+    if (page) await page.bringToFront();
     return { running: true, headed: true };
   }
   if (body.method === 'confirm' || body.method === 'reject') {

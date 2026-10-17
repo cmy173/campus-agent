@@ -157,7 +157,7 @@ def _bridge_protocol_adapter(factory: Any) -> Callable[[dict, dict], dict]:
             return adapter.sync_course(
                 request["course_id"],
                 since_cursor=request.get("since_cursor"),
-                kinds=None,
+                kinds=request.get("kinds"),
             )
         except Exception as exc:  # noqa: BLE001 —— 仅转译协议错误，其余原样上抛
             translated = _translate_protocol_error(exc)

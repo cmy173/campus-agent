@@ -11,10 +11,10 @@ git clone --branch codex/v2-collaboration-base campus-agent-v2-base.bundle campu
 cd campus-agent-v2
 python tools/dev.py --setup
 python tools/dev.py --check
-python tools/dev.py --platforms --open-browser
+python tools/dev.py --platforms xzzd --open-browser
 ```
 
-需要Python3.12、Node24/npm和Microsoft Edge。最后一行只启动新应用，不启动学校专用登录连接器；需要学在浙大连接器时用README中的默认启动命令。默认主入口/chat。首次配置模型通过聊天“模型设置”，密钥本机保存；基础包不包含用户账号。
+需要Python3.12、Node24/npm和Microsoft Edge。最后一行启动应用及学在浙大受控登录连接器；若平台要求登录或MFA，请在受控窗口中由用户完成。只启动网页/API的 smoke test 使用 `--no-platforms`。默认主入口/chat。首次配置模型通过聊天“模型设置”，密钥本机保存；基础包不包含用户账号。
 
 ## 已验证可用的基础
 

@@ -144,11 +144,15 @@ try {
   assert.equal((await rpc('confirm', { action_id: stale.action_id }, false)).code, 'BROWSER_ACTION_CHANGED');
   assert.equal(submitted.length, 1);
   evidence.checks.push('changed_form_requires_fresh_review');
-  const passwordReview = JSON.parse(plain(await call('browser_click', { target: '#submit' })));
-  await call('browser_type', { target: '#password', text: 'changed-fixture-password-283' });
-  assert.equal((await rpc('confirm', { action_id: passwordReview.action_id }, false)).code, 'BROWSER_ACTION_CHANGED');
+  // Password/OTP values belong in the human browser: the owned host must refuse a
+  // model-supplied password before it reaches the page, and must not echo it back.
+  await call('browser_click', { target: '#submit' });
+  const passwordDenied = await rpc('call', { name: 'browser_type',
+    arguments: { target: '#password', text: 'changed-fixture-password-283' } }, false);
+  assert.equal(passwordDenied.code, 'BROWSER_AUTH_REQUIRED');
+  assert(!JSON.stringify(passwordDenied).includes('changed-fixture-password-283'));
   assert.equal(submitted.length, 1);
-  evidence.checks.push('password_change_invalidates_review_without_exposing_password');
+  evidence.checks.push('password_typing_refused_without_exposing_the_secret');
   const downloaded = await call('browser_click', { target: '#download' });
   assert(!downloaded.isError, plain(downloaded));
   const status = await rpc('status');
@@ -162,9 +166,11 @@ try {
   assert.deepEqual(submitted, ['测试学生-819', '回车提交-284']);
   evidence.checks.push('type_with_enter_prepares_one_review_before_submission');
   await call('browser_navigate', { url: url + '/form' });
-  await call('browser_evaluate', { function: '() => localStorage.setItem("access_token", "fixture-storage-token-1837")' });
-  assert(!plain(await call('browser_evaluate', { function: '() => localStorage.getItem("access_token")' })).includes('fixture-storage-token-1837'));
-  evidence.checks.push('authentication_storage_values_redacted_from_tool_results');
+  // Arbitrary page JavaScript is not a model capability; the host must refuse it.
+  const evaluateDenied = await rpc('call', { name: 'browser_evaluate',
+    arguments: { function: '() => localStorage.getItem("access_token")' } }, false);
+  assert.equal(evaluateDenied.code, 'BROWSER_APPROVAL_REQUIRED');
+  evidence.checks.push('arbitrary_page_script_refused');
   const explicitArgs = { target: '#send', description: '发送本地测试消息', recipient: url + '/submit', content: 'JS消息-339' };
   await call('browser_type', { target: '#message', text: explicitArgs.content });
   const jsReview = JSON.parse(plain(await call('browser_prepare_action', explicitArgs)));
@@ -177,16 +183,18 @@ try {
   assert.equal((await rpc('confirm', { action_id: jsChanged.action_id })).action.status, 'executed');
   assert.deepEqual(submitted, ['测试学生-819', '回车提交-284', 'JS消息已变更-338']);
   evidence.checks.push('explicit_javascript_action_reviews_actual_fields_and_rejects_changed_content');
-  await call('browser_evaluate', { function: '() => localStorage.setItem("fixtureMarker", "persistent-882")' });
+  await call('browser_evaluate', { function: '() => localStorage.setItem("fixtureMarker", "persistent-882")' }).catch(() => {});
   await close();
   await start();
   const restored = await call('browser_navigate', { url: url + '/form' });
   assert.match(plain(restored), /登录状态已保留/);
   assert.equal(cookieVerified, true);
-  assert.match(plain(await call('browser_evaluate', { function: '() => localStorage.getItem("fixtureMarker")' })), /persistent-882/);
+  // The refused script capability stays refused after a host restart, too.
+  assert.equal((await rpc('call', { name: 'browser_evaluate',
+    arguments: { function: '() => 1' } }, false)).code, 'BROWSER_APPROVAL_REQUIRED');
   assert.equal((await rpc('confirm', { action_id: action.action_id })).action.status, 'executed');
   assert.equal(submitted.length, 3);
-  evidence.checks.push('owned_host_restart_preserves_cookie_storage_and_submission_receipt');
+  evidence.checks.push('owned_host_restart_preserves_cookie_session_and_submission_receipt');
   await rpc('stop');
   assert.equal((await rpc('status')).running, false);
   await call('browser_navigate', { url: url + '/form' });

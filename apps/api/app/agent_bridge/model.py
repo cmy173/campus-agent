@@ -6,6 +6,7 @@ from the conversation model or the runtime bridge payload.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 
 # Context and tool output are untrusted material, not a channel for credentials.
@@ -22,6 +23,22 @@ _AUTH_ASSIGNMENT = re.compile(
     r'(?i)([\"\']?(?:authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|password|passwd|pwd|secret|(?:api|access|refresh|id|auth|session|csrf|xsrf)[_-]?(?:key|token)|credential|client[-_]?secret|private[-_]?key|token)[\"\']?\s*[:=]\s*)'
     r'(?:\"(?:\\.|[^\"\\])*\"|\'(?:\\.|[^\'\\])*\'|[^\s,;\]\}]+)'
 )
+
+TOOL_SCHEMA_SNAPSHOT_MAX_CHARS = 64_000
+
+
+def tool_schema_snapshot(items, max_chars: int = TOOL_SCHEMA_SNAPSHOT_MAX_CHARS) -> dict:
+    """Capture model-visible tool contracts without logging auth-like values."""
+    safe_items = redact_context(items if isinstance(items, list) else [])
+    serialized = json.dumps(safe_items, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    snapshot = {
+        "sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        "count": len(safe_items),
+        "truncated": len(serialized) > max_chars,
+    }
+    if not snapshot["truncated"]:
+        snapshot["schemas"] = safe_items
+    return snapshot
 
 
 def redact_context(value, credentials=()):

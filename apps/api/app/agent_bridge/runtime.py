@@ -23,6 +23,7 @@ from .. import secrets_store
 from .settings import SettingsStore, harness_server
 from .files import ConversationFiles
 from .browser import BrowserHost
+from .response_grounding import assignment_deadline_summary, assignment_top_n_summary, citation_grounding_summary
 from ..process_owner import spawn_owned
 
 # A warm runner is dropped after this much idle time, and at most this many stay alive.
@@ -110,20 +111,36 @@ class Runtime:
         with SessionLocal() as db:
             self._auth_recovery_scope(db, checkpoint)
 
+    # A persisted pending cache read is restored by explicitly synchronizing the same
+    # capability/query/platform once, under the checkpoint's own narrow scope. The cache
+    # query itself stays pure (no remote request, no credential use, no browser), so an
+    # AUTH error persisted in the read cache can only be cleared here: at the trusted
+    # recovery entry that runs after a successful human authentication notification.
+    RECOVERY_REFRESH_TOOL = {'campus.query': 'campus.sync'}
+
     def probe_authenticated_read(self, checkpoint):
         """Callback adapter: execute ONLY the persisted pending campus read and args.
 
-        No browser, login, model call, newly widened course scope or accepted writes.
+        A pending cache read (`campus.query`) is probed as its explicit `campus.sync`
+        equivalent: identical capability/query/platform, the checkpoint's own scope,
+        read-only, no browser, no login of its own, no model call, no accepted writes.
+
+        ``allow_auth_recovery=False`` is what makes the "no login/browser of its own"
+        claim true: the refresh uses only the session that is already validated, and an
+        unready session comes back as a structured AUTH error so the checkpoint is kept
+        (`waiting_auth`). The probe never starts a password login or reads browser
+        cookies; the user's own explicit `campus.sync` keeps that bounded recovery.
         Tests may replace this callback without contacting real services/accounts.
         """
         from . import tools
-        from .recovery import valid_pending
+        from .recovery import read_tool, valid_pending
         pending = checkpoint['payload']['pending_tool']
-        if not valid_pending(pending):
+        name = self.RECOVERY_REFRESH_TOOL.get(pending.get('name', ''), pending.get('name', ''))
+        if not valid_pending(pending) or not read_tool(name):
             raise ApiError(403, 'RECOVERY_READ_ONLY', '仅允许恢复原校园只读查询')
         with SessionLocal() as db:
             ctx = self._auth_recovery_scope(db, checkpoint)
-            return tools.execute(pending['name'], pending['arguments'], db, ctx)
+            return tools.execute(name, pending['arguments'], db, ctx, allow_auth_recovery=False)
 
     def call_lock(self, tid: str):
         with self.lock:
@@ -169,13 +186,32 @@ class Runtime:
         env.update(TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
         env.update(CAMPUS_BRIDGE_URL=self.bridge_url, CAMPUS_BRIDGE_TOKEN=token,
                    CAMPUS_CONVERSATION_ID=cid, CAMPUS_PYTHON_EXECUTABLE=sys.executable)
+        settings = self.store.conversation(cid)['settings']
+        deferred_tool_groups = self._benchmark_tool_groups(settings)
+        if deferred_tool_groups:
+            env['CAMPUS_BENCH_DEFER_TOOL_GROUPS'] = ','.join(deferred_tool_groups)
         if configuration['key']:
             env['DEEPSEEK_API_KEY'] = configuration['key']
         if runtime_settings['search']['key']:
             env['DEEPSEEK_SEARCH_API_KEY'] = runtime_settings['search']['key']
         if os.environ.get('CAMPUS_RUNNER_MARKS'):
             env['CAMPUS_RUNNER_MARKS'] = os.environ['CAMPUS_RUNNER_MARKS']
+        if os.environ.get('CAMPUS_TURN_DEBUG') == '1':
+            # Opt-in only: adds error identity/digest lines to the runner's stderr, which
+            # stays discarded unless CAMPUS_RUNNER_STDERR is also set.
+            env['CAMPUS_TURN_DEBUG'] = '1'
         return env
+
+    @staticmethod
+    def _benchmark_tool_groups(settings):
+        """Return only explicitly requested, server-enabled schema treatments."""
+        if os.environ.get('CAMPUS_BENCH_ALLOW_TOOL_GROUPS') != '1':
+            return ()
+        requested = settings.get('benchmark_tool_groups', []) if isinstance(settings, dict) else []
+        if not isinstance(requested, list):
+            return ()
+        allowlist = {'campus_reviews'}
+        return tuple(sorted({item for item in requested if isinstance(item, str) and item in allowlist}))
 
     def _prewarm_payload(self, cid, token, configuration, runtime_settings, workspace):
         return {"prewarm": True, "conversation_id": cid, "home": str(self.home / cid),
@@ -203,7 +239,9 @@ class Runtime:
         try:
             settings = self.store.conversation(cid)['settings']
             configuration, runtime_settings, workspace = self._runtime_inputs(settings)
-            signature = self._runner_signature(configuration, runtime_settings, workspace)
+            benchmark_tool_groups = self._benchmark_tool_groups(settings)
+            signature = self._runner_signature(configuration, runtime_settings, workspace, (),
+                                               benchmark_tool_groups)
             # Turns hold this same lock, so a prewarm can never interleave with the turn
             # that would otherwise reuse (or replace) the process it is booting.
             with self.lock:
@@ -290,7 +328,7 @@ class Runtime:
         except ApiError:
             return []
 
-    def _runner_signature(self, configuration, runtime_settings, workspace, attachment_paths=()):
+    def _runner_signature(self, configuration, runtime_settings, workspace, attachment_paths=(), benchmark_tool_groups=()):
         """Everything baked into an owned runner process at startup.
 
         The SDK keeps one runtime subprocess and reuses it for later sessions, so a
@@ -302,6 +340,7 @@ class Runtime:
                            'key_revision': configuration.get('key_revision', 0),
                            'max_tokens': self.store.limits.max_output_tokens,
                            'attachments': sorted(attachment_paths),
+                           'benchmark_deferred_tool_groups': list(benchmark_tool_groups),
                            'search': runtime_settings['search'], 'skill_dirs': runtime_settings['skill_dirs'],
                            'mcp_servers': runtime_settings['mcp_servers'], 'workspace': str(workspace)},
                           sort_keys=True, ensure_ascii=False)
@@ -461,7 +500,9 @@ class Runtime:
                 self.workspaces[tid] = workspace
             # A turn's own attachments are the only extra files the runner may read.
             attachment_paths = self._attachment_paths(turn)
-            signature = self._runner_signature(configuration, runtime_settings, workspace, attachment_paths)
+            benchmark_tool_groups = self._benchmark_tool_groups(settings)
+            signature = self._runner_signature(configuration, runtime_settings, workspace, attachment_paths,
+                                               benchmark_tool_groups)
             handle, spawned = self._acquire_runner(turn['conversation_id'], tid, env, signature, resume)
             proc = handle['proc']
             with self.lock:
@@ -513,6 +554,27 @@ class Runtime:
                     if data["conversation_id"] != turn["conversation_id"] or not data["response"].strip():
                         raise ValueError("invalid result")
                     answer = data["response"]
+                    if goal_phase != 'paused':
+                        response_events = []
+                        cursor = 0
+                        while True:
+                            page = self.store.events(tid, cursor)
+                            response_events.extend(page["items"])
+                            next_cursor = page.get("next_cursor", cursor)
+                            if not page["items"] or next_cursor == cursor:
+                                break
+                            cursor = next_cursor
+                        grounded = assignment_top_n_summary(response_events, turn.get("text"))
+                        if grounded is None:
+                            grounded = assignment_deadline_summary(response_events)
+                        if grounded is None:
+                            # Answer-side verification: disclose (never rewrite) links that
+                            # this turn's tool results never observed.
+                            grounded = citation_grounding_summary(response_events, answer)
+                        if grounded is not None:
+                            answer, grounding_meta = grounded
+                            data = {**data, "response": answer}
+                            self.store.event(tid, "response_grounding", grounding_meta)
                     answered = True
                 elif kind == "error":
                     self.store.finish(tid, "failed", error=self._failure(tid, data))

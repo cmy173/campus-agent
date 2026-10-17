@@ -160,7 +160,13 @@ class BrowserHost:
             env = {k: os.environ[k] for k in keys if k in os.environ}
             scratch = self.home / 'tmp'
             scratch.mkdir(exist_ok=True)
+            # The browser daemon is owned by the API, not by a turn's runner, so it gets
+            # the app workspace explicitly: model-visible screenshots/PDFs must land in a
+            # capability-readable directory, never in the private browser home.
+            workspace = Path(os.environ.get('CAMPUS_WORKSPACE_DIR') or REPO_ROOT / 'var' / 'workspace').resolve()
+            workspace.mkdir(parents=True, exist_ok=True)
             env.update(CAMPUS_BROWSER_HOME=str(self.home.resolve()), CAMPUS_BROWSER_TOKEN=self.token,
+                       CAMPUS_BROWSER_WORKSPACE=str(workspace),
                        TEMP=str(scratch.resolve()), TMP=str(scratch.resolve()))
             proc = spawn_owned([node, str(root / 'browser-host.mjs')], cwd=root, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

@@ -20,7 +20,7 @@ def connection_query(workspace, calls):
     return query
 
 
-def test_restart_restores_grant_not_secrets_and_query_reprobes(tmp_path, monkeypatch):
+def test_restart_restores_grant_not_secrets_and_explicit_sync_reprobes(tmp_path, monkeypatch):
     path = tmp_path / "campus.sqlite"
     probes, identities, cookies = [], [], []
     class Client(CookieClient):
@@ -44,21 +44,30 @@ def test_restart_restores_grant_not_secrets_and_query_reprobes(tmp_path, monkeyp
     first.close()
     reopened = CampusWorkspace(path, Client)
     try:
-        calls = []
+        queries, syncs = [], []
         reopened.bind_browser_cookie_provider(lambda: cookies.append(1) or COOKIES)
-        monkeypatch.setattr(reopened.manager.service, "query", connection_query(reopened, calls))
-        # Recovery after an adopted session refreshes the authorized read instead of
-        # replaying a stale cached AUTH error; keep the synthetic call accounting.
-        monkeypatch.setattr(reopened.manager.service, "sync", connection_query(reopened, calls))
+        monkeypatch.setattr(reopened.manager.service, "query", connection_query(reopened, queries))
+        # Only the explicit sync entry may reach the school or re-adopt a browser
+        # session: recovery after an adopted session refreshes the authorized read
+        # instead of replaying a stale cached AUTH error. Keep the call accounting.
+        monkeypatch.setattr(reopened.manager.service, "sync", connection_query(reopened, syncs))
         status = reopened.status()
         assert status["browser_session_authorized"] and status["browser_authorization"]["persisted"]
         assert not status["connected"] and not status["passport_connected"]
         assert cookies == []  # neither initialization nor status reads secrets
-        assert reopened.query("grades", {})["error"] is None
-        assert len(cookies) == 1 and len(calls) == 2
-        assert len(probes) == 2 and identities == ["", "controlled-student"]
+        # A plain cache read is offline: one local cache lookup, no school sync, no
+        # browser credential read, no probe and no re-adoption of the granted session.
+        cached = reopened.query("grades", {})
+        assert cached["error"]["code"] == "AUTH_REQUIRED" and not cached["records"]
+        assert queries == [1] and syncs == [] and cookies == []
+        assert probes == [1] and identities == [""]
+        # Only the explicit sync entry re-adopts the already authorized session, once.
+        assert reopened.query("grades", {}, refresh=True)["error"] is None
+        assert cookies == [1] and syncs == [1, 1]
+        assert probes == [1, 1] and identities == ["", "controlled-student"]
         assert reopened.status()["browser_authorization"]["authorized_at"] == authorized_at
         assert reopened.query("grades", {})["error"] is None
+        assert queries == [1, 1] and syncs == [1, 1] and cookies == [1]
         assert len(cookies) == 1  # healthy connector does not re-copy browser credentials
     finally:
         reopened.close()
@@ -123,10 +132,13 @@ def test_restart_failed_recovery_preserves_grant_cache_and_honest_auth(tmp_path,
         return COOKIES
     reopened.bind_browser_cookie_provider(provider)
     monkeypatch.setattr(reopened.manager.service, "query", lambda *a, **k: Result("AUTH_REQUIRED"))
+    # Only the explicit sync entry may attempt recovery, and even there the provider
+    # is read at most once per cooldown window: never an authentication loop.
+    monkeypatch.setattr(reopened.manager.service, "sync", lambda *a, **k: Result("AUTH_REQUIRED"))
     before = reopened.manager._snapshot("local")
     try:
         for _ in range(3):
-            result = reopened.query("grades", {})
+            result = reopened.query("grades", {}, refresh=True)
             assert result["error"]["code"] == "AUTH_REQUIRED" and not result["records"]
             assert "private secret" not in json.dumps(result)
         assert len(copies) == 1  # bounded cooldown, never authentication loops
@@ -172,9 +184,12 @@ def test_revocation_during_provider_read_never_resurrects_grant(tmp_path, monkey
         return COOKIES
     reopened.bind_browser_cookie_provider(cookies)
     monkeypatch.setattr(reopened.manager.service, "query", lambda *a, **k: Result("AUTH_REQUIRED"))
+    # A plain cache read never touches the provider, so the revocation-during-read
+    # race is exercised through the explicit sync entry that may re-adopt a session.
+    monkeypatch.setattr(reopened.manager.service, "sync", lambda *a, **k: Result("AUTH_REQUIRED"))
     try:
         assert before["profile"]
-        assert reopened.query("grades", {})["error"]["code"] == "AUTH_REQUIRED"
+        assert reopened.query("grades", {}, refresh=True)["error"]["code"] == "AUTH_REQUIRED"
         assert not reopened.status()["browser_session_authorized"]
         assert not reopened.status()["connected"]
         assert reopened.manager._snapshot("local")["profile"] is None
@@ -292,9 +307,16 @@ def test_runtime_provider_resolves_new_instance_after_http_connect(gateway, tmp_
         status = client.get(base + "/status").json()
         assert status["browser_session_authorized"] and not status["connected"]
         assert copies == ["first"]
-        response = client.post(base + "/query", json={"capability": "grades"})
+        # A plain cache read reports the expired session and stays offline: no browser
+        # credential read, no remote sync (semantics change this round).
+        cached = client.post(base + "/query", json={"capability": "grades"})
+        assert cached.status_code == 200 and cached.json()["error"]["code"] == "AUTH_REQUIRED"
+        assert copies == ["first"] and len(calls) == 1
+        # The explicit sync entry re-adopts the restarted browser session once, then
+        # retries the read once — the previous bounded-recovery property, preserved.
+        response = client.post(base + "/sync", json={"capability": "grades"})
         assert response.status_code == 200 and response.json()["error"] is None
-        assert copies == ["first", "restarted"] and len(calls) == 2
+        assert copies == ["first", "restarted"] and len(calls) == 3
         assert client.post(base + "/disconnect", json={}).status_code == 200
         current[0].close()
         current[0] = CampusWorkspace(path, CookieClient)
@@ -303,23 +325,29 @@ def test_runtime_provider_resolves_new_instance_after_http_connect(gateway, tmp_
         current[0].close()
 
 
-def test_real_cache_query_after_restart_reuses_verified_browser(tmp_path, monkeypatch):
+def test_explicit_sync_after_restart_reuses_verified_browser_and_cache_read_stays_offline(tmp_path, monkeypatch):
     path = tmp_path / "campus.sqlite"
     first = CampusWorkspace(path, CookieClient)
     first.authorize_browser_session(lambda: COOKIES)
     first.close()
     reopened = CampusWorkspace(path, CookieClient)
-    copies = []
+    copies, queries, syncs = [], [], []
     reopened.bind_browser_cookie_provider(lambda: copies.append(1) or COOKIES)
     try:
         assert not reopened.status()["connected"]
-        monkeypatch.setattr(reopened.manager.service, "query", lambda *a, **k: Result(None))
-        monkeypatch.setattr(reopened.manager.service, "sync", lambda *a, **k: Result(None))
-        result = reopened.query("grades", {})
-        assert result["error"] is None and reopened.status()["connected"]
-        assert copies == [1]
-        assert reopened.query("grades", {})["error"] is None
-        assert copies == [1]
+        monkeypatch.setattr(reopened.manager.service, "query", connection_query(reopened, queries))
+        monkeypatch.setattr(reopened.manager.service, "sync", connection_query(reopened, syncs))
+        # The explicit sync entry reuses the already verified browser session exactly
+        # once: one authorized sync attempt, one adoption, then exactly one retry.
+        result = reopened.query("grades", {}, refresh=True)
+        assert result["error"] is None and result["records"]
+        assert reopened.status()["connected"]
+        assert copies == [1] and syncs == [1, 1] and queries == []
+        # Afterwards a plain cache read is offline: it serves the cached records
+        # without reading the browser provider or submitting another school sync.
+        cached = reopened.query("grades", {})
+        assert cached["error"] is None and cached["records"]
+        assert copies == [1] and syncs == [1, 1] and queries == [1]
     finally:
         reopened.close()
 

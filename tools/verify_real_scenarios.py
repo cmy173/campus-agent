@@ -40,6 +40,18 @@ REAL_SECRETS = ROOT / 'var' / 'secrets'
 PROVIDER_ID = 'prv_c68d2878'
 LEGACY_OWNER = '4e7ff483e5be4013b59e15be39d62a37'
 
+
+def project_python() -> str:
+    """The API venv owns the FastAPI/learning dependencies; the host interpreter may not."""
+    for candidate in (API / '.venv' / 'Scripts' / 'python.exe', API / '.venv' / 'bin' / 'python'):
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+LOCAL_PYTHON = project_python()
+PYTHON_PATH = os.pathsep.join([str(API), str(ROOT / 'packages' / 'learning' / 'src')])
+
 sys.path.insert(0, str(API))
 from app.process_owner import spawn_owned  # noqa: E402
 
@@ -97,11 +109,14 @@ class Session:
     def import_legacy(self):
         target = self.home / 'agent' / 'campus' / 'workspace.sqlite3'
         target.parent.mkdir(parents=True, exist_ok=True)
+        # `import` mints its own mig_... batch id (derived from source fingerprint, owner
+        # and school-cache), so passing --batch-id is rejected by the migration CLI.
         completed = subprocess.run(
-            [sys.executable, str(ROOT / 'tools' / 'migrate_campus_data.py'), 'import',
+            [LOCAL_PYTHON, str(ROOT / 'tools' / 'migrate_campus_data.py'), 'import',
              '--source', str(LEGACY_DB), '--target', str(target), '--owner', LEGACY_OWNER,
-             '--batch-id', 'real-scenarios-' + self.name, '--school-cache'],
-            cwd=ROOT, capture_output=True, text=True, encoding='utf-8')
+             '--school-cache'],
+            cwd=ROOT, capture_output=True, text=True, encoding='utf-8',
+            env=dict(os.environ, PYTHONPATH=PYTHON_PATH))
         if completed.returncode != 0:
             raise SystemExit('legacy import failed: ' + completed.stdout + completed.stderr)
         return json.loads(completed.stdout)
@@ -109,9 +124,10 @@ class Session:
     def start(self, env):
         self.log = (self.home / 'api.log').open('a', encoding='utf-8')
         started = time.monotonic()
-        self.process = spawn_owned([sys.executable, '-m', 'uvicorn', 'app.main:app',
+        self.process = spawn_owned([LOCAL_PYTHON, '-m', 'uvicorn', 'app.main:app',
                                     '--host', '127.0.0.1', '--port', str(self.port)],
-                                   cwd=API, env=dict(os.environ, **env), stdout=self.log, stderr=self.log,
+                                   cwd=API, env=dict(os.environ, PYTHONPATH=PYTHON_PATH, **env),
+                                   stdout=self.log, stderr=self.log,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
@@ -145,7 +161,12 @@ class Session:
         return self.conversation_id
 
     def model_calls(self):
-        return len(re.findall(r'"POST /api/v1/agent/internal/model', (self.home / 'api.log').read_text(
+        # The log only exists once the owned API process has started; a failure during
+        # setup must not be masked by a second exception while writing evidence.
+        log = self.home / 'api.log'
+        if not log.exists():
+            return 0
+        return len(re.findall(r'"POST /api/v1/agent/internal/model', log.read_text(
             encoding='utf-8', errors='replace')))
 
     def run_turn(self, text, attachments=None, action_id=None, timeout=420):

@@ -416,6 +416,14 @@ class ZyktAdapter:
                 if str(payload.get("code")) in ("401", "403"):
                     raise AdapterError("AUTH_EXPIRED", "个人学习记录接口要求登录", retryable=False)
                 if is_true(payload.get("success", True)) is False:
+                    # This endpoint reports an expired session as HTTP 200 with
+                    # success=false and a nested result.status/name (observed:
+                    # {"name":"Unauthorized","status":401}). Treat only that shape as an
+                    # auth failure so the connector can ask the user to log in again;
+                    # any other failure stays "upstream changed" and stops guessing.
+                    if self._payload_is_unauthorized(payload):
+                        raise AdapterError("AUTH_EXPIRED", "个人学习记录接口返回未授权（登录态失效）",
+                                           retryable=False, details={"action": _login_action()})
                     raise AdapterError("UPSTREAM_CHANGED", "个人学习记录接口返回失败，不能据此确认登录失效", retryable=False)
             return "ok"
         if status in (301, 302, 303, 307, 308, 401, 403):
@@ -425,6 +433,24 @@ class ZyktAdapter:
         if status >= 500:
             raise AdapterError("NETWORK_ERROR", f"HTTP {status}", retryable=True)
         return "blocked"
+
+    @staticmethod
+    def _payload_is_unauthorized(payload: dict[str, Any]) -> bool:
+        """True when the failure payload itself names an authentication problem."""
+        result = payload.get("result")
+        candidates: list[Any] = []
+        if isinstance(result, dict):
+            candidates.extend([result.get("status"), result.get("code"), result.get("name"), result.get("message")])
+        candidates.extend([payload.get("status"), payload.get("name"), payload.get("message")])
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if text in {"401", "403", "unauthorized", "forbidden", "unauthenticated"}:
+                return True
+            if "unauthorized" in text or "invalid credentials" in text:
+                return True
+        return False
 
     def _state(
         self, state: str, checked_at: str, *, action: Optional[dict] = None, detail: Optional[str] = None

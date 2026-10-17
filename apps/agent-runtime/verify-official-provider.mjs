@@ -22,7 +22,16 @@ const server = createServer(async (req, res) => {
   if (!req.url.endsWith('/v1/messages')) {
     res.statusCode = 500; return res.end('{"error":{"message":"Python model relay must not be used"}}');
   }
-  requests.push({ path: req.url, body, authenticated: req.headers['x-api-key'] === key });
+  requests.push({ path: req.url, mode, body, authenticated: req.headers['x-api-key'] === key });
+  const attempt = requests.filter(r => r.path.endsWith('/v1/messages') && r.mode === mode).length;
+  requests[requests.length - 1].attempt = attempt;
+  if (mode === 'malformed_once' && attempt === 1) {
+    // A truncated SSE frame is exactly the transient failure seen in a real long task
+    // (PROVIDER_INVALID_RESPONSE). The same request must be retried, not the whole turn.
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('event: message_start\ndata: {"type":"message_start"\n\n'); res.end();
+    return;
+  }
   if (mode === 'auth_error') {
     res.statusCode = 401; res.setHeader('Content-Type', 'application/json');
     // Raw provider error intentionally contains fixture credential; journal must redact it.
@@ -78,9 +87,21 @@ try {
   for (const item of await readdir(resolve(directory, 'home/sessions'), { recursive: true })) {
     if (item.endsWith('.jsonl')) assert(!(await readFile(resolve(directory, 'home/sessions', item), 'utf-8')).includes(key), 'Raw credential leaked into upstream session log');
   }
+  // A truncated provider stream must be retried in-turn instead of failing the turn.
+  // This is the failure that lost a real long task's completed work before the retry
+  // policy included MALFORMED_RESPONSE.
+  mode = 'malformed_once';
+  const recovered = await harness.run('Read and write the requested proof file with actual tools.',
+    { sessionId: 'native_malformed_recovery' });
+  assert.match(recovered.finalResponse, /Actual native provider tool marker 926/);
+  const malformedRequests = requests.filter(r => r.path.endsWith('/v1/messages') && r.mode === 'malformed_once');
+  assert.equal(malformedRequests.length, 4, 'expected one malformed stream plus three successful calls after retry');
+  assert.equal(malformedRequests[0].attempt, 1);
+  results.push({ case: 'malformed-stream-retried-in-turn', ok: true, model_requests: malformedRequests.length });
   await writeFile(resolve(directory, 'evidence.json'), JSON.stringify({ kind: 'actual_upstream_native_messages_sse_controlled_endpoint',
     requests, failures, successful_events: result.events, checks: { actual_file_tool_loop: true, no_python_model_relay: true,
-      native_authentication: true, model_and_tool_leases: true, error_journaling_redacted: true } }, null, 2));
+      native_authentication: true, model_and_tool_leases: true, error_journaling_redacted: true,
+      malformed_stream_retried_in_turn: true } }, null, 2));
   console.log(JSON.stringify({ ok: true, evidence: resolve(directory, 'evidence.json') }));
 } finally {
   await writeFile(resolve(directory, 'diagnostic.json'), JSON.stringify({ requests, failures, results }, null, 2));

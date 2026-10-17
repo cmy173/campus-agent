@@ -49,11 +49,18 @@ export const GROUPS = [
     hint: '退出已由用户开启的计划模式并提交计划供审核；加载工具不会进入计划模式',
     match: name => name === 'exit_plan_mode',
   },
+  {
+    id: 'campus_reviews',
+    label: '复习卷',
+    hint: '预检课程资料、生成复习卷、读取或导出复习卷；生成后用后台任务工具查看进度',
+    match: name => name.startsWith('campus_reviews_'),
+  },
 ];
 
-/** Tools that must never be masked: the loader itself and Campus domain tools. */
-function protectedName(name) {
-  return name === 'load_tools' || name === 'publish_file' || name.startsWith('campus_')
+/** Tools that must never be masked, except an explicitly enabled experiment group. */
+function protectedName(name, deferGroups = new Set()) {
+  const experimentalCampusGroup = GROUPS.find(group => group.match(name) && deferGroups.has(group.id));
+  return name === 'load_tools' || name === 'publish_file' || (name.startsWith('campus_') && !experimentalCampusGroup)
     || name.startsWith('schedule_') || ['create_goal', 'get_goal', 'update_goal'].includes(name);
 }
 
@@ -65,12 +72,13 @@ export function groupOf(name) {
  * Names to hide right now, given the live catalog and the groups already lifted.
  * @returns deferred names, and a per-group count for the loader description.
  */
-export function deferredNames(catalog, lifted) {
+export function deferredNames(catalog, lifted, deferGroups = []) {
   const deferred = [];
   const counts = Object.fromEntries(GROUPS.map(group => [group.id, 0]));
+  const enabledGroups = new Set(deferGroups);
   for (const name of catalog) {
-    if (protectedName(name)) continue;
     const group = groupOf(name);
+    if (protectedName(name, enabledGroups)) continue;
     if (!group) continue; // Unclassified tools stay available.
     counts[group.id]++;
     if (!lifted.has(group.id)) deferred.push(name);
@@ -78,8 +86,8 @@ export function deferredNames(catalog, lifted) {
   return { deferred, counts };
 }
 
-export function loaderDescription(counts) {
-  const lines = GROUPS.map(group => `- ${group.id}（${group.label}，${counts[group.id]} 项可见）：${group.hint}`);
+export function loaderDescription(counts, groups = GROUPS) {
+  const lines = groups.map(group => `- ${group.id}（${group.label}，${counts[group.id]} 项可见）：${group.hint}`);
   return '按需加载更多工具。默认只提供普通校园任务常用的工具；需要浏览器操作、MCP 服务、'
     + '子 Agent 协作、后台任务或计划模式时，先调用本工具再使用它们。'
     + `可选分组：\n${lines.join('\n')}`
@@ -91,7 +99,7 @@ const stateOf = new WeakMap();
 function agentState(agent) {
   let state = stateOf.get(agent);
   if (!state) {
-    state = { lifted: new Set(), masks: new Map(), catalog: new Set(), applying: false };
+    state = { lifted: new Set(), masks: new Map(), catalog: new Set(), applying: false, deferGroups: new Set() };
     stateOf.set(agent, state);
   }
   return state;
@@ -117,7 +125,7 @@ export function applyMask(agent) {
     for (const { name } of agent.ctx.tools.schemas(agent)) {
       state.catalog.add(name);
       const group = groupOf(name);
-      if (restrictable.has(name) && !protectedName(name) && group && !state.lifted.has(group.id) && !state.masks.has(name)) {
+      if (restrictable.has(name) && !protectedName(name, state.deferGroups) && group && !state.lifted.has(group.id) && !state.masks.has(name)) {
         state.masks.set(name, agent.ctx.tools.restrict({ deny: [name] }));
       }
     }
@@ -126,9 +134,13 @@ export function applyMask(agent) {
   }
 }
 
-export function installToolMask(agent) {
-  if (!agent?.ctx?.tools || stateOf.has(agent)) return;
+export function installToolMask(agent, options = {}) {
+  if (!agent?.ctx?.tools) return;
+  if (stateOf.has(agent)) return;
   const state = agentState(agent);
+  if (Array.isArray(options.deferGroups)) {
+    for (const group of options.deferGroups) if (GROUPS.some(item => item.id === group && item.id.startsWith('campus_'))) state.deferGroups.add(group);
+  }
   agent.ctx.on('tools/change', () => {
     if (!state.applying) applyMask(agent);
   });
@@ -141,19 +153,23 @@ export function installToolMask(agent) {
  * The loader lives in the shared composition; only masks belong to agents.
  * It is never masked (`protectedName`).
  */
-export function registerToolLoader(ctx) {
+export function registerToolLoader(ctx, options = {}) {
+  const enabledExperimentalGroups = new Set(Array.isArray(options.deferGroups) ? options.deferGroups : []);
+  const availableGroups = GROUPS.filter(group => !group.id.startsWith('campus_') || enabledExperimentalGroups.has(group.id));
+  const availableGroupIds = new Set(availableGroups.map(group => group.id));
+  const groupHints = availableGroups.map(group => `- ${group.id}（${group.label}）：${group.hint}`).join('\n');
   return ctx.tools.register({
     name: 'load_tools',
     description: '按需加载更多工具。默认只提供普通校园任务常用的工具；需要浏览器操作、MCP 服务、'
       + '子 Agent 协作、后台任务或计划模式时，先调用本工具再使用它们。'
-      + `可选分组：\n${GROUPS.map(group => `- ${group.id}（${group.label}）：${group.hint}`).join('\n')}`
+      + `可选分组：\n${groupHints}`
       + '\n传 group 或非空 tools；tools 指定名称会加载该工具所属整组，而非只加载一个工具。'
       + '返回当前实际可见名称，新加载的分组在下一轮模型请求生效；不授予权限，也不会移除其他能力策略。',
     parameters: {
       type: 'object', additionalProperties: false,
       anyOf: [{ required: ['group'] }, { required: ['tools'] }],
       properties: {
-        group: { type: 'string', enum: GROUPS.map(group => group.id), description: '要加载的工具分组。' },
+        group: { type: 'string', enum: availableGroups.map(group => group.id), description: '要加载的工具分组。' },
         tools: { type: 'array', minItems: 1, maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 128 }, description: '具体工具名；加载其所属整组（可替代 group）。' },
       },
     },
@@ -176,7 +192,7 @@ export function registerToolLoader(ctx) {
       if (!args || typeof args !== 'object' || Array.isArray(args)
           || Object.keys(args).some(key => key !== 'group' && key !== 'tools')
           || (!selectedGroup && !selectedTools)
-          || (selectedGroup && !GROUPS.some(group => group.id === args.group))
+          || (selectedGroup && !availableGroupIds.has(args.group))
           || (selectedTools && (!Array.isArray(args.tools) || args.tools.length < 1 || args.tools.length > 64
             || args.tools.some(name => typeof name !== 'string' || name.length < 1 || name.length > 128)
             || new Set(args.tools).size !== args.tools.length))) throw new Error('invalid tool args: select a known group or nonempty unique tool names');
@@ -187,7 +203,7 @@ export function registerToolLoader(ctx) {
       const chain = scopeChainOf(agent).filter(scope => stateOf.has(scope));
       const requested = new Set(Array.isArray(args.tools) ? args.tools : []);
       const catalog = new Set(chain.flatMap(scope => [...agentState(scope).catalog]));
-      const groups = GROUPS.filter(group => args.group === group.id
+      const groups = availableGroups.filter(group => args.group === group.id
         || [...catalog].some(name => requested.has(name) && group.match(name)));
       // A parent's restriction is inherited by a child. Release only OUR masks
       // along that public scope chain; never lift upstream capability policies.

@@ -172,25 +172,68 @@ class CampusWorkspace:
             self.manager.disconnect(OWNER, delete=clear_cache)
             return self.status()
 
-    def query(self, capability, query, platform=None, *, refresh=False):
+    def query(self, capability, query, platform=None, *, refresh=False, allow_recovery=True):
+        """Read the cache, or explicitly synchronize the school site.
+
+        ``refresh=False`` is a pure cache read: it never opens a school connection,
+        never reads browser cookies and never submits a stored password. It returns
+        the cached records with their real freshness/fetched_at plus a structured
+        connection error when no live authorized session can confirm them.
+
+        ``refresh=True`` is the explicit sync entry (agent ``campus.sync``,
+        ``POST /campus/sync``, trusted recovery probe). Only it may make a remote
+        request.
+
+        ``allow_recovery`` separates the two callers of that entry:
+
+        * the user's/model's explicit ``campus.sync`` keeps ``allow_recovery=True`` and
+          therefore its bounded, authorized re-authentication (at most one stored-credential
+          login or already-authorized browser-session re-adoption, then one retry);
+        * the trusted read-only recovery probe passes ``allow_recovery=False``: it refreshes
+          the original read **with the session that is already validated** and, when that
+          session is not ready, returns the structured AUTH error so the caller keeps the
+          checkpoint. It never starts a password login or browser-cookie adoption, so an
+          unrelated platform's successful check cannot turn into authentication here.
+        """
         operation = self.manager.service.sync if refresh else self.manager.service.query
         with self.manager.lock(OWNER):
-            grant = self._check_browser_grant()
+            self._check_browser_grant()
             result = operation(capability, query, UserContext(OWNER), platform=platform).model_dump(mode="json")
-            if not refresh and not result.get("error"):
-                # CampusService.query is cache-only and can return empty/no-error
-                # even without a session. Keep cached records but do not represent
-                # that as a live private connection; also allow restart recovery.
-                adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
-                if adapter.spec.authentication != "public":
-                    try:
-                        self.manager.connector_session(adapter.spec.platform_id, OWNER)
-                    except CampusError as exc:
-                        error = standard_error(exc)
-                        result["error"] = error.model_dump(mode="json")
-                        result["freshness"] = "stale" if result.get("fetched_at") else "unknown"
+            if not refresh:
+                return self._cache_read_result(capability, query, platform, result)
+            return self._resync_result(capability, query, platform, result, allow_recovery=allow_recovery)
+
+    def _cache_read_result(self, capability, query, platform, result):
+        """Cached records stay usable, but a cache read never becomes an auth attempt."""
+        if not result.get("error"):
+            # CampusService.query is cache-only and can return empty/no-error even
+            # without a session. Keep cached records but do not represent that as a
+            # live private connection; also allow restart recovery.
+            adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
+            if adapter.spec.authentication != "public":
+                # Reading the in-memory session state is local: no connection is
+                # opened and no browser credential is read. It only separates
+                # "the cache holds this data" from "a live private session confirms it".
+                try:
+                    self.manager.connector_session(adapter.spec.platform_id, OWNER)
+                except CampusError as exc:
+                    error = standard_error(exc)
+                    result["error"] = error.model_dump(mode="json")
+                    result["freshness"] = "stale" if result.get("fetched_at") else "unknown"
+        return result
+
+    def _resync_result(self, capability, query, platform, result, *, allow_recovery=True):
+        """Explicit sync: at most one authorized re-authentication, then one retry.
+
+        With ``allow_recovery=False`` (the trusted read-only probe) no authentication is
+        started at all: an auth error is returned as-is so the caller keeps its checkpoint.
+        """
+        with self.manager.lock(OWNER):
             error = result.get("error") or {}
             if error.get("code") not in {"AUTH_REQUIRED", "AUTH_EXPIRED", "SESSION_EXPIRED"}:
+                return result
+            if not allow_recovery:
+                # Trusted read-only refresh: use the already validated session only.
                 return result
             adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
             if adapter.spec.authentication == "public":
@@ -237,6 +280,70 @@ class CampusWorkspace:
             if not retried.get("error"):
                 self._browser_retry_after = 0.0
             return retried
+
+    def timetable_records(self):
+        """The synced ZDBK timetable snapshot shaped like a connector cache result.
+
+        This is cache-only (no network): the workbench-era campus manager owns the
+        timetable, while the connector adapters never implemented ``courses``. Exposing
+        the snapshot here is what lets the Agent answer timetable questions.
+        """
+        snapshot = self.manager.repository.read(OWNER) or {}
+        courses = snapshot.get("courses") or {}
+        rows = []
+        for row in courses.get("data") or []:
+            row = dict(row)
+            if courses.get("stale"):
+                row["stale"] = True
+            rows.append(row)
+        fetched_at = courses.get("fetched_at")
+        stale = bool(courses.get("stale") or not fetched_at)
+        return {"records": rows,
+                "completeness": "complete" if courses.get("complete") else "partial",
+                "freshness": "stale" if stale else "fresh",
+                "fetched_at": fetched_at, "last_attempt_at": fetched_at,
+                "platform": "zdbk", "source": "zdbk-timetable", "capability": "courses",
+                "warnings": list(courses.get("warnings") or []),
+                "next_cursor": None, "error": None}
+
+    def sync_timetable(self, *, allow_recovery=True):
+        """Refresh the real ZDBK timetable with at most one stored-credential login.
+
+        The connector-adapter sync returns UNSUPPORTED for ``courses``; the timetable is
+        owned by the workbench-era campus manager. Without this entry the Agent could not
+        read a live timetable even when the app already has a valid stored session. No
+        password prompt or browser interaction is started: only an already connected
+        session or one bounded authorized re-login, then a real read-only sync.
+        """
+        with self.manager.lock(OWNER):
+            state = self.manager.status(OWNER)
+            if not state.get("connected") and allow_recovery and time.monotonic() >= self._credential_retry_after:
+                outcome = self.auto_relogin_locked()
+                if not outcome.get("ok"):
+                    failure = self.timetable_records()
+                    failure["error"] = {"code": str(outcome.get("code") or "AUTH_REQUIRED"),
+                                        "message": "校园登录需要用户完成验证，已保留上次课表缓存",
+                                        "retryable": False}
+                    failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                    return failure
+            try:
+                self.manager.sync(OWNER)
+            except CampusError as exc:
+                failure = self.timetable_records()
+                failure["error"] = standard_error(exc).model_dump(mode="json")
+                failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                return failure
+            except Exception:
+                # A malformed/unexpected client failure must still reach the model as a
+                # structured tool result (with the last cached timetable), never as a raw
+                # exception that looks like the whole tool is broken.
+                failure = self.timetable_records()
+                failure["error"] = {"code": "TIMETABLE_SYNC_FAILED",
+                                    "message": "教务课表同步未完成，已保留上次缓存；请稍后重试",
+                                    "retryable": True}
+                failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                return failure
+            return self.timetable_records()
 
     def credential_status(self) -> dict:
         return campus_credentials.all_status() | {

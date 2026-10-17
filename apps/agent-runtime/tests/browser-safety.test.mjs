@@ -15,7 +15,7 @@ import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { prepareProfile } from '../prepare-profile.mjs';
 import { assertModelBrowserCall, isModelBrowserTool, isReadOnlyInteraction } from '../browser-action-policy.mjs';
 
-async function daemonFixture(target = { tag: 'button', text: '发送', is_submit: false }, form = null, contextFixture, baselineSource) {
+async function daemonFixture(target = { tag: 'button', text: '发送', is_submit: false }, form = null, contextFixture, baselineSource, initialHeaded = false) {
   const source = baselineSource || await readFile(new URL('../browser-host.mjs', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('function evaluation('), source.indexOf('\nfunction authorized('));
   const calls = [], ledger = { reviews: [], downloads: [] };
@@ -28,19 +28,28 @@ async function daemonFixture(target = { tag: 'button', text: '发送', is_submit
   };
   const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
   // Original dispatch/pending/recheck implementations; only browser IO and disk IO are fixtures.
-  const make = new Function('raw', 'ledger', 'hash', 'randomUUID', 'assertModelBrowserCall', 'isReadOnlyInteraction', 'isModelBrowserTool', 'contextFixture', `
-    let context = contextFixture, headed = false, generation = 0, activeConversation;
+  const make = new Function('raw', 'ledger', 'hash', 'randomUUID', 'assertModelBrowserCall', 'isReadOnlyInteraction', 'isModelBrowserTool', 'contextFixture', 'initialHeaded', `
+    let context = contextFixture, headed = initialHeaded, generation = 0, activeConversation;
     const stoppedTurns = new Set(), unsafeTurns = new Set(), downloads = new Set();
     const persist = async () => {}, text = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
     const fail = (code, message) => Object.assign(new Error(message), { code });
     ${body}
     return dispatch;
   `);
-  const dispatch = make(raw, ledger, hash, randomUUID, assertModelBrowserCall, isReadOnlyInteraction, isModelBrowserTool, contextFixture);
+  const dispatch = make(raw, ledger, hash, randomUUID, assertModelBrowserCall, isReadOnlyInteraction, isModelBrowserTool, contextFixture, initialHeaded);
   return { dispatch, calls, ledger, target };
 }
 const frame = (name, args = {}) => ({ conversation_id: 'fixture', method: 'call', name, arguments: args });
 const value = result => JSON.parse(result.content[0].text);
+
+test('opening the browser workspace brings its existing page to the foreground', async () => {
+  let broughtToFront = 0;
+  const page = { async bringToFront() { broughtToFront += 1; } };
+  const context = { pages: () => [page] };
+  const fixture = await daemonFixture(undefined, null, context, undefined, true);
+  assert.deepEqual(await fixture.dispatch({ conversation_id: 'fixture', method: 'open' }), { running: true, headed: true });
+  assert.equal(broughtToFront, 1);
+});
 
 test('profile defaults restrict file writes and use supported fail-closed approval', async () => {
   const home = await mkdtemp(join(tmpdir(), 'campus-profile-safety-'));

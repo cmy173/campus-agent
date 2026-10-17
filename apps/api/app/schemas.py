@@ -125,6 +125,7 @@ class PreviewPlanRequest(StrictModel):
 
 class StartSyncRequest(StrictModel):
     full: bool = False
+    kinds: list[Literal["assignments", "resources"]] | None = Field(default=None, min_length=1, max_length=2)
 
 
 ExportSection = Literal["courses", "resources", "assignments", "recordings", "tasks", "plans", "feedback"]

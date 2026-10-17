@@ -182,6 +182,7 @@ def get_capabilities(connection_id: str, db: Session = Depends(get_db)) -> dict[
 
 
 def enqueue_connection_sync(db: Session, connection_id: str, *, full: bool = False,
+                            kinds: list[str] | None = None,
                             allowed_course_ids: frozenset[str] | None = None) -> tuple[Job, str]:
     """Enqueue (or reuse) one platform sync job.
 
@@ -207,17 +208,21 @@ def enqueue_connection_sync(db: Session, connection_id: str, *, full: bool = Fal
     course_ids = bound_courses(db, connection.platform)
     if allowed_course_ids is not None:
         course_ids = [cid for cid in course_ids if cid in allowed_course_ids]
+    normalized_kinds = sorted(set(kinds)) if kinds is not None else None
     if not course_ids:
         raise ApiError(409, "CONFLICT", "没有绑定该平台的课程，请先绑定课程来源",
                        details={"connection_id": connection_id, "platform": connection.platform})
     active = _active_sync_job(db, connection_id)
     if active is not None:
-        if allowed_course_ids is not None and (set(active.payload.get("course_ids", [])) != set(course_ids)
-                                              or bool(active.payload.get("full")) != full):
+        active_payload = active.payload or {}
+        if (set(active_payload.get("course_ids", [])) != set(course_ids)
+                or bool(active_payload.get("full")) != full
+                or (sorted(set(active_payload.get("kinds") or [])) or None) != normalized_kinds):
             raise ApiError(409, "SYNC_SCOPE_CONFLICT", "该平台已有不同范围的同步；等待结束后重试，不扩大本会话权限", retryable=True)
         return active, "reused"
     job = Job(id=new_id(db, Job, "job"), type="sync", status="queued", progress=0.0, errors=[],
-              result_refs=[], payload={"connection_id": connection_id, "course_ids": course_ids, "full": full})
+              result_refs=[], payload={"connection_id": connection_id, "course_ids": course_ids, "full": full,
+                                      "kinds": normalized_kinds})
     db.add(job)
     db.flush()
     return job, "queued"
@@ -233,13 +238,14 @@ def start_connection_sync(
     validate_idempotency_key(idempotency_key)
     full = bool(body.full) if body is not None else False
     endpoint = f"POST /connections/{connection_id}/sync"
-    fingerprint = {"connection_id": connection_id, "full": full}
+    kinds = body.kinds if body is not None else None
+    fingerprint = {"connection_id": connection_id, "full": full, "kinds": sorted(set(kinds)) if kinds else None}
     replay = idempotency_lookup(db, idempotency_key, endpoint, fingerprint)
     if replay is not None:
         status_code, payload = replay
         return JSONResponse(status_code=status_code, content=payload)
 
-    job, _reason = enqueue_connection_sync(db, connection_id, full=full)
+    job, _reason = enqueue_connection_sync(db, connection_id, full=full, kinds=kinds)
     payload = {"job": job.to_contract()}
     idempotency_store(db, idempotency_key, endpoint, fingerprint, 202, payload)
     db.commit()

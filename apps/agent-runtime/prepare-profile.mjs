@@ -39,6 +39,9 @@ export async function prepareProfile(home, options = {}) {
     ['sdk-app-startup', '@deepseek-ai/dsh-sdk-app', { profile: 'campus' }],
     // Trusted callers may pass exact attachments; never infer from model text.
     ['campus', path('campus-plugin.mjs'), capabilityConfig],
+    // The project owns the fetch transport so public university sites that resolve to
+    // campus-private addresses remain readable, scoped to an exact host allowlist.
+    ['campus-web-fetch', path('campus-web-fetch.mjs')],
     ['sdk-jsonrpc-server', path('campus-sdk.mjs'), { maxTokensAsSuccess: false }],
     ...(options.mcpServers ?? []).map((config, index) => [
       'campus-mcp-' + index, path('campus-mcp.mjs'), mcpConfig(config),
@@ -63,12 +66,24 @@ export async function prepareProfile(home, options = {}) {
       ...(options.deepseekBaseURL ? { baseURL: options.deepseekBaseURL } : {}),
       reasoningEffort: options.reasoningEffort ?? 'high',
       maxTokens: options.maxTokens ?? 16384,
+      // A truncated/malformed provider stream is a transient transport failure, not a
+      // wrong request: retrying the same model call recovers the turn instead of losing
+      // every tool result gathered so far. Keep the SDK's default codes and add the two
+      // stream-integrity codes the DeepSeek adapter can raise.
+      retryPolicy: {
+        mode: 'normal',
+        retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT',
+          'MALFORMED_RESPONSE', 'STREAM_CLOSED'],
+      },
     } },
     { id: 'web-search-deepseek', config: {
       apiKeyEnv: 'DEEPSEEK_SEARCH_API_KEY',
       ...(options.searchBaseURL ? { baseURL: options.searchBaseURL } : {}),
       ...(options.searchModel ? { model: options.searchModel } : {}),
     } },
+    // Replaced by the project-owned fetch provider above, which keeps the upstream
+    // public-address guard and adds the exact university host allowlist.
+    { id: 'web-fetch-http', disabled: true },
     ...(options.overrides ?? []),
     // Project-owned capability composition, not a change to the host DSH.
     // Keep the guard even if a tool is registered/loaded later.

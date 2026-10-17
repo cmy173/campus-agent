@@ -54,8 +54,8 @@ close_campus_workspace()
 | 名称 | 参数 | 结果与行为 |
 | --- | --- | --- |
 | `campus.status` | 无 | 学校连接、缓存与官方登录入口；不联网 |
-| `campus.query` | capability、query、可选 platform | 缓存 courses/grades/profile/notices/college_notices，保留完整性、时间与错误 |
-| `campus.sync` | 同 query | 只读访问校方并写本地缓存；未登录返回 AUTH_REQUIRED，失败保留原缓存 |
+| `campus.query` | capability、query、可选 platform | 读本地缓存 courses/grades/profile/notices/college_notices，保留完整性、fetched_at/freshness 与结构化错误。**纯缓存读：不访问校方、不读浏览器 Cookie、不提交密码**，因此已授权会话失效时不会因读取而登录（2026-10-15 修正） |
+| `campus.sync` | 同 query | 显式远端只读同步并写本地缓存；这是唯一会访问校方远端的校园读取入口，已有授权且用户设置允许时最多一次自动重登（验证码/MFA/拒绝/限流后冷却，不切通道重投密码）；未登录返回 AUTH_REQUIRED，失败保留原缓存 |
 | `campus.academics` | 可选 day、term | 基于已获取课表/校历和成绩的课程安排与统计 |
 | `campus.notice.read` | record_id | 读取先前展示的通知正文与来源，不接受调用者任意 URL |
 | `campus.notice.import` | course_id、record_id | 将已有缓存通知正文写入明确课程，重复请求复用、正文变化新增版本；本地操作自动执行 |

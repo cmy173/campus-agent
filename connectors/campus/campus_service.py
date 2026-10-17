@@ -287,8 +287,30 @@ class CampusService:
         try:
             adapter, query, record_type, scope = self._resolve(capability, query, context, platform)
         except CampusError as exc:
+            # A sync that cannot resolve its platform/capability must not erase known
+            # cache: this used to persist a blank row over the last good records. Report
+            # the error and keep the previously cached data (labelled stale) both in this
+            # response and in storage (nothing is written here).
             result = self._blank(capability, platform)
+            # Exception: when the owner's college selection itself is no longer matched
+            # (college changed to an unsupported/unknown one), the previously cached rows
+            # belong to a source we must not serve any more. Returning them would be a
+            # silent fallback to stale data for the wrong scope, so we return none.
+            if capability == 'college_notices':
+                result.error = standard_error(exc)
+                result.freshness = 'unknown'
+                return result
+            previous = (self.repository.read_latest(context.owner, capability)
+                        if hasattr(self.repository, 'read_latest') else None)
+            if previous and previous.get('records'):
+                result.records = previous.get('records')
+                result.fetched_at = previous.get('fetched_at')
+                result.completeness = previous.get('completeness') or 'partial'
+                result.warnings = list(previous.get('warnings') or []) + [{
+                    'code': 'CACHE_RETAINED',
+                    'message': '本轮同步未能解析平台/能力；保留上次缓存数据（可能过期），不代表学校端当前状态'}]
             result.error = standard_error(exc)
+            result.freshness = 'stale' if result.fetched_at else 'unknown'
             return result
         with self.sessions.lock(context.owner):
             result = self._read(capability, query, context, adapter, scope)
@@ -351,6 +373,19 @@ class CampusService:
                 result.freshness = 'stale' if result.fetched_at else 'unknown'
                 if result.error.code.value == 'AUTH_EXPIRED':
                     self.sessions.expire_platform(adapter.spec.platform_id, context.owner)
+            if result.error is not None and not result.records:
+                # A failed sync whose scope/cache lookup missed must not replace known
+                # data with a blank row: keep the newest cached records, labelled stale.
+                previous = (self.repository.read_latest(context.owner, capability)
+                            if hasattr(self.repository, 'read_latest') else None)
+                if previous and previous.get('records'):
+                    result.records = previous['records']
+                    result.fetched_at = result.fetched_at or previous.get('fetched_at')
+                    result.completeness = 'partial'
+                    result.freshness = 'stale'
+                    result.warnings = list(result.warnings or []) + [{
+                        'code': 'CACHE_RETAINED',
+                        'message': '本轮同步未取得数据；保留上次缓存数据（可能过期），不代表学校端当前状态'}]
             self.repository.write(context.owner, adapter.spec.platform_id, capability, scope, result.model_dump(mode='json'))
             return result
 

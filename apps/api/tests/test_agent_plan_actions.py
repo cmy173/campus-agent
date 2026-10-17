@@ -57,6 +57,25 @@ def test_schedule_tools_reject_partial_scope_and_invalid_relative_dates(workspac
     assert execute("availability.read", {}, db, ctx)["data"] == {"configured": False, "availability": None}
 
 
+def test_preview_without_saved_availability_uses_one_disclosed_temporary_window(workspace):
+    """A missing long-term preference must not dead-end the Agent's planning task.
+
+    The tool falls back to one temporary 08:00-22:00 window, discloses it, and never
+    persists it as a user preference; the write still needs the user's acceptance.
+    """
+    db, day = workspace
+    db.delete(db.get(m.Availability, 1))
+    db.commit()
+    ctx = ToolContext("local", "conversation", frozenset({"course"}), allow_uncoursed_tasks=True,
+                      request_key="turn:call")
+    result = execute("plans.preview", {"period": "dates", "start_date": str(day), "end_date": str(day)}, db, ctx)
+    assert result["status"] == "ok"
+    assert any("默认 08:00–22:00" in warning for warning in result["warnings"])
+    assert result["data"]["action"]["preview"]["plan"]["blocks"]
+    # The fallback is a per-call window only: no availability row is created.
+    assert db.get(m.Availability, 1) is None
+
+
 def test_weekday_evening_is_resolved_by_server_and_past_weekdays_are_not_moved_to_next_week():
     from datetime import date
     from app.agent_bridge.tools import _evening_blocks, PreviewArgs

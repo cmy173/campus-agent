@@ -222,6 +222,24 @@ class TestCheckConnection(unittest.TestCase):
         self.assertEqual("network_error", state["state"])
         assert_valid(self, SE_CONNECTION_STATE, state, "ConnectionState")
 
+    def test_200_success_false_unauthorized_is_auth_required(self):
+        """The live endpoint reports an expired session as HTTP 200 + success=false."""
+        payload = {"success": False, "result": {"name": "Unauthorized",
+                                                 "message": "Your request was made with invalid credentials.",
+                                                 "code": 0, "status": 401}}
+        adapter, _ = make_adapter([json_response(payload)])
+        state = adapter.check_connection()
+        self.assertEqual("auth_required", state["state"])
+        self.assertEqual(LOGIN_ENTRY_URL, state["action"]["entry_url"])
+        assert_valid(self, SE_CONNECTION_STATE, state, "ConnectionState")
+
+    def test_200_success_false_without_auth_marker_is_upstream_changed(self):
+        payload = {"success": False, "result": {"code": 5002, "msg": "未传入token"}}
+        adapter, _ = make_adapter([json_response(payload)])
+        state = adapter.check_connection()
+        self.assertEqual("network_error", state["state"])
+        assert_valid(self, SE_CONNECTION_STATE, state, "ConnectionState")
+
 
 class TestCapabilitiesAndList(unittest.TestCase):
     def test_capabilities(self):

@@ -106,7 +106,10 @@ def test_multistep_expired_auth_continues_once_with_preserved_results_and_same_c
     saved = defer(runtime)
     assert saved['status'] == 'waiting_auth'
     probes = []
-    def execute(name, arguments, db, ctx):
+    def execute(name, arguments, db, ctx, **kwargs):
+        # The trusted probe must ask for a recovery-free refresh: no password login and no
+        # browser-cookie adoption may start from here (independent review R1).
+        assert kwargs.get('allow_auth_recovery') is False, 'trusted probe must disable auth recovery'
         probes.append((name, copy.deepcopy(arguments), ctx))
         return success('grades-complete')
     monkeypatch.setattr(tools, 'execute', execute)
@@ -118,7 +121,11 @@ def test_multistep_expired_auth_continues_once_with_preserved_results_and_same_c
     runtime.resume_authenticated_tasks()
     runtime.auth_recovery.run_once()
     assert len(probes) == len(runtime.test_launches) == 1
-    assert probes[0][0:2] == ('campus.query', {'capability': 'grades', 'query': {'term': '2026秋'}})
+    # Semantics change this round: the trusted recovery entry restores the original
+    # read-only target by performing exactly ONE explicit refresh. It keeps the same
+    # capability/query/platform (never a widened or different request), because a plain
+    # cache read is now offline and cannot clear an AUTH error persisted in the cache.
+    assert probes[0][0:2] == ('campus.sync', {'capability': 'grades', 'query': {'term': '2026秋'}})
     assert probes[0][2].course_ids == frozenset({'course_a'})
     turn, token = runtime.test_launches[0]
     assert token and turn['conversation_id'] == runtime.test_cid
@@ -287,7 +294,8 @@ def test_two_conversations_do_not_mix_pending_results_or_unauthorized_course_sco
     runtime.defer_authentication(other_turn, 'campus.query', {'capability': 'courses'}, auth_error())
     runtime.store.finish(other_turn['id'], 'succeeded', response='waiting')
     probes = []
-    def execute(name, args, db, ctx):
+    def execute(name, args, db, ctx, **kwargs):
+        assert kwargs.get('allow_auth_recovery') is False, 'trusted probe must disable auth recovery'
         probes.append((ctx.conversation_id, ctx.course_ids))
         return success(ctx.conversation_id)
     monkeypatch.setattr(tools, 'execute', execute)
@@ -330,7 +338,7 @@ def test_provider_disabled_stays_waiting_without_executing_pending_read(subject,
         db.get(m.ProviderConfig, 'provider_auth').enabled = False
         db.commit()
     calls = []
-    monkeypatch.setattr(tools, 'execute', lambda *a: calls.append(a) or success())
+    monkeypatch.setattr(tools, 'execute', lambda *a, **k: calls.append(a) or success())
     runtime.resume_authenticated_tasks()
     runtime.auth_recovery.run_once()
     assert not calls and not runtime.test_launches
@@ -347,7 +355,8 @@ def test_snapshot_scope_intersects_current_db_scope_and_never_expands_from_query
         settings['course_ids'].append('course_b')
         db.execute('UPDATE conversations SET settings=? WHERE id=?', (json.dumps(settings), runtime.test_cid))
     observed = []
-    monkeypatch.setattr(tools, 'execute', lambda name, args, db, ctx: observed.append(ctx.course_ids) or success())
+    monkeypatch.setattr(tools, 'execute',
+                        lambda name, args, db, ctx, **k: observed.append(ctx.course_ids) or success())
     runtime.resume_authenticated_tasks()
     runtime.auth_recovery.run_once()
     assert observed == [frozenset({'course_a'})]

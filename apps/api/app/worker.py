@@ -87,6 +87,10 @@ from .sync_engine import (
     store_cursor,
 )
 
+# Single source for the attachment size cap: the connector enforces the same value (PD-1),
+# so the worker must classify an oversized attachment with it rather than a different one.
+from connectors.adapters.xzzd import MAX_DOWNLOAD_BYTES  # noqa: E402
+
 log = logging.getLogger("study.worker")
 
 
@@ -513,6 +517,40 @@ _PARSE_NON_RETRYABLE = {
     ParseErrorCode.ZIP_LIMIT_EXCEEDED,
     ParseErrorCode.ENCRYPTED_FILE,
 }
+
+
+# Attachment problems decided purely by the input (unsupported extension, or bytes that do
+# not match the extension). Retrying cannot change them and the resource metadata is kept,
+# so a sync reports them as warnings instead of failing the whole job.
+ATTACHMENT_SKIP_CODES = frozenset({"UNSUPPORTED_MEDIA_TYPE", "CORRUPT_FILE", "FILE_TOO_LARGE"})
+
+
+def _note_skipped_attachment(payload: dict, code: str) -> None:
+    """Accumulate skipped-attachment counts on the durable job payload."""
+    skipped = payload.setdefault("skipped_attachments", {})
+    if isinstance(skipped, dict):
+        skipped[code] = int(skipped.get(code) or 0) + 1
+
+
+def _skipped_attachment_warnings(skipped: Any) -> list[dict]:
+    """Turn accumulated skip counts into contract-shaped job warnings."""
+    if not isinstance(skipped, dict):
+        return []
+    messages = {
+        "UNSUPPORTED_MEDIA_TYPE": "附件格式暂不支持，已保留元数据、未下载正文",
+        "CORRUPT_FILE": "附件内容与扩展名不符，已保留元数据、未纳入解析",
+        "FILE_TOO_LARGE": "附件超过解析护栏上限（64MB），已保留元数据、未下载正文",
+    }
+    warnings: list[dict] = []
+    for code, count in sorted(skipped.items()):
+        try:
+            total = int(count)
+        except (TypeError, ValueError):
+            continue
+        if total <= 0:
+            continue
+        warnings.append({"code": code, "message": f"{messages.get(code, code)}（{total} 个）"})
+    return warnings
 
 
 def enqueue_parse_job(db: Session, resource: Resource, *, reason: str) -> Job:
@@ -1387,6 +1425,10 @@ def handle_sync(db: Session, job: Job) -> JobResult:
     payload = dict(job.payload or {})
     connection_id = payload.get("connection_id")
     full = bool(payload.get("full", False))
+    kinds = payload.get("kinds")
+    if kinds is not None and (not isinstance(kinds, list)
+                              or any(kind not in {"assignments", "resources"} for kind in kinds)):
+        raise JobFailed("INVALID_PAYLOAD", "同步范围 kinds 无效", retryable=False)
     connection = db.get(Connection, connection_id) if isinstance(connection_id, str) else None
     if connection is None:
         raise JobFailed("INVALID_PAYLOAD", f"连接不存在：{connection_id}", retryable=False)
@@ -1437,7 +1479,8 @@ def handle_sync(db: Session, job: Job) -> JobResult:
         if checkpoint is None:
             since = None if full else get_cursor(db, connection.id, course_id)
             try:
-                envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since, "full": full})
+                envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since,
+                                               "full": full, "kinds": kinds})
                 stats = apply_sync_result(db, connection=connection, course_id=course_id, envelope=envelope)
                 store_cursor(db, connection_id=connection.id, course_id=course_id,
                              cursor=(envelope.get("cursor") or {}).get("next"),
@@ -1502,8 +1545,15 @@ def handle_sync(db: Session, job: Job) -> JobResult:
                         if exc.code == "AUTH_EXPIRED":
                             return _pause_auth_sync(db, job, connection, payload, pending, errors, refs,
                                                     AdapterError(exc.code, exc.message, retryable=False))
-                        errors.append(job_error(exc.code, exc.message, retryable=exc.retryable,
-                                                details={"course_id": course_id, "resource_id": resource.id}))
+                        if exc.code in ATTACHMENT_SKIP_CODES:
+                            # Input-determined, non-retryable attachment problems (unsupported
+                            # extension, content not matching its extension). The sync itself
+                            # succeeded and the metadata is kept, so this must not turn the
+                            # whole job into partial_failed. It is reported as a warning.
+                            _note_skipped_attachment(payload, exc.code)
+                        else:
+                            errors.append(job_error(exc.code, exc.message, retryable=exc.retryable,
+                                                    details={"course_id": course_id, "resource_id": resource.id}))
                     except Exception as exc:
                         translated = exc if isinstance(exc, AdapterError) else _translate_protocol_error(exc)
                         if translated is None:
@@ -1522,6 +1572,10 @@ def handle_sync(db: Session, job: Job) -> JobResult:
     if succeeded:
         mark_connection_ok(connection)
     _sync_checkpoint(db, job, payload, pending, errors, refs, phase="done")
+    skipped_warnings = _skipped_attachment_warnings(payload.get("skipped_attachments"))
+    if skipped_warnings:
+        job.warnings = list(job.warnings or []) + skipped_warnings
+        db.commit()
     if errors:
         return JobResult(status="partial_failed" if (succeeded or refs) else "failed", errors=errors, result_refs=refs)
     return JobResult(status="succeeded", result_refs=refs)
@@ -1531,6 +1585,14 @@ def _fetch_synced_document(db: Session, resource: Resource, source: dict, fetch:
     payload = fetch(source["external_id"])
     if payload.get("status") != "ok":
         denial = payload.get("denial") or {}
+        if (payload.get("status") == "denied" and isinstance(resource.size_bytes, int)
+                and resource.size_bytes > MAX_DOWNLOAD_BYTES):
+            # PD-1 size guard: the connector refuses a file above the policy cap. That is
+            # an input-determined skip (metadata kept), not a lost permission — decide it
+            # from the resource's own size and the adapter's own cap, not from wording.
+            raise JobFailed("FILE_TOO_LARGE",
+                            f"附件 {resource.size_bytes} 字节超过解析护栏上限 {MAX_DOWNLOAD_BYTES} 字节，"
+                            "元数据已保留", retryable=False)
         raise JobFailed("RESOURCE_NOT_FOUND" if payload.get("status") == "gone" else "PERMISSION_DENIED",
                         denial.get("message") or "平台文件不可获取，元数据已保留", retryable=False)
     name = storage.safe_display_name(payload.get("filename"))

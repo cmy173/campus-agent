@@ -274,6 +274,7 @@ def wait_window_seconds(db: Session, job_id: str, requested: int) -> int:
 # capped here so covering that latency costs a couple of `jobs.read(wait_seconds=14)` calls
 # instead of a polling loop; once it is spent the call returns the real (still running) state.
 MAX_JOB_OBSERVE_SECONDS = 45
+MAX_SYNC_OBSERVE_SECONDS = 60
 REVIEW_JOB_TYPES = {"review_generate"}
 
 
@@ -288,17 +289,25 @@ def _remaining_window(db: Session, job_id: str, requested: int, cap: int) -> int
 
 
 def job_wait_window(db: Session, job: dict[str, Any], requested: int) -> int:
-    """`jobs.read` observation window: only generation jobs wait, and only within their cap.
+    """Bounded observation window per owned background-job family.
 
-    Sync/parse/build jobs are a plain read (their existing contract is "return the current
-    state"), so an unrelated job type never blocks a read call.
+    Generation jobs retain a 45-second total window. Campus sync gets a bounded 60-second
+    total window so a single jobs.read call can wait for intervals instead of burning
+    model calls on immediate status polls.
+    Parse/build and other jobs stay immediate reads.
     """
     if not requested or requested <= 0:
         return 0
     job_id = job.get("id")
-    if not isinstance(job_id, str) or job.get("type") not in REVIEW_JOB_TYPES:
+    if not isinstance(job_id, str):
         return 0
-    return _remaining_window(db, job_id, requested, MAX_JOB_OBSERVE_SECONDS)
+    if job.get("type") in REVIEW_JOB_TYPES:
+        cap = MAX_JOB_OBSERVE_SECONDS
+    elif job.get("type") == "sync":
+        cap = MAX_SYNC_OBSERVE_SECONDS
+    else:
+        return 0
+    return _remaining_window(db, job_id, requested, cap)
 
 
 def await_job(db: Session, ctx, job_id: str, seconds: int) -> dict[str, Any]:

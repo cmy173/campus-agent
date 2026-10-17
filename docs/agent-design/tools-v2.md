@@ -66,7 +66,7 @@
 
 ## 当前工具清单与验证范围
 
-默认实际注册70项：16项校园工具、24项上游通用工具、1项文件交付工具、26项应用浏览器工具和3项 MCP 资源工具。配置示例计算 MCP 后实际71项。当前仍在每轮注册这些工具，按需工具发现尚待完善；工具数不是任务成功率。
+默认实际注册（2026-10-15 实测，来源 `var/harness-campus-readonly-2b0480ed/m0/baseline.json` 与 `apps/agent-runtime/campus-tool-groups.mjs`）：32项校园/领域工具（模型侧统一加 `campus_` 前缀，其中8项为 `campus.*`；12项为写效果），另有20项基础工具常驻可见（read/write/edit/glob/grep/read_image、web_search/web_fetch、publish_file/load_tools、5项 schedule_*、goal/skill/todo 工具等），以及延迟分组：21项应用浏览器工具（白名单内，load_tools 后可见）、3项 jobs、1项 planning。3项 MCP 资源工具由能力策略直接拒绝。启用 MCP 服务器后数量再增加。按需工具发现已实现但仍待完善；工具数不是任务成功率。
 
 | 工具类别 | 模型注册名 | 当前证据 |
 | --- | --- | --- |

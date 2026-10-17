@@ -20,6 +20,7 @@ from .docx import parse_docx
 from .pdf import lib_version as pdf_lib_version
 from .pdf import parse_pdf
 from .pptx import parse_pptx
+from .xlsx import parse_xlsx
 from .types import (
     PARSER_VERSION,
     OutlineEntry,
@@ -50,10 +51,11 @@ _MIME_TO_FORMAT = {
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 }
-_EXT_TO_FORMAT = {".pdf": "pdf", ".pptx": "pptx", ".docx": "docx"}
+_EXT_TO_FORMAT = {".pdf": "pdf", ".pptx": "pptx", ".docx": "docx", ".xlsx": "xlsx"}
 
-_PARSERS = {"pdf": parse_pdf, "pptx": parse_pptx, "docx": parse_docx}
+_PARSERS = {"pdf": parse_pdf, "pptx": parse_pptx, "docx": parse_docx, "xlsx": parse_xlsx}
 
 
 def detect_format(filename: str | None = None, mime_type: str | None = None) -> str | None:
@@ -112,7 +114,7 @@ def parse_document(
     if fmt is None:
         return failed(
             ParseErrorCode.UNSUPPORTED_MEDIA_TYPE,
-            "不支持的文件类型（当前支持文本型 PDF / PPTX / DOCX；文件名与 MIME 均不可识别）",
+            "不支持的文件类型（当前支持文本型 PDF / PPTX / DOCX / XLSX；文件名与 MIME 均不可识别）",
         )
 
     content_hash = context.content_hash if context and context.content_hash else hashlib.sha256(data).hexdigest()
@@ -152,7 +154,7 @@ def parse_document(
         cache=cache_state,
         stats={
             "units": output.units,
-            "units_label": {"pdf": "page", "pptx": "slide", "docx": "paragraph"}[fmt],
+            "units_label": {"pdf": "page", "pptx": "slide", "docx": "paragraph", "xlsx": "row"}[fmt],
             "chars": output.chars,
             "chunks": len(output.chunks),
             "elapsed_ms": elapsed_ms(),

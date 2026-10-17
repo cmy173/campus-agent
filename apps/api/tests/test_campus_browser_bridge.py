@@ -1,4 +1,4 @@
-"""Trusted browser -> campus session bridge, entirely synthetic cookies/HTTP."""
+﻿"""Trusted browser -> campus session bridge, entirely synthetic cookies/HTTP."""
 import json
 
 import pytest
@@ -46,19 +46,36 @@ def test_explicit_authorization_then_repeated_query_does_not_relogin_or_recopy(w
     assert len(copies) == 1 and len(queries) == 3  # no repeated consent or login
 
 
-def test_expired_connector_reuses_authorized_browser_and_retries_read_once(workspace, monkeypatch):
+def test_expired_cache_read_is_offline_and_explicit_sync_recovers_once(workspace, monkeypatch):
+    """Semantics change this round: a cache read no longer re-authenticates.
+
+    Baseline behaviour was `query=1, auto_relogin=1, sync=1` on an isolated probe:
+    `refresh=False` saw the cached SESSION_EXPIRED, re-read the authorized browser
+    cookies and retried through a remote sync. A cache read must not reach the
+    school at all, so the recovery now belongs to the explicit sync entry. The
+    authorization and single-retry safety properties are unchanged.
+    """
     copies, queries = [], []
     def cookies():
         copies.append(1)
         return COOKIES
-    workspace.authorize_browser_session(cookies)
     def query(*args, **kwargs):
         queries.append(1)
-        return Result("SESSION_EXPIRED" if len(queries) == 1 else None)
+        # The retry only succeeds after the authorized browser session was re-adopted.
+        return Result("SESSION_EXPIRED" if len(copies) < 2 else None)
+    workspace.authorize_browser_session(cookies)
+    monkeypatch.setattr(workspace, "auto_relogin_locked",
+                        lambda: {"ok": False, "code": "NO_CREDENTIAL", "needs_user": False})
     monkeypatch.setattr(workspace.manager.service, "query", query)
     monkeypatch.setattr(workspace.manager.service, "sync", query)
-    assert workspace.query("courses", {})["error"] is None
-    assert len(copies) == 2 and len(queries) == 2
+
+    cached = workspace.query("courses", {})
+    assert cached["error"]["code"] == "SESSION_EXPIRED"
+    assert len(copies) == 1 and len(queries) == 1  # cache read: no cookie access, no remote read
+
+    recovered = workspace.query("courses", {}, refresh=True)
+    assert recovered["error"] is None
+    assert len(copies) == 2 and len(queries) == 3  # one re-adoption, one sync plus one retry
 
 
 def test_no_grant_never_reads_browser_or_retries(workspace, monkeypatch):
@@ -68,7 +85,14 @@ def test_no_grant_never_reads_browser_or_retries(workspace, monkeypatch):
     assert len(calls) == 1
 
 
-def test_expired_browser_preserves_existing_state_and_bounded_cooldown(workspace, monkeypatch):
+def test_cache_read_never_probes_the_browser_and_explicit_sync_is_bounded(workspace, monkeypatch):
+    """Semantics change this round: a cache read no longer reads the browser provider.
+
+    Baseline: three `refresh=False` reads triggered one provider read and left the
+    previous client in place. The read is now offline, and the bounded re-adoption
+    (one attempt per cooldown window, previous state preserved) belongs to the
+    explicit sync entry.
+    """
     calls = []
     workspace.authorize_browser_session(lambda: COOKIES)
     prior = workspace.manager.states["local"]["client"]
@@ -77,9 +101,17 @@ def test_expired_browser_preserves_existing_state_and_bounded_cooldown(workspace
         return []
     workspace._browser_cookie_provider = expired
     monkeypatch.setattr(workspace.manager.service, "query", lambda *a, **k: Result("AUTH_EXPIRED"))
+    monkeypatch.setattr(workspace.manager.service, "sync", lambda *a, **k: Result("AUTH_EXPIRED"))
+    monkeypatch.setattr(workspace, "auto_relogin_locked",
+                        lambda: {"ok": False, "code": "NO_CREDENTIAL", "needs_user": False})
+
     for _ in range(3):
         assert workspace.query("grades", {})["error"]["code"] == "AUTH_EXPIRED"
-    assert len(calls) == 1
+    assert calls == []  # a cache read never reads browser credentials
+
+    for _ in range(3):
+        assert workspace.query("grades", {}, refresh=True)["error"]["code"] == "AUTH_EXPIRED"
+    assert len(calls) == 1  # bounded: one provider attempt, then the cooldown holds
     assert workspace.manager.states["local"]["client"] is prior and not prior.closed
 
 
@@ -139,16 +171,24 @@ def test_adoption_without_verifiable_identity_refuses_grant(workspace, monkeypat
 
 
 def test_model_auth_recovery_uses_same_safe_workspace_without_new_confirmation(workspace, monkeypatch):
+    """`campus.query` stays a cache read; the bounded read recovery is `campus.sync`.
+
+    Both tools reach the same trusted workspace and the same authorized browser
+    session, with no extra user confirmation and one retry at most.
+    """
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from app.agent_bridge.tools import ToolContext, execute
     workspace.authorize_browser_session(lambda: COOKIES)
     monkeypatch.setattr("app.campus_workspace.get_campus_workspace", lambda: workspace)
+    monkeypatch.setattr(workspace, "auto_relogin_locked",
+                        lambda: {"ok": False, "code": "NO_CREDENTIAL", "needs_user": False})
     requests = []
     class FullResult:
         def model_dump(self, **_):
             requests.append(1)
-            expired = len(requests) == 1
+            # Fails until the third call: the cache read, the requested sync, then its retry.
+            expired = len(requests) < 3
             return {"error": {"code": "AUTH_EXPIRED", "message": "synthetic"} if expired else None,
                     "records": [] if expired else [{"id": "synthetic", "name": "测试课程"}],
                     "platform": "zdbk", "completeness": "partial", "freshness": "unknown" if expired else "fresh",
@@ -156,7 +196,11 @@ def test_model_auth_recovery_uses_same_safe_workspace_without_new_confirmation(w
     monkeypatch.setattr(workspace.manager.service, "query", lambda *a, **k: FullResult())
     monkeypatch.setattr(workspace.manager.service, "sync", lambda *a, **k: FullResult())
     with Session(create_engine("sqlite:///:memory:")) as db:
-        result = execute("campus.query", {"capability": "courses"}, db, ToolContext("local", "synthetic-conversation"))
+        # `courses` now reads the migrated timetable snapshot; this test keeps covering the
+        # connector recovery path, which is still used by grades.
+        cached = execute("campus.query", {"capability": "grades"}, db, ToolContext("local", "synthetic-conversation"))
+        assert cached["error"]["code"] == "AUTH_EXPIRED" and len(requests) == 1
+        result = execute("campus.sync", {"capability": "grades"}, db, ToolContext("local", "synthetic-conversation"))
     assert result["error"] is None and result["status"] == "partial"
     assert result["data"]["records"][0]["id"] == "synthetic"
-    assert len(requests) == 2  # bounded read recovery, not a second model request
+    assert len(requests) == 3  # cache read, one requested sync, one bounded retry

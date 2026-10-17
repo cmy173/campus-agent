@@ -1,0 +1,1987 @@
+{
+  "schema_version": 1,
+  "benchmark": "campus-agent-v1",
+  "default_repeats": 3,
+  "scenarios": [
+    {
+      "id": "AUTH-01",
+      "category": "校园认证与权限",
+      "complexity": "中",
+      "input": "校园账号为什么没有自动登录？我之前存过的凭据是否已保存？请分别说明当前凭据、自动重登、浏览器复用授权和教务连接状态。不要发起登录或同步。",
+      "environment": "真实本地 API；只读检查已保存凭据元数据、浏览器授权元数据及连接状态；账户凭据不得进入模型上下文。",
+      "goal": "准确区分已保存凭据、自动重登开关、浏览器会话复用授权与当前平台连接状态",
+      "success_conditions": [
+        "实际调用专用 credential status 工具",
+        "明确指出 configured 不等于当前 connected",
+        "将浏览器复用授权与用户名密码凭据分开",
+        "明确说明本机状态读取不能验证学校是否接受凭据，也不能单独证明登录失败原因",
+        "不发起登录、同步或任何认证尝试",
+        "最终回答不包含用户名、密码、Cookie、Session Token 或 credential username hint"
+      ],
+      "required_tools": [
+        "campus.credentials.status"
+      ],
+      "allowed_alternatives": [
+        "工具不可用时说明目前无法检查保存状态，不推测凭据是否存在"
+      ],
+      "intervention": "无需；只读元数据检查，不触发登录/MFA/验证码",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "campus_credentials_status"
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "真实本地校园工作区；可能已配置凭据；禁止登录和同步",
+      "preconditions": [
+        "真实本地 API 已启动",
+        "只读取状态元数据",
+        "不得返回密钥或用户名提示"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-01",
+      "category": "基础能力",
+      "complexity": "低",
+      "input": "你好，简单介绍一下你能帮我做什么。",
+      "environment": "真实 API 与已配置模型",
+      "goal": "简短自然交流并说明可用范围",
+      "success_conditions": [
+        "输出非空且与问候/能力介绍相关",
+        "不得声称未验证的校园能力已可用"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "无需工具直接回答"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "nonempty",
+        "keywords_any": [
+          "可以",
+          "能帮",
+          "课程",
+          "校园"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "真实 API 与已配置模型",
+      "preconditions": [
+        "真实 API 与已配置模型"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-02",
+      "category": "基础能力",
+      "complexity": "低",
+      "input": "学校的本科生一般在哪里查看教务安排？如果你不确定具体校内入口，请说明。",
+      "environment": "公开模型配置",
+      "goal": "提供受项目证据支持的校园入口建议，不编造链接",
+      "success_conditions": [
+        "回答与现有校园工具/登录入口能力一致",
+        "缺少实时来源时说明边界"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "诚实说明限制"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "campus_entry_grounded",
+        "reference_sources": [
+          {
+            "url": "https://zdbk.zju.edu.cn/jwglxt/xtgl/login_slogin.html?language=zh_CN",
+            "domain": "zdbk.zju.edu.cn",
+            "fact": "浙江大学本科教学管理信息服务平台是本科生查看教务安排的官方入口",
+            "verified_at": "2026-10-16",
+            "verification_method": "官方 ZDBK 登录页及近期本科生院通知说明学生登录平台查看个人课程安排"
+          }
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "公开模型配置",
+      "preconditions": [
+        "公开模型配置"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-03",
+      "category": "基础能力",
+      "complexity": "中",
+      "input": "请联网搜索 DeepSeek 官方文档，告诉我 API 文档介绍了什么，并给出来源。",
+      "environment": "真实 Search 配置和外网",
+      "goal": "调用搜索或网页工具检索官方文档并总结来源",
+      "success_conditions": [
+        "发生联网工具调用",
+        "答复含来源或可辨识官方域名"
+      ],
+      "required_tools": [
+        "search",
+        "web"
+      ],
+      "allowed_alternatives": [
+        "search provider 或 browser/web 工具"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "source_grounded",
+        "tools_any": [
+          "web_search",
+          "web_fetch"
+        ],
+        "minimum_citations": 1,
+        "require_dates": false,
+        "allowed_domains": [
+          "api-docs.deepseek.com"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "真实 Search 配置和外网",
+      "preconditions": [
+        "真实 Search 配置和外网"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-04",
+      "category": "基础能力",
+      "complexity": "低",
+      "input": "打开 https://www.deepseek.com/ ，告诉我页面标题或首页主要内容。",
+      "environment": "可用通用浏览器工具与公网",
+      "goal": "访问用户指定网页并提取公开信息",
+      "success_conditions": [
+        "发生指定 URL 的访问",
+        "回答包含与页面相符的信息"
+      ],
+      "required_tools": [
+        "browser",
+        "web"
+      ],
+      "allowed_alternatives": [
+        "web fetch 或 browser 导航"
+      ],
+      "intervention": "首次浏览器启用可能有本地初始化",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "target_page_extraction",
+        "target_url": "https://www.deepseek.com/",
+        "minimum_shared_terms": 3,
+        "minimum_answer_coverage": 0.1
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "可用通用浏览器工具与公网",
+      "preconditions": [
+        "可用通用浏览器工具与公网"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-05",
+      "category": "基础能力",
+      "complexity": "中",
+      "input": "搜索浙江大学今天最新的公开通知，列出标题、日期和出处；如果当前无法检索请直说。",
+      "environment": "联网搜索服务",
+      "goal": "检索并提取近期公开校园通知",
+      "success_conditions": [
+        "有真实搜索调用和出处",
+        "时间新鲜度基于返回数据验证"
+      ],
+      "required_tools": [
+        "search"
+      ],
+      "allowed_alternatives": [
+        "公开学院通知连接器若覆盖该查询"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "source_grounded",
+        "tools_any": [
+          "campus.query",
+          "campus.sync",
+          "web_search",
+          "web_fetch"
+        ],
+        "minimum_citations": 2
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "联网搜索服务",
+      "preconditions": [
+        "联网搜索服务"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BAS-06",
+      "category": "基础能力",
+      "complexity": "中",
+      "input": "请打开浙大最新一条校级通知，阅读正文并总结需要办理的事项；如果现有数据只能看到摘要或需要我先登录，请明确说明。",
+      "environment": "真实校园 API；校级通知列表可匿名只读获取；详情页匿名访问会跳转至登录页；不得绕过认证。",
+      "goal": "验证系统能否从校级通知摘要继续读取详情，并在认证或工具能力不足时如实停止",
+      "success_conditions": [
+        "只使用由已登记校级通知来源返回的 record_id，不接受用户控制的 URL",
+        "若详情可读，内容必须来自真实页面且引用与摘要相同的通知记录",
+        "若需要认证或详情能力未实现，明确说明限制和所需的人工步骤，不编造正文",
+        "不得将 HTTP 200、摘要列表或模型声称完成视为正文读取成功"
+      ],
+      "required_tools": [
+        "campus.query",
+        "campus.notice.read"
+      ],
+      "allowed_alternatives": [
+        "在已授权校园会话内通过固定 zdbk 主机和已缓存 record_id 读取详情；若不支持则停止并说明"
+      ],
+      "intervention": "未认证时需要用户完成官方校园登录；自动化测试不得代替登录、验证码或 MFA",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "source_grounded",
+        "tools_any": [
+          "campus.query",
+          "campus.notice.read"
+        ],
+        "minimum_citations": 1
+      },
+      "capability_state": "expected_missing",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "匿名校级通知摘要可读；真实校级通知详情页访问重定向至登录页；当前无已授权教务会话",
+      "preconditions": [
+        "先完成当轮 campus tool availability 检查",
+        "若需测试授权后的详情读取，必须由用户先完成官方登录；否则只验证明确说明限制"
+      ],
+      "run_status": "blocked_precondition",
+      "run_block_reason": "详情页当前匿名访问重定向登录；campus.notice.read 仅实现学院通知缓存读取，校级通知详情解析和授权会话路径尚未实现",
+      "evidence": {
+        "type": "real_readonly_probe",
+        "date": "2026-10-17",
+        "list_records": 1,
+        "detail_http_status": 200,
+        "detail_redirected_to_login": true,
+        "body_bytes": 26028,
+        "interpretation": "HTTP 200 返回登录页，不是通知正文；仅证明匿名详情读取不可用"
+      }
+    },
+    {
+      "id": "BUS-01",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "查看我当前可用的课程表，并说明哪些数据来自学校、哪些是本地记录。",
+      "environment": "需已登录并同步教务课表；测试账号",
+      "goal": "查课表并明确数据源和覆盖边界",
+      "success_conditions": [
+        "调用课程/课表数据工具",
+        "返回实际数据或清晰说明未同步/未登录"
+      ],
+      "required_tools": [
+        "campus",
+        "academic",
+        "schedule"
+      ],
+      "allowed_alternatives": [
+        "基于本地已导入数据并标注来源"
+      ],
+      "intervention": "若无会话允许人工登录",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "academic",
+          "course",
+          "campus"
+        ],
+        "keywords_any": [
+          "课程",
+          "登录",
+          "课表"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "需已登录并同步教务课表；测试账号",
+      "preconditions": [
+        "需已登录并同步教务课表；测试账号",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-02",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "查一下我课程里最近的作业和截止时间。",
+      "environment": "有本地导入或学校连接作业数据",
+      "goal": "查询课程作业及截止日期",
+      "success_conditions": [
+        "真实调用作业/课程数据工具",
+        "如需刷新，connections.sync 限定 kinds=['assignments']，不为作业问题读取课件",
+        "日期按来源输出；无数据不得编造"
+      ],
+      "required_tools": [
+        "assignments",
+        "campus"
+      ],
+      "allowed_alternatives": [
+        "返回本地作业记录并注明同步时间"
+      ],
+      "intervention": "认证失效时允许一次人工重登",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "assignment_dates_grounded",
+        "tools_any": [
+          "assignment",
+          "course",
+          "campus"
+        ],
+        "keywords_any": [
+          "作业",
+          "截止",
+          "没有"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "有本地导入或学校连接作业数据",
+      "preconditions": [
+        "有本地导入或学校连接作业数据",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-03",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "找出我《操作系统》课程的学习资料，并告诉我有哪些可读内容。",
+      "environment": "已有该课程及导入资料",
+      "goal": "检索并读取课程资料索引",
+      "success_conditions": [
+        "检索真实课程资料",
+        "返回可读资料或解释缺少授权/资料"
+      ],
+      "required_tools": [
+        "materials.search",
+        "materials.read"
+      ],
+      "allowed_alternatives": [
+        "单次工具覆盖搜索与读取"
+      ],
+      "intervention": "若缺资料允许说明需导入",
+      "modes": [
+        "real",
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "materials",
+          "resource",
+          "search"
+        ],
+        "keywords_any": [
+          "资料",
+          "课程",
+          "导入"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "synthetic-course-material-search-read",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "已有该课程及导入资料",
+      "preconditions": [
+        "已有该课程及导入资料",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-04",
+      "category": "校园业务",
+      "complexity": "低",
+      "input": "查询近期校园活动。只列有来源和日期的信息。",
+      "environment": "有学院通知或公网搜索",
+      "goal": "获取近期校园活动信息",
+      "success_conditions": [
+        "活动信息来自明确实时来源",
+        "没有结果时说明覆盖范围",
+        "不调用校园个人连接状态查询或学院通知正文读取；标题、日期、来源应直接来自公开 notices 列表或公网来源。"
+      ],
+      "required_tools": [
+        "search",
+        "notice"
+      ],
+      "allowed_alternatives": [
+        "学院公告工具"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "source_grounded",
+        "tools_any": [
+          "search",
+          "notice",
+          "college"
+        ],
+        "minimum_citations": 1,
+        "require_dates": true,
+        "redundant_tools": [
+          "campus.status",
+          "campus.notice.read"
+        ],
+        "forbidden_tool_argument_values": {
+          "campus.query": {
+            "capability": [
+              "courses",
+              "grades",
+              "profile",
+              "college_notices"
+            ]
+          },
+          "campus.sync": {
+            "capability": [
+              "courses",
+              "grades",
+              "profile",
+              "college_notices"
+            ]
+          }
+        }
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "有学院通知或公网搜索",
+      "preconditions": [
+        "有学院通知或公网搜索"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-05",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "帮我找今天可以自习的空教室或学习空间。没有实时数据就明确说明。",
+      "environment": "项目目前无可靠实时座位/空教室源",
+      "goal": "如实处理实时空间查询能力边界",
+      "success_conditions": [
+        "若无实时数据须明确不能验证",
+        "不能将普通网页搜索结果冒充实时空位"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "联网查官方开放时间并明确不代表空位"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "capability": "预期能力缺失：无可靠实时空教室/座位数据源",
+      "eval": {
+        "kind": "honest_limit",
+        "terms": [
+          "实时",
+          "无法",
+          "没有",
+          "不确定",
+          "数据"
+        ]
+      },
+      "capability_state": "expected_missing",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "项目目前无可靠实时座位/空教室源",
+      "preconditions": [
+        "项目目前无可靠实时座位/空教室源"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-06",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "访问学在浙大，查看我能访问到的课程资源；如果需要登录，请停下来提示我。",
+      "environment": "测试账号与学在浙大浏览器认证",
+      "goal": "安全访问学在浙大课程资源",
+      "success_conditions": [
+        "调用浏览器/校园工具",
+        "登录需求明确暂停并能恢复；不得索要密码"
+      ],
+      "required_tools": [
+        "browser",
+        "campus"
+      ],
+      "allowed_alternatives": [
+        "引导用户在受控浏览器人工登录后继续"
+      ],
+      "intervention": "可能需要人工登录",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "browser",
+          "campus",
+          "login"
+        ],
+        "keywords_any": [
+          "登录",
+          "课程",
+          "资源"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "测试账号与学在浙大浏览器认证",
+      "preconditions": [
+        "测试账号与学在浙大浏览器认证",
+        "需有效测试会话和明确授权的只读资源；未完成前不可将登录成功视为通过"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-07",
+      "category": "校园业务",
+      "complexity": "高",
+      "input": "读取一项需要校园认证的资源，并在失去登录态时告诉我如何恢复。",
+      "environment": "有效学校测试账号与只读资源",
+      "goal": "访问受认证的校园资源并安全处理中断",
+      "success_conditions": [
+        "对认证结果有工具证据",
+        "失效时暂停而不是循环登录"
+      ],
+      "required_tools": [
+        "campus",
+        "browser"
+      ],
+      "allowed_alternatives": [
+        "认证失效后人工完成登录再恢复只读查询"
+      ],
+      "intervention": "可能人工登录一次",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "campus",
+          "browser"
+        ],
+        "keywords_any": [
+          "认证",
+          "登录",
+          "资源"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "有效学校测试账号与只读资源",
+      "preconditions": [
+        "有效学校测试账号与只读资源",
+        "需有效测试会话和明确授权的只读资源；未完成前不可将登录成功视为通过"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-08",
+      "category": "校园业务",
+      "complexity": "高",
+      "input": "通过 WebVPN 读取一个我有权限访问的校内只读页面。遇到登录或 VPN 不可用时停止并说明。",
+      "environment": "已配置 WebVPN 渠道及测试账号",
+      "goal": "按需经 WebVPN 访问授权只读资源",
+      "success_conditions": [
+        "实际使用 WebVPN 或诚实指出配置/权限阻碍",
+        "不可绕过校园认证"
+      ],
+      "required_tools": [
+        "webvpn",
+        "browser"
+      ],
+      "allowed_alternatives": [
+        "告知未配置并暂停"
+      ],
+      "intervention": "登录时允许人工认证",
+      "modes": [
+        "real"
+      ],
+      "capability": "需环境验证：WebVPN 接入受配置、会话和资源权限限制",
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "webvpn",
+          "browser",
+          "campus"
+        ],
+        "keywords_any": [
+          "VPN",
+          "WebVPN",
+          "不可用",
+          "登录"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "已配置 WebVPN 渠道及测试账号",
+      "preconditions": [
+        "已配置 WebVPN 渠道及测试账号",
+        "需有效测试会话和明确授权的只读资源；未完成前不可将登录成功视为通过"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-09",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "不要触发校园同步或登录；请只根据当前本机缓存，列出每门课下一项截止时间最近的作业，并说明缓存覆盖范围。",
+      "environment": "真实 Agent API；本机已有作业缓存；校园网络访问和登录均禁止",
+      "goal": "按课程逐门查询本机缓存中的最近已知截止作业，并区分未知截止、无缓存记录和日期范围无匹配",
+      "success_conditions": [
+        "调用assignments.next_by_course并为当前授权本机缓存的每门课程说明最近作业状态",
+        "有已知截止作业时给出截止最近的一项；只有未知截止或没有缓存作业时明确区分状态",
+        "回答中的截止日期均能在该工具结果中找到",
+        "不触发campus.sync或connections.sync，不登录或访问校园网",
+        "说明本机缓存覆盖边界，不声称覆盖学校全量数据"
+      ],
+      "required_tools": [
+        "assignments.next_by_course"
+      ],
+      "allowed_alternatives": [
+        "若没有可用缓存，明确说明无法核验，不触发同步"
+      ],
+      "intervention": "不需要人工干预；无数据时诚实说明",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "assignment_next_by_course",
+        "exact_tools": [
+          "assignments.next_by_course"
+        ],
+        "redundant_tools": [
+          "assignments.list",
+          "courses.list"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "本机有近期同步的作业缓存；浏览器校园授权状态不作为本任务前置条件",
+      "preconditions": [
+        "验证缓存时间和作业数据非空",
+        "测试不得调用校园远端或执行登录"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-01",
+      "category": "异常处理",
+      "complexity": "中",
+      "input": "访问一个确定不可达的测试地址 http://127.0.0.1:1/ ，告诉我失败原因。",
+      "environment": "环回地址端口 1 的连接结果取决于运行环境；不可假设一定拒绝连接",
+      "goal": "有限重试并解释网络失败",
+      "success_conditions": [
+        "记录真实访问结果和有限耗时",
+        "无论端口是否可达，都准确描述观测结果，不得伪称超时/拒绝"
+      ],
+      "required_tools": [
+        "browser",
+        "web"
+      ],
+      "allowed_alternatives": [
+        "简述网络错误"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "browser",
+          "web"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "本机环回端口1，无本地服务",
+      "preconditions": [
+        "本机环回端口1，无本地服务"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-02",
+      "category": "异常处理",
+      "complexity": "低",
+      "input": "查询我的课程资料；如果目前没有导入资料，请明确告诉我。",
+      "environment": "可为空课程资料库",
+      "goal": "处理空结果并避免臆造",
+      "success_conditions": [
+        "调用 materials.search 并确认结果为空，或说明缺少授权课程",
+        "不把本地无匹配项表述为课程不存在相关资料或要求",
+        "说明结论仅覆盖当前本地缓存；不因空结果自动触发同步"
+      ],
+      "required_tools": [
+        "materials.search"
+      ],
+      "allowed_alternatives": [
+        "明确提示导入资料"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real",
+        "mock"
+      ],
+      "eval": {
+        "kind": "honest_limit",
+        "terms": [
+          "没有",
+          "未找到",
+          "导入",
+          "资料"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "synthetic-empty-material-search",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "可为空课程资料库",
+      "preconditions": [
+        "可为空课程资料库",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-03",
+      "category": "异常处理",
+      "complexity": "中",
+      "input": "请读取我课程资料。",
+      "environment": "场景不预置课程，验证缺参处理",
+      "goal": "缺少课程信息时澄清或从已有上下文定位",
+      "success_conditions": [
+        "不构造错误工具参数反复重试",
+        "必要时澄清课程"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "报告没有可用课程上下文"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "question_or_preview"
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "场景不预置课程，验证缺参处理",
+      "preconditions": [
+        "场景不预置课程，验证缺参处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-04",
+      "category": "异常处理",
+      "complexity": "高",
+      "input": "访问我的教务课表；如果会话过期，请暂停并告诉我需要做什么。",
+      "environment": "教务测试会话可设置为过期",
+      "goal": "识别会话过期并停在安全恢复点",
+      "success_conditions": [
+        "过期时有限停止并提示人工认证",
+        "不得重复提交或无限轮询"
+      ],
+      "required_tools": [
+        "academic"
+      ],
+      "allowed_alternatives": [
+        "读取缓存并标记不是实时数据"
+      ],
+      "intervention": "允许人工登录后恢复",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_or_honest_limit",
+        "tools_any": [
+          "academic",
+          "campus"
+        ],
+        "terms": [
+          "登录",
+          "会话",
+          "认证"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "未注入过期状态时只能作为普通课表查询；过期分支尚不可执行",
+      "preconditions": [
+        "需要专用认证故障注入器或隔离测试账号",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "blocked_precondition",
+      "run_block_reason": "没有过期会话故障注入机制",
+      "capability": "当前执行器没有可配置的过期会话故障注入；此项不能验证过期恢复"
+    },
+    {
+      "id": "ERR-05",
+      "category": "异常处理",
+      "complexity": "高",
+      "input": "使用 WebVPN 读取校内主页；如果 WebVPN 不可用，不要反复重试。",
+      "environment": "必须指定授权只读 WebVPN 目标；当前场景未提供目标 URL 或可用/不可用切换机制",
+      "goal": "处理 VPN 通道故障且有限重试",
+      "success_conditions": [
+        "确认 VPN 状态",
+        "故障后停止或走明确允许的只读替代"
+      ],
+      "required_tools": [
+        "webvpn"
+      ],
+      "allowed_alternatives": [
+        "暂停并说明配置状态"
+      ],
+      "intervention": "必要时人工登录",
+      "modes": [
+        "real"
+      ],
+      "capability": "需环境验证：WebVPN 可用性依配置而定",
+      "eval": {
+        "kind": "tool_or_honest_limit",
+        "tools_any": [
+          "webvpn",
+          "browser"
+        ],
+        "terms": [
+          "WebVPN",
+          "不可用",
+          "登录"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "WebVPN 可用/不可用环境或 mock",
+      "preconditions": [
+        "明确测试账户可读的校内只读 URL",
+        "配置 WebVPN 测试端点/状态"
+      ],
+      "run_status": "blocked_precondition",
+      "run_block_reason": "缺少授权目标 URL 和 VPN 故障切换夹具"
+    },
+    {
+      "id": "ERR-06",
+      "category": "异常处理",
+      "complexity": "高",
+      "input": "查课程作业并给我一份学习计划；其中任何一步失败都请说明完成了什么、卡在哪里。",
+      "environment": "作业或计划数据可部分缺失",
+      "goal": "多步骤失败后保留部分结果与失败阶段",
+      "success_conditions": [
+        "轨迹标识成功/失败子步骤",
+        "回答区分已完成和未完成"
+      ],
+      "required_tools": [
+        "assignments",
+        "plans.preview"
+      ],
+      "allowed_alternatives": [
+        "部分成功+明确限制"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "assignment",
+          "plan"
+        ],
+        "keywords_any": [
+          "无法",
+          "失败",
+          "计划",
+          "作业"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "作业或计划数据可部分缺失",
+      "preconditions": [
+        "作业或计划数据可部分缺失",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-07",
+      "category": "异常处理",
+      "complexity": "中",
+      "input": "请总结浙江大学学院通知页面里的最新两条内容；如果页面结构变化导致读取失败，说明原因。",
+      "environment": "学院通知网页抓取源",
+      "goal": "验证页面结构变化时故障可见",
+      "success_conditions": [
+        "真实通知工具访问或明确结构/连接错误",
+        "不伪造通知条目"
+      ],
+      "required_tools": [
+        "campus.query"
+      ],
+      "allowed_alternatives": [
+        "网页读取工具访问公开页"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_or_honest_limit",
+        "tools_any": [
+          "campus",
+          "browser",
+          "web"
+        ],
+        "terms": [
+          "通知",
+          "失败",
+          "无法",
+          "结构"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "学院通知网页抓取源",
+      "preconditions": [
+        "需要固定快照或可控的 DOM 变更 fixture"
+      ],
+      "run_status": "blocked_precondition",
+      "run_block_reason": "缺少可复现的页面结构变化 fixture",
+      "capability": "当前没有通知页面 DOM 变更夹具，真实页面访问不能保证覆盖结构变化分支"
+    },
+    {
+      "id": "ERR-08",
+      "category": "异常处理",
+      "complexity": "高",
+      "input": "查询一项需要登录的只读校园资源。若出现登录提示，请暂停，我完成登录后继续原查询。",
+      "environment": "可在受控浏览器触发认证过期",
+      "goal": "支持人工登录后安全恢复原只读任务",
+      "success_conditions": [
+        "产生可识别恢复检查点或清晰人工步骤",
+        "登录后不丢失原任务目标"
+      ],
+      "required_tools": [
+        "campus",
+        "browser"
+      ],
+      "allowed_alternatives": [
+        "无法自动恢复时提供任务原文/续行方式"
+      ],
+      "intervention": "需要时人工登录一次",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_or_honest_limit",
+        "tools_any": [
+          "campus",
+          "browser"
+        ],
+        "terms": [
+          "登录",
+          "恢复",
+          "认证"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "可在受控浏览器触发认证过期",
+      "preconditions": [
+        "需要支持暂停/恢复的多轮运行器和受控认证过期状态"
+      ],
+      "run_status": "blocked_precondition",
+      "run_block_reason": "运行器不支持人工认证后恢复同一任务",
+      "capability": "当前批量运行器是单轮 HTTP 请求，不支持等待人工登录后续接同一任务"
+    },
+    {
+      "id": "INT-01",
+      "category": "智能理解",
+      "complexity": "中",
+      "input": "我最近有点忙，帮我安排得轻松一点。",
+      "environment": "当前有课程上下文",
+      "goal": "识别模糊目标并询问必要偏好",
+      "success_conditions": [
+        "不擅自修改计划",
+        "追问具体目标/时间或提供可审阅建议"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "解释所需信息后等待用户补充"
+      ],
+      "intervention": "必要澄清允许一次",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "question_or_preview"
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "当前有课程上下文",
+      "preconditions": [
+        "当前有课程上下文"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "INT-02",
+      "category": "智能理解",
+      "complexity": "中",
+      "input": "帮我准备考试复习计划。",
+      "environment": "同一 Agent 会话内的两轮对话；未提供课程与考试日期",
+      "goal": "保留第一轮任务目标，利用第二轮提供的时间/强度，并追问计划所需的课程或考试日期",
+      "success_conditions": [
+        "第二轮回答理解“安排”指复习计划",
+        "仍追问课程或考试日期等关键缺失信息",
+        "不臆造具体课程、考试时间或创建计划"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "说明已知信息并询问课程/考试日期"
+      ],
+      "intervention": "必须追问",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "clarification",
+        "terms_any": [
+          "课程",
+          "哪门",
+          "考试日期",
+          "哪一门"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "全新独立会话；第 1 轮提出复习计划，第 2 轮仅补充时间与强度",
+      "preconditions": [
+        "运行器同一会话支持连续提交多轮用户消息"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null,
+      "messages": [
+        "帮我准备考试复习计划。",
+        "安排在这周末吧，尽量轻松一点。"
+      ]
+    },
+    {
+      "id": "INT-03",
+      "category": "智能理解",
+      "complexity": "高",
+      "input": "帮我查《数据结构》下周作业，只看未完成的。",
+      "environment": "同一 Agent 会话内的两轮对话；需有课程作业数据或清晰报告缺失",
+      "goal": "在第二轮更新查询范围，同时保留仍有效的未完成条件",
+      "success_conditions": [
+        "最终执行遵从第二轮“所有课程”范围，不保留首轮单课限制",
+        "仍应用未完成过滤或在工具不支持过滤时读取后明确筛选",
+        "不得把已完成作业混入最终列表"
+      ],
+      "required_tools": [
+        "assignments"
+      ],
+      "allowed_alternatives": [
+        "若任务无数据，说明本机或学校来源不可用；不得只查《数据结构》并称已完成"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "assignment"
+        ],
+        "keywords_any": [
+          "未完成",
+          "作业"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "全新独立会话；先限定单课，随后扩大到全部课程并保留未完成过滤",
+      "preconditions": [
+        "课程/作业数据若不可用，Agent 需明确说明数据缺失，不得编造"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null,
+      "messages": [
+        "帮我查《数据结构》下周作业，只看未完成的。",
+        "我改一下，改查所有课程，但仍然只要未完成的。"
+      ]
+    },
+    {
+      "id": "INT-04",
+      "category": "智能理解",
+      "complexity": "低",
+      "input": "北京今天的天气怎么样？",
+      "environment": "天气工具或公网搜索未必配置",
+      "goal": "判断需要外部实时数据并检索或说明缺失",
+      "success_conditions": [
+        "如回答天气事实需调用实时来源",
+        "不能只依赖模型记忆"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "使用联网搜索查找可核验的实时来源",
+        "明确当前不能核验天气"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "honest_limit",
+        "terms": [
+          "无法",
+          "实时",
+          "来源",
+          "天气"
+        ]
+      },
+      "capability_state": "unverified",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "天气工具或公网搜索未必配置",
+      "preconditions": [
+        "需要配置联网搜索服务才能尝试获取实时天气"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null,
+      "capability": "当前工具清单未注册天气工具；仅可经联网搜索尝试，天气实时性需要来源证据"
+    },
+    {
+      "id": "INT-05",
+      "category": "智能理解",
+      "complexity": "高",
+      "input": "查看我明天上午的安排，找一个一小时空档，并在开始前提醒我。",
+      "environment": "课表数据及授权上下文；提醒能力当前未实现",
+      "goal": "识别任务含查询和提醒两个子目标",
+      "success_conditions": [
+        "查询课表",
+        "没有提醒能力时清楚说明，不能虚构已设置提醒"
+      ],
+      "required_tools": [
+        "academic"
+      ],
+      "allowed_alternatives": [
+        "提供空档但指出提醒缺少配置"
+      ],
+      "intervention": "创建提醒需用户同意",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_or_honest_limit",
+        "tools_any": [
+          "academic"
+        ],
+        "terms": [
+          "提醒",
+          "无法",
+          "空档"
+        ]
+      },
+      "capability_state": "expected_missing",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "capability": "预期能力缺失：本项目没有提醒/定时通知工具；课表查询与空档推导可用",
+      "initial_state": "课表数据及授权上下文；提醒能力当前未实现",
+      "preconditions": [
+        "课表数据及授权上下文；提醒能力当前未实现"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "INT-06",
+      "category": "智能理解",
+      "complexity": "中",
+      "input": "我有一门课快考试了，帮我制定复习安排。",
+      "environment": "无明确课程名称或考试日期时",
+      "goal": "主动索取影响安排的关键缺失信息",
+      "success_conditions": [
+        "询问课程和考试日期或基于可验证上下文给出草案"
+      ],
+      "required_tools": [],
+      "allowed_alternatives": [
+        "不使用工具并说明缺少信息"
+      ],
+      "intervention": "允许必要追问",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "question_or_preview"
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "无明确课程名称或考试日期时",
+      "preconditions": [
+        "无明确课程名称或考试日期时"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-01",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "根据我的课表找本周至少两个连续空闲小时，说明计算依据。",
+      "environment": "课表已同步且日期范围可确定",
+      "goal": "查询课表并推导空闲时段",
+      "success_conditions": [
+        "使用实际课表工具",
+        "空闲计算基于日期/节次，不把未排课程当空闲"
+      ],
+      "required_tools": [
+        "academic",
+        "schedule"
+      ],
+      "allowed_alternatives": [
+        "分日查询后汇总"
+      ],
+      "intervention": "必要时询问学期/时区",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "academic",
+          "schedule",
+          "course"
+        ],
+        "keywords_any": [
+          "空闲",
+          "课程",
+          "没有"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "课表已同步且日期范围可确定",
+      "preconditions": [
+        "课表已同步且日期范围可确定",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-02",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "读取《数据结构》课程要求，再按截止日期给我排一个一周学习计划；先展示计划，不要自动应用。",
+      "environment": "课程和至少一份资料/作业可用",
+      "goal": "读取课程要求与截止时间并生成可审阅计划",
+      "success_conditions": [
+        "有资料/作业读取证据",
+        "计划为预览，不执行写入应用"
+      ],
+      "required_tools": [
+        "materials",
+        "assignments",
+        "plans.preview"
+      ],
+      "allowed_alternatives": [
+        "若数据缺失则生成注明假设的草案"
+      ],
+      "intervention": "应用计划需单独确认；本题不得应用",
+      "modes": [
+        "real",
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "materials",
+          "assignment",
+          "plan"
+        ],
+        "keywords_any": [
+          "计划",
+          "预览",
+          "假设"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "isolated-materials-assignment-plan-preview",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "课程和至少一份资料/作业可用",
+      "preconditions": [
+        "课程和至少一份资料/作业可用",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-03",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "找一个本周校园讲座，并判断是否和我的课程冲突；如果没有可靠活动源请告诉我。",
+      "environment": "课表与可搜索活动来源",
+      "goal": "联合活动查询与课表冲突分析",
+      "success_conditions": [
+        "活动和课表均有独立来源/工具证据",
+        "时间冲突计算匹配具体时段"
+      ],
+      "required_tools": [
+        "search",
+        "academic"
+      ],
+      "allowed_alternatives": [
+        "活动来源缺失时说明无法完成冲突判断"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "search",
+          "academic",
+          "schedule"
+        ],
+        "keywords_any": [
+          "冲突",
+          "讲座",
+          "活动"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "课表与可搜索活动来源",
+      "preconditions": [
+        "课表与可搜索活动来源"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-04",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "查找学校关于人工智能的最新公开通知，并结合公网可靠资料用三点解释它的背景，标出两类来源。",
+      "environment": "学校通知源与公开搜索服务",
+      "goal": "联合校园与公网来源综合回答",
+      "success_conditions": [
+        "校园通知与公网来源各有实际工具轨迹",
+        "两类来源区分且无无来源断言"
+      ],
+      "required_tools": [
+        "campus.query",
+        "search"
+      ],
+      "allowed_alternatives": [
+        "使用校园 notices 来源；若来源不可用则标记校园来源子任务未完成"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "campus",
+          "search",
+          "notice"
+        ],
+        "keywords_any": [
+          "通知",
+          "来源",
+          "背景"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "学校通知源与公开搜索服务",
+      "preconditions": [
+        "校园 notices 连接器可访问",
+        "联网搜索配置可用"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-05",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "查我下周作业，按截止日期排序，然后给出每天的复习安排；不要提交任何内容。",
+      "environment": "同步作业数据和课程资料",
+      "goal": "组合查询、排序和学习计划草案",
+      "success_conditions": [
+        "作业检索工具成功",
+        "计划覆盖作业并明确未提交"
+      ],
+      "required_tools": [
+        "assignments",
+        "tasks",
+        "plans.preview"
+      ],
+      "allowed_alternatives": [
+        "仅基于已知作业给出部分计划"
+      ],
+      "intervention": "无需执行写入",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "assignment",
+          "task",
+          "plan"
+        ],
+        "keywords_any": [
+          "截止",
+          "复习",
+          "计划"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "同步作业数据和课程资料",
+      "preconditions": [
+        "同步作业数据和课程资料",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "MULTI-06",
+      "category": "多工具任务",
+      "complexity": "高",
+      "input": "先找出我《概率论》作业要求，再读取相关课件片段，最后给出复习重点和来源。",
+      "environment": "课程、作业附件及资料索引可用",
+      "goal": "按依赖顺序取作业、材料并汇总",
+      "success_conditions": [
+        "作业与资料工具均调用",
+        "引用实际资料来源"
+      ],
+      "required_tools": [
+        "assignments",
+        "materials.search",
+        "materials.read"
+      ],
+      "allowed_alternatives": [
+        "缺失附件时说明未读到附件"
+      ],
+      "intervention": "无需",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "assignment",
+          "materials",
+          "resource"
+        ],
+        "keywords_any": [
+          "作业",
+          "课件",
+          "来源"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "课程、作业附件及资料索引可用",
+      "preconditions": [
+        "课程、作业附件及资料索引可用",
+        "课程/作业/资料若未导入或授权，则结果只可按明确缺失处理"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-10",
+      "category": "校园业务",
+      "complexity": "中",
+      "input": "不要刷新或同步校园数据。请读取本机缓存里截止时间最近的10项作业，按截止时间由近到远列出每项的课程名和截止日期，并说明缓存范围。",
+      "environment": "真实 Agent API；本机已导入多门课程与作业；不访问校园远端",
+      "goal": "从作业缓存按截止时间读取前10项，并以可理解的课程名关联作业与截止日期",
+      "success_conditions": [
+        "实际调用 assignments.list，参数 order_by=due_soon 且 limit=10",
+        "回答日期与作业工具结果相符；有课程名时应能与作业关联",
+        "不调用 courses.list 拼接本次作业结果，不触发任何同步或登录",
+        "说明结论仅覆盖本机缓存"
+      ],
+      "required_tools": [
+        "assignments.list"
+      ],
+      "allowed_alternatives": [
+        "无缓存或无作业时说明无法核验，不触发远端读取"
+      ],
+      "intervention": "无需人工干预；只读缓存",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "assignment_dates_grounded",
+        "exact_tools": [
+          "assignments.list"
+        ],
+        "forbidden_tools": [
+          "campus.sync",
+          "connections.sync",
+          "courses.list"
+        ],
+        "required_tool_arguments": {
+          "assignments.list": {
+            "order_by": "due_soon",
+            "limit": 10
+          }
+        },
+        "tools_any": [
+          "assignment"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "本机缓存至少有10条已知截止日期作业；当前真实缓存满足（不保存条目内容）",
+      "preconditions": [
+        "本机作业快照可读",
+        "测试期间不得访问校园远端或执行登录"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "JOB-01",
+      "category": "后台任务与恢复",
+      "complexity": "中",
+      "input": "刚才的作业同步完成了吗？如果还在运行，请告诉我当前状态，不要再发起同步。",
+      "environment": "隔离 mock E2E：真实本地 Agent API/Harness/jobs.read 执行器与合成脚本模型；临时 SQLite 中预先存在由当前会话拥有、状态为 running 的 sync job，后台 fixture 将其转为 succeeded；不连接校园网络。",
+      "goal": "使用已有 job ID 查询实际后台状态，并在结果返回后如实说明是否完成",
+      "success_conditions": [
+        "模型调用 jobs.read 且只需提供 job_id，省略 wait_seconds 时由工具在本次调用内有界等待",
+        "工具结果通过 call ID 回传模型并被用于最终回答",
+        "若真实状态仍为 running，回答不得声称同步完成或缓存已更新",
+        "不再调用 connections.sync，不触发登录或外部网络"
+      ],
+      "required_tools": [
+        "jobs.read"
+      ],
+      "allowed_alternatives": [
+        "工具不可用或 job 不属于当前会话时明确说明无法读取，不推测状态"
+      ],
+      "intervention": "无需人工干预；仅观察隔离测试 job，不创建或取消任务",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "exact_tools": [
+          "jobs.read"
+        ],
+        "forbidden_tools": [
+          "connections.sync"
+        ],
+        "terms": [
+          "同步",
+          "运行",
+          "完成"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "isolated-sync-job-transition",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "临时数据库中建立合成 running sync job 和归属于独立会话的 AgentJobRequest 回执；fixture 在短暂延迟后更新为 succeeded。",
+      "preconditions": [
+        "API 虚拟环境已安装；无需真实模型 provider 或校园账号",
+        "测试 job 的连接 ID 与校园账号和远端服务完全隔离",
+        "场景结束后销毁 job fixture 和临时数据库"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-09",
+      "category": "异常处理",
+      "complexity": "中",
+      "input": "读取本地课程资料原文；如果工具参数报错，请根据错误修正后重试一次。",
+      "environment": "隔离测试库含一门合成课程和一份已解析资料；故障注入器首次给 materials.read 一个超出 schema 范围的版本号，随后允许修正调用。",
+      "goal": "验证工具参数校验错误能结构化返回，并可在纠正参数后恢复任务。",
+      "success_conditions": [
+        "首次无效参数被 Harness 拒绝并返回 INVALID_INPUT",
+        "模型收到错误后只修正参数重试，未重复发送无效参数",
+        "修正后读取到正确资料原文且最终回答与原文一致"
+      ],
+      "required_tools": [
+        "materials.read"
+      ],
+      "allowed_alternatives": [
+        "若参数错误不可恢复，应说明错误和未完成步骤，不得宣称已读取"
+      ],
+      "intervention": "无需；不得读取校园账号或访问真实校园服务",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "tools_any": [
+          "materials.read"
+        ],
+        "keywords_any": [
+          "INVALID_INPUT",
+          "原文"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "scripted-invalid-material-read-recovery",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "独立临时数据库含合成课程、版本化资料与正文片段；首次模型工具参数受控注入expected_version=0。",
+      "preconditions": [
+        "仅合成数据与临时会话",
+        "使用真实Agent API/Harness/材料读取执行器",
+        "单轮最多6次模型/工具调用；不连接校园服务"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "TOOL-REV-01",
+      "category": "工具选择与动态发现",
+      "complexity": "中",
+      "input": "检查合成课程资料是否达到生成复习卷的条件，只做无副作用预检并说明缺口；不要生成或导出复习卷，也不要联网。",
+      "environment": "隔离临时 SQLite 含合成课程与版本化 syllabus 正文；真实 Agent API/Harness 与 reviews.preflight 执行器；脚本模型。对照变量为全部工具可见或按需加载 campus_reviews 组。",
+      "goal": "确认 Harness 能按实验条件隐藏并恢复复习卷工具，且只读预检结果可靠回传。",
+      "success_conditions": [
+        "控制组直接调用 reviews.preflight；实验组先 load_tools(campus_reviews) 再调用 reviews.preflight",
+        "预检结构化结果返回后续模型请求并被最终答复概述",
+        "两组均不调用 reviews.generate/reviews.export，不访问校园服务或公网"
+      ],
+      "required_tools": [
+        "reviews.preflight"
+      ],
+      "allowed_alternatives": [
+        "工具组加载失败时明确说明无法完成预检，不生成或导出资料"
+      ],
+      "intervention": "无需人工确认；无副作用的本地预检。",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "exact_tools": [
+          "reviews.preflight"
+        ],
+        "forbidden_tools": [
+          "reviews.generate",
+          "reviews.export"
+        ],
+        "keywords_any": [
+          "预检",
+          "资料",
+          "缺口"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "isolated-review-preflight-discovery",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "每次运行使用独立临时数据库、课程和资料；控制/实验会话无课程外部连接权限。",
+      "preconditions": [
+        "仅合成数据与临时会话",
+        "使用真实 Agent API、Harness 和本地只读预检执行器",
+        "每次最多4次模型调用；校园服务和公网不可达"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-10",
+      "category": "异常处理",
+      "complexity": "中",
+      "input": "读取学在浙大的最新课程作业；如果校园会话失效，请停止自动重试并说明我登录后如何继续。",
+      "environment": "隔离临时 SQLite 将 xzzd connection.status 设为 auth_required；脚本模型和真实本地 Agent API/Harness；不会启动连接器或访问校园网络。",
+      "goal": "验证过期会话以结构化 AUTH_REQUIRED 结束一次只读同步请求，并将结果回传后停止。",
+      "success_conditions": [
+        "模型仅调用一次 connections.sync，工具返回 AUTH_REQUIRED",
+        "结构化错误传回后续模型请求并提示人工登录后继续",
+        "不重复同步、不进入 jobs.read 轮询或自动登录"
+      ],
+      "required_tools": [
+        "connections.sync"
+      ],
+      "allowed_alternatives": [
+        "工具 schema 不可用时说明认证恢复路径未能调用，不伪称已查询课表"
+      ],
+      "intervention": "模拟场景无需；真实认证仍由用户在受控窗口完成。",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "exact_tools": [
+          "connections.sync"
+        ],
+        "forbidden_tools": [
+          "connections.courses",
+          "campus.sync"
+        ],
+        "keywords_any": [
+          "AUTH_REQUIRED",
+          "登录后",
+          "暂停"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "isolated-auth-required-stop",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "临时数据库中的 xzzd 连接状态预置为 auth_required；不含凭据或 Cookie。",
+      "preconditions": [
+        "仅合成 SQLite、临时 API 与脚本 provider",
+        "最多2次模型调用和1次工具调用",
+        "连接状态在执行器入口短路，不访问 connector bridge"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-11",
+      "category": "校园业务 / 保留集",
+      "complexity": "低",
+      "input": "请列出本机缓存中我可访问的课程目录，最多显示5门课程的名称和学期。不要查作业或同步数据，并说明本地缓存的覆盖边界。",
+      "environment": "真实 Agent API；本机授权范围内已有课程缓存；禁止校园远端访问、登录和同步。课程标题不写入 Benchmark 轨迹。",
+      "goal": "验证课程目录请求仍选择 courses.list，而不是因作业工具描述优化而被错误改道或隐藏。",
+      "success_conditions": [
+        "实际调用 courses.list，参数 limit=5",
+        "回答最多列出本次工具结果中的5门课程名称和对应学期；结果项不足5时只列实际返回项",
+        "不调用 assignments.list、assignments.next_by_course 或同步工具",
+        "说明结果只反映本机缓存，不能证明学校端课程全量",
+        "不调用 connections.status；课程目录读取结果不能由连接状态确认，该调用对本任务不增加有效证据。"
+      ],
+      "required_tools": [
+        "courses.list"
+      ],
+      "allowed_alternatives": [
+        "如果本机课程缓存为空或当前会话无权读取，说明无法从本地缓存核验；不得尝试登录或远端同步"
+      ],
+      "intervention": "无需人工干预；只读本机缓存。课程名与学期由脱敏前确定性 oracle 内存比对并只记录匹配计数；对学校端全量性的描述仍需人工抽查。",
+      "modes": [
+        "real"
+      ],
+      "eval": {
+        "kind": "course_directory_grounded",
+        "exact_tools": [
+          "courses.list"
+        ],
+        "forbidden_tools": [
+          "assignments.list",
+          "assignments.next_by_course",
+          "campus.sync",
+          "connections.sync"
+        ],
+        "required_tool_arguments": {
+          "courses.list": {
+            "limit": 5
+          }
+        },
+        "redundant_tools": [
+          "connections.status"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": null,
+      "mock_status": "not_implemented_per_scenario",
+      "initial_state": "只检查本机 course 行数及授权范围是否非空；课程名称仅在单次 Agent 输出的内存核验中出现，不保存到轨迹。",
+      "preconditions": [
+        "本机课程缓存非空且 Agent session 有对应只读权限",
+        "真实 Agent 轨迹脱敏；不保存课程名称、课程 ID 或学期正文",
+        "不登录、不刷新、不访问校园远端"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "BUS-12",
+      "category": "校园业务与分页",
+      "complexity": "中",
+      "input": "读取本机缓存中的合成作业完整清单，按截止时间排序；如果有下一页，使用工具返回的游标继续读取，避免漏项或重复，不要刷新或同步。",
+      "environment": "隔离临时 SQLite 含一门合成课程和3条作业，页面大小为2；正常 Agent API/Harness 与真实本地 assignments.list 执行器，脚本模型，禁止校园网络。",
+      "goal": "验证分页游标从第一页工具结果经 Harness 回传后被用于第二页，并且两页数据不重不漏。",
+      "success_conditions": [
+        "只调用 assignments.list 两次，均按 due_soon、limit=2 查询",
+        "第二次调用的 cursor 与第一页工具结果中的 next_cursor 完全一致",
+        "第一页返回2项及后续游标，第二页返回1项且没有后续游标",
+        "两页合计3条唯一记录，结果返回模型并由最终回答如实概述",
+        "不调用连接、同步或其他工具"
+      ],
+      "required_tools": [
+        "assignments.list"
+      ],
+      "allowed_alternatives": [
+        "若游标丢失或分页不完整，明确报告已读取范围和未完成状态"
+      ],
+      "intervention": "无需人工干预；只读合成数据；禁止真实校园刷新或同步。",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "exact_tools": [
+          "assignments.list"
+        ],
+        "forbidden_tools": [
+          "connections.sync",
+          "campus.sync"
+        ],
+        "terms": [
+          "3项",
+          "本机缓存"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "synthetic-assignment-cursor-continuation",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "临时数据库中作业按截止时间稳定排序，3条记录超过首屏大小；会话拥有读取该合成课程的权限。",
+      "preconditions": [
+        "API 虚拟环境可用；无需真实模型 Provider 或校园账号",
+        "Provider 仅监听 loopback，所有作业数据均为合成记录",
+        "最多3次模型请求、2次工具调用；批次默认重复3次"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    },
+    {
+      "id": "ERR-11",
+      "category": "异常处理与缓存语义",
+      "complexity": "中",
+      "input": "只读查询本机作业缓存并说明是否有可核验作业；若缓存为空或过期，不要据此断言学校端没有作业，也不要刷新或同步。",
+      "environment": "隔离临时 SQLite 仅有一门合成课程且没有作业记录；正常 Agent API/Harness 与真实本地 assignments.list 执行器，脚本模型，禁止校园网络。",
+      "goal": "确认空作业缓存被表达为本地证据边界，模型收到结果后如实说明，且不会误判为学校端无作业。",
+      "success_conditions": [
+        "只调用 assignments.list，参数 order_by=due_soon、limit=10",
+        "真实工具返回空 items、无游标，freshness.stale=true，并提示学校平台全量未证实",
+        "该结构化工具结果出现在下一次模型请求中",
+        "最终回答区分本机缓存为空与学校端没有作业",
+        "不调用同步、连接状态或其他工具"
+      ],
+      "required_tools": [
+        "assignments.list"
+      ],
+      "allowed_alternatives": [
+        "工具无法读取时明确报告本地缓存不可用，不推断远端状态"
+      ],
+      "intervention": "无需人工干预；合成数据只读；不得触发校园登录或同步。",
+      "modes": [
+        "mock"
+      ],
+      "eval": {
+        "kind": "tool_and_output",
+        "exact_tools": [
+          "assignments.list"
+        ],
+        "forbidden_tools": [
+          "connections.sync",
+          "campus.sync"
+        ],
+        "terms": [
+          "本机缓存",
+          "不代表学校端没有作业"
+        ]
+      },
+      "capability_state": "implemented",
+      "mock_fixture": "synthetic-empty-assignment-cache",
+      "mock_status": "implemented_scripted_model",
+      "initial_state": "临时数据库中的课程拥有权已授权给独立会话；作业表对该范围为空；不读取个人数据。",
+      "preconditions": [
+        "API 虚拟环境可用；无需真实模型凭据或校园账号",
+        "临时数据库和 loopback 脚本 Provider 独立运行",
+        "最多两次模型请求和一次工具调用；批次重复数默认3"
+      ],
+      "run_status": "runnable",
+      "run_block_reason": null
+    }
+  ]
+}

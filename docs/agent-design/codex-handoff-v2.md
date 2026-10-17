@@ -103,7 +103,7 @@ tools/migrate_campus_data.py 已可用（inventory/import/rollback，只读源�
 - 前端：cd apps/web && npx tsc -b && npx vitest run --maxWorkers=2（149 passed）&& npx vite build
 - 真实 SDK 路径：tools/verify_agent_runtime.py（受控模型，必过）、tools/verify_schedule_runtime.py、
   tools/verify_tool_discovery.py、apps/agent-runtime/verify-goal.mjs
-- 启动器：python tools/dev.py --check / --smoke-test --platforms
+- 启动器：仅 API/网页 smoke test 用 `python tools/dev.py --no-platforms --smoke-test`；校园实测显式用 `python tools/dev.py --platforms xzzd`（不要只写裸 `--platforms`，它不再静默关闭连接器）。
 - 只清理自己创建的进程；不要终止用户正在运行的服务。
 
 # 4. 工作方式

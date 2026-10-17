@@ -156,6 +156,12 @@ def test_absent_or_disabled_credentials_never_attempt_login(tmp_path, isolated_s
 
 
 def test_expired_session_recovers_via_credentials_without_browser_adoption(tmp_path, isolated_secrets, monkeypatch):
+    """An expired session recovers through the stored credential, never the browser.
+
+    Semantics change this round: a plain cache read no longer re-authenticates on a
+    cached expiry; the one bounded credential recovery moved to the explicit sync
+    entry (`query(..., refresh=True)`, agent tool `campus.sync`).
+    """
     site = workspace(tmp_path)
     try:
         campus_credentials.save("passport", username=USER, password=SECRET)
@@ -163,18 +169,26 @@ def test_expired_session_recovers_via_credentials_without_browser_adoption(tmp_p
         monkeypatch.setattr(site, "_check_browser_grant", lambda: None)
         monkeypatch.setattr(site, "_browser_cookie_provider",
                             lambda: pytest.fail("stored credentials must not need the browser"))
-        reads = []
+        reads, syncs = [], []
         def query(*args, **kwargs):
             reads.append("query")
-            return Result("SESSION_EXPIRED" if len(reads) == 1 else None)
+            return Result("SESSION_EXPIRED")
         def sync(*args, **kwargs):
             reads.append("sync")
-            return Result(None)
+            syncs.append(1)
+            # The single retry only becomes live after the stored credential re-authenticated.
+            return Result("SESSION_EXPIRED" if len(syncs) == 1 else None)
         monkeypatch.setattr(site.manager.service, "query", query)
         monkeypatch.setattr(site.manager.service, "sync", sync)
-        result = site.query("courses", {})
-        assert result.get("error") is None
-        assert reads == ["query", "sync"], "one bounded refresh after automatic re-login"
+
+        cached = site.query("courses", {})
+        assert cached["error"]["code"] == "SESSION_EXPIRED"
+        assert reads == ["query"], "a cache read is offline: no sync, no re-authentication"
+        assert site.last_login is None, "a cache read never attempts a login"
+
+        recovered = site.query("courses", {}, refresh=True)
+        assert recovered.get("error") is None
+        assert reads == ["query", "sync", "sync"], "one bounded re-authentication plus one retry"
         assert site.last_login["ok"] is True
     finally:
         site.close()
@@ -186,12 +200,15 @@ def test_failed_automatic_login_is_bounded_by_cooldown(tmp_path, isolated_secret
         campus_credentials.save("passport", username=USER, password=SECRET)
         calls = prepared(monkeypatch, site, login_error=CampusError("CAS_REJECTED", "synthetic"))
         monkeypatch.setattr(site.manager.service, "query", lambda *a, **k: Result("AUTH_EXPIRED"))
-        monkeypatch.setattr(site.manager.service, "sync", lambda *a, **k: Result(None))
+        monkeypatch.setattr(site.manager.service, "sync", lambda *a, **k: Result("AUTH_EXPIRED"))
         monkeypatch.setattr(site, "_check_browser_grant", lambda: None)
+        # Only the explicit sync entry may reach the credential, so drive the repeats there.
         for _ in range(4):
-            site.query("grades", {})
+            site.query("grades", {}, refresh=True)
         assert [call[0] for call in calls] == ["prepare", "login"], "no login loop"
         assert site.credential_status()["cooldown_active"] is True
+        site.query("grades", {})
+        assert [call[0] for call in calls] == ["prepare", "login"], "a cache read never re-authenticates"
         assert CREDENTIAL_COOLDOWN_SECONDS > 0
     finally:
         site.close()

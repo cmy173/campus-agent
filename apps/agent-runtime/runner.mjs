@@ -68,6 +68,9 @@ async function ensureHarness(input) {
       TEMP: process.env.TEMP, TMP: process.env.TMP,
       CAMPUS_BRIDGE_URL: process.env.CAMPUS_BRIDGE_URL, CAMPUS_BRIDGE_TOKEN: process.env.CAMPUS_BRIDGE_TOKEN,
       CAMPUS_CONVERSATION_ID: process.env.CAMPUS_CONVERSATION_ID,
+      // Per-conversation benchmark treatment is passed through the runner's
+      // explicit child allowlist; no other CAMPUS_* settings are inherited.
+      CAMPUS_BENCH_DEFER_TOOL_GROUPS: process.env.CAMPUS_BENCH_DEFER_TOOL_GROUPS,
       CAMPUS_GOAL_RESUME: process.env.CAMPUS_GOAL_RESUME,
       CAMPUS_PYTHON_EXECUTABLE: process.env.CAMPUS_PYTHON_EXECUTABLE,
       CAMPUS_MCP_CREDENTIALS: mcpCredentialEnvironment(input.mcp_servers),
@@ -137,6 +140,14 @@ try {
       // SDK transport errors can contain child stderr and remote response bodies.
       // Boot diagnostics remain useful without writing an untrusted exception.
       mark('turn-failed');
+      // Operator diagnostics: stderr is discarded unless CAMPUS_RUNNER_STDERR was set.
+      // Keep this to machine identity fields plus a short, single-line message; never
+      // dump the whole error (it may embed provider bodies or child stderr).
+      if (process.env.CAMPUS_TURN_DEBUG === '1') {
+        const brief = String(error?.message ?? '').replace(/\s+/g, ' ').slice(0, 500);
+        process.stderr.write('TURN_FAILED ' + JSON.stringify({ name: error?.name ?? null,
+          code: error?.code ?? null, cause: error?.cause?.code ?? null, brief }) + '\n');
+      }
       if (!cancelled) emit({ kind: 'error', data: { code: 'HARNESS_FAILED', message: 'Harness 本轮未完成，请检查模型或工具错误记录', retryable: true } });
       // A failed turn may have left the harness in an unknown state; end the process so
       // the API starts a clean one instead of reusing this one.
