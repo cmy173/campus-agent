@@ -25,6 +25,19 @@ async function bridge(path, payload, signal) {
 }
 
 export class CampusModelAdapter extends LlmAdapter {
+  /** Retry transient bridge/provider failures, including truncated streams.
+   *
+   * The bridge adapter cannot use the native provider's configured policy, so it
+   * exposes the same resolved policy shape itself. A malformed stream must be retried
+   * (the request may be fine) while authentication/bad-request failures must not be.
+   */
+  providerRetryPolicy() {
+    return { mode: 'normal', maxRetries: 5,
+      retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT',
+        'MALFORMED_RESPONSE', 'STREAM_CLOSED'],
+      initialDelayMs: 500, maxDelayMs: 10000, jitterRatio: 0.1 };
+  }
+
   async *stream(options) {
     let result;
     try {

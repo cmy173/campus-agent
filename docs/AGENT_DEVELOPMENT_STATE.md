@@ -91,10 +91,12 @@
 - 当前源码在沙箱内：`HARNESS_FAILED`，根因已定位为 `spawn EPERM`（见 L0），不是产品 bug。
 - 待验证：沙箱外 API 的真实 turn 是否恢复（本轮正在进行）。
 
-### L4 模型 / 规划层（历史实测）
+### L4 模型 / 规划层（历史实测 + 本轮修复）
 
 - BAS-05 真实批次 0/3 完全成功（2 部分、1 不可验证）；引用交付不稳定、`web_fetch` 被拒后重复调用。
 - 已做的 `web-recovery.mjs` 同主机短路只减少重复外部请求，未提升任务成功率（不要宣称提升）。
+- 2026-10-17 第二轮：长任务遇到流式异常会整轮失败且丢失已完成工作。根因是 SDK 默认重试码不含
+  `MALFORMED_RESPONSE`/`STREAM_CLOSED`，已在 profile 与桥接适配器显式配置重试策略；A/B 证据见 4.10。
 
 ### L5 验证脚本漂移（本轮已修）
 
@@ -217,6 +219,9 @@
 | API 计划/Agent 子集（plan actions、plans API、agent gateway、agent tools、agent constraints、plan campus constraints） | **154 passed**（51.3 s） |
 | 新增回归：`test_preview_without_saved_availability_uses_one_disclosed_temporary_window` | **15 passed**（`test_agent_plan_actions.py` 3.5 s） |
 | 真实场景 BAS-03（benchmark runner，当前源码 API） | 部分成功；`source_grounded` aligned，5/5 引用命中（批次 `TAKEOVER-BAS03-N1C-20261017`） |
+| Runtime 边界单测（`npm run test:audit`，apps/agent-runtime） | **87 passed**（2.6 s） |
+| 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
+| 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
 
 ### 4.8 L3 修复后真实复测（验证 `plans.preview` 修复真的改善了任务）
 
@@ -233,21 +238,40 @@
 - 上一任 Agent（Codex）留下了 **8019 端口上的旧源码 API 进程**（系统 Python，12:05 启动，无当前源码指纹）。本轮 L3 首测误连该服务得到无效结果（证据目录已重命名为 `var/takeover-tasks/_INVALID-L3-ran-against-stale-8019-server/`，**不要引用其结论**）；随后改用 8021 复测。不要杀非本会话创建的进程，改用空闲端口。
 - 用户自己的旧服务仍占 8000；本会话使用 8017/8018/8021 的当前源码服务。**当前源码 + 真实数据副本的 API 仍在 `127.0.0.1:8021` 运行**（`tools/run_takeover_api.py`，state `var/takeover-state/realdata-3`）；如不需要，结束监听该端口的那个 Python 进程即可（它是本会话启动的，可安全停止）。
 
+### 4.10 长任务的流式异常 in-turn 重试修复（本轮第二个真实瓶颈）
+
+- 现象：L4 第一次运行在第 14 次模型调用遇到 `PROVIDER_INVALID_RESPONSE`（DeepSeek 流式响应不完整）→ 整轮 `failed`、空回答，已完成 24 次工具调用的工作全部丢失；只能靠用户重试。
+- 分层定位（L3 Harness/模型层，不是工具层）：SDK 的 `dsh-llm-retry` 默认 `retryableCodes` 只有
+  `EMPTY_RESPONSE / RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT`；而 `dsh-llm-deepseek` 对截断/损坏的 SSE 抛
+  `MALFORMED_RESPONSE` / `STREAM_CLOSED`，**不在默认可重试集合里**。我们的 profile 也没有显式配置 `retryPolicy`，
+  桥接用的 `CampusModelAdapter` 也没有暴露 `providerRetryPolicy`。
+- 修复（使用上游公开 API，不改上游源码）：
+  1. `apps/agent-runtime/prepare-profile.mjs`：给 `llm-deepseek` 配置 `retryPolicy.retryableCodes` 追加
+     `MALFORMED_RESPONSE`、`STREAM_CLOSED`（保留原有默认码；重试次数/退避用 SDK 默认）。
+  2. `apps/agent-runtime/campus-plugin.mjs`：`CampusModelAdapter.providerRetryPolicy()` 返回同口径策略，
+     让受控桥接路径行为一致。
+- A/B 证据（受控本地 SSE 端点，无付费调用，`verify-official-provider.mjs` 新增用例）：
+  | 条件 | 结果 |
+  |---|---|
+  | 无修复（stash 掉两处配置） | 断言失败：`finalResponse` 为空，malformed 流未被重试，整轮失败（与 L4 首次症状一致） |
+  | 有修复 | `ok=true`：同一 session 内 malformed 流被重试 1 次后继续，模型请求 4 次（1 次坏流 + 3 次正常），真实文件工具写/读链路仍正确，最终回答含 `Actual native provider tool marker 926` |
+  证据：`var/v2-official-protocol-01nQzd/evidence.json`。
+- 真实回归：L4 在修复后重跑 **succeeded**（91.0 s / 32 次工具调用），产出 PDF 218,585 B + MD 8,564 B；本次还成功用了 `plans.preview`、`tasks.build`、`artifacts.export`，并创建了 2 条本地复习提醒（可撤销的本地写操作）。
+- 边界：这只覆盖“同一模型请求可重试”的瞬时流错误；**不**覆盖模型请求本身无效或多轮上下文丢失，也**不**替代检查点续跑。若重试后仍失败，整轮仍会失败（如实上报）。
+
+### 4.11 验证脚本漂移修复明细
 
 `tools/verify_real_scenarios.py`（真实场景驱动）在接管时已不可运行，修了 3 处**真实缺陷**：
 1. 迁移 CLI 现在拒绝 `import --batch-id`（import 自己生成 `mig_*`），脚本仍传该参数 → 删除；
 2. 脚本用系统 Python 启动 uvicorn/迁移，而 API 依赖在 `apps/api/.venv` → 改用项目 venv 并显式设置 `PYTHONPATH`；
 3. `prepare()` 失败后 `finally` 读不存在的 `api.log` 会二次崩溃，掩盖原始错误 → 加存在性保护。
 
-### 4.6 本轮发现但未修的次要问题
+### 4.12 本轮发现但未修的次要问题
 
 - 浏览器工具把截图默认写到 `apps/agent-runtime/`（源码目录），随后 `read_image` 被能力策略拒绝（`CAMPUS_CAPABILITY_DENIED`）；截图已移到证据目录。建议把浏览器产物默认落到会话工作区。
-- Benchmark 内置 `harness-dispatch` 离线层在本会话沙箱内因 pytest 临时目录权限失败（环境限制）；沙箱外可正常跑，见 4.7。
-- L1 一次回答 80+s、15 次工具调用，偏慢；`web_fetch` 被拒后的恢复路径可靠但成本高。
-
-### 4.7 回归测试
-
-（本轮结束时填写：benchmark 单测、API agent 子集、runtime 单测）
+- Benchmark 内置 `harness-dispatch` 离线层在受限沙箱内因 pytest 临时目录权限失败（环境限制）；本会话文件策略放宽后可正常跑。
+- L1 一次回答 80+s、15 次工具调用，偏慢；`web_fetch` 被拒后的浏览器回退路径可靠但成本高。
+- `schedule_create` 这类本地可逆写操作目前不需要一次用户确认（与“本地可撤销修改自动执行”一致），但应在回答中明确告知已创建哪些提醒；本轮 L4 做到了。
 
 ---
 
@@ -260,7 +284,7 @@
 | L1 自主联网 | 搜索浙大最近公开学术活动并给来源 | **真实完成**（web_search + 浏览器读真实页面；15/17 引用路径可在真实快照核对） | `var/takeover-tasks/L1-20261017-124006/` |
 | L2 校园工具 | 查询明天有哪些课 | **工具链真实、未编造；真实课表未取得**（教务会话未授权 + courses 同步 UNSUPPORTED + 缓存无时间） | `var/takeover-tasks/L2-20261017-124250/` |
 | L3 多工具协同 | 结合课表安排两小时自习 | **真实完成（计划级）**：生成候选计划 + 正确拦截待用户接受；课表不确定性如实披露 | `var/takeover-tasks/L3-20261017-125011/` |
-| L4 长任务 | 整理资料 + 复习计划 | **真实完成（重试后）**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因提供商流式异常整轮失败 | `var/takeover-tasks/L4-20261017-124633/` |
+| L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
 
 **阻碍（需要用户/环境解锁，不能伪造）**
 1. **校园私有会话**：`browser_session_authorized=false`、`conn_zykt=service_unavailable`、zdbk 登录页需要用户在受控浏览器里完成统一身份认证。解锁前 Level 2 的真实课表、Level 3 的真实课表约束无法端到端验证。
@@ -268,12 +292,12 @@
 3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）**
-1. **长任务的失败恢复**（最高优先）：L4 第一次运行在 14 次模型调用后遇到 `PROVIDER_INVALID_RESPONSE`（流式响应不完整），整轮 failed、已完成工具工作与回答全部丢失；重试才成功。需要 in-turn 重试/检查点续跑（或至少保留已产出的工具结果与部分回答），否则 Level 4 成功率不稳定。
-2. **修复 `web_fetch` 校园公开域名白名单**（最小安全边界：仅受信任的 ZJU 公开站点；保留私网/回环拒绝），让 Level 1 不必依赖浏览器也能读正文；同时降低 L1 的 15 次工具调用/80 s 成本。
-3. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
-4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
-5. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
-6. 性能：真实任务耗时/工具次数（L1 80.8s/15 calls、L4 124.4s/33 calls）纳入回归记录，避免退化。
+1. **修复 `web_fetch` 校园公开域名白名单**（最小安全边界：仅受信任的 ZJU 公开站点；保留私网/回环拒绝），让 Level 1 不必依赖浏览器也能读正文；同时降低 L1 的 15 次工具调用/80 s 成本。
+2. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
+3. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
+4. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
+5. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
+6. 性能：真实任务耗时/工具次数（L1 80.8s/15 calls、L4 91.0s/32 calls）纳入回归记录，避免退化。
 
 ---
 

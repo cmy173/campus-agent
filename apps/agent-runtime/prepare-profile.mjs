@@ -63,6 +63,15 @@ export async function prepareProfile(home, options = {}) {
       ...(options.deepseekBaseURL ? { baseURL: options.deepseekBaseURL } : {}),
       reasoningEffort: options.reasoningEffort ?? 'high',
       maxTokens: options.maxTokens ?? 16384,
+      // A truncated/malformed provider stream is a transient transport failure, not a
+      // wrong request: retrying the same model call recovers the turn instead of losing
+      // every tool result gathered so far. Keep the SDK's default codes and add the two
+      // stream-integrity codes the DeepSeek adapter can raise.
+      retryPolicy: {
+        mode: 'normal',
+        retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT',
+          'MALFORMED_RESPONSE', 'STREAM_CLOSED'],
+      },
     } },
     { id: 'web-search-deepseek', config: {
       apiKeyEnv: 'DEEPSEEK_SEARCH_API_KEY',
