@@ -287,11 +287,19 @@ class CampusService:
         try:
             adapter, query, record_type, scope = self._resolve(capability, query, context, platform)
         except CampusError as exc:
-            # A sync that cannot even resolve its platform/capability must not erase known
+            # A sync that cannot resolve its platform/capability must not erase known
             # cache: this used to persist a blank row over the last good records. Report
             # the error and keep the previously cached data (labelled stale) both in this
             # response and in storage (nothing is written here).
             result = self._blank(capability, platform)
+            # Exception: when the owner's college selection itself is no longer matched
+            # (college changed to an unsupported/unknown one), the previously cached rows
+            # belong to a source we must not serve any more. Returning them would be a
+            # silent fallback to stale data for the wrong scope, so we return none.
+            if capability == 'college_notices':
+                result.error = standard_error(exc)
+                result.freshness = 'unknown'
+                return result
             previous = (self.repository.read_latest(context.owner, capability)
                         if hasattr(self.repository, 'read_latest') else None)
             if previous and previous.get('records'):
