@@ -222,6 +222,8 @@
 | Runtime 边界单测（`npm run test:audit`，apps/agent-runtime） | **87 passed**（2.6 s） |
 | 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
 | 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
+| 真实 BUS-04 回归（benchmark runner，当前源码 API 8021，n=1） | **部分成功**：33.8 s，6 工具 / 6 模型调用；`campus.query`/`campus.sync` + `web_search` + 2 次 `web_fetch` 均被 `WEB_BLOCKED_URL`；未回退浏览器，未达完全成功（与 Codex 历史批次同类，无退化）。批次 `TAKEOVER-BUS04-N1-20261017` |
+| Benchmark 内置离线 harness-dispatch 层（本会话放宽文件策略后） | **passed（mock_provider_real_api_tool_round_trip）**，说明此前的失败是受限沙箱的临时目录权限问题，不是产品失败 |
 
 ### 4.8 L3 修复后真实复测（验证 `plans.preview` 修复真的改善了任务）
 
@@ -293,11 +295,12 @@
 
 **下一轮建议（按影响排序）**
 1. **修复 `web_fetch` 校园公开域名白名单**（最小安全边界：仅受信任的 ZJU 公开站点；保留私网/回环拒绝），让 Level 1 不必依赖浏览器也能读正文；同时降低 L1 的 15 次工具调用/80 s 成本。
-2. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
-3. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
-4. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
-5. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-6. 性能：真实任务耗时/工具次数（L1 80.8s/15 calls、L4 91.0s/32 calls）纳入回归记录，避免退化。
+2. **工具被地址策略拒绝后的回退行为**：L1 自定义任务成功回退到浏览器，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有回退浏览器、直接给了部分答案。下一步要验证并强化“被拒主机 → 换工具而非放弃”的恢复路径（可在恢复提示里给出一条明确动作，并做真实 A/B）。
+3. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
+4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
+5. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
+6. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
+7. 性能：真实任务耗时/工具次数（L1 80.8s/15 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls）纳入回归记录，避免退化。
 
 ---
 
