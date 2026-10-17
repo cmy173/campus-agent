@@ -5,7 +5,11 @@ import json
 import re
 from collections import Counter
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
+
+
+_URL_PATTERN = re.compile(r"https?://[^\s<>()\[\]{}（）【】「」，,、；;'\"]+")
 
 
 _ASSIGNMENT_NEXT_TOOLS = {"assignments.next_by_course", "campus_assignments_next_by_course"}
@@ -300,3 +304,43 @@ def assignment_deadline_summary(events: list[dict]) -> tuple[str, dict] | None:
         answer = "\n".join(lines)
     return answer, {"rows": len(rows), "courses": len(course_states), "source": "assignments.next_by_course",
                     "rendered_from_tool_data": True, "verified": saw_valid_result}
+
+
+def citation_grounding_summary(events: list[dict], answer: str | None) -> tuple[str, dict] | None:
+    """Disclose how many of the answer's links were actually observed in this turn.
+
+    A real long-task answer can contain links the model reconstructed by guessing an ID
+    pattern even though it never fetched that page. Such links must not look verified.
+    This check is deliberately conservative and never rewrites links: a URL counts as
+    observed only when its exact text or its path appears in this turn's tool results.
+    When some links are unobserved, one short note is appended; links themselves stay
+    untouched so the user can inspect them.
+    """
+    if not isinstance(answer, str) or not answer.strip():
+        return None
+    urls: list[str] = []
+    for match in _URL_PATTERN.finditer(answer):
+        url = match.group(0).rstrip(".,;:!?")
+        if url and url not in urls:
+            urls.append(url)
+    if not urls:
+        return None
+    observed = "\n".join(json.dumps(event.get("data"), ensure_ascii=False)
+                         for event in events if isinstance(event, dict))
+    grounded, ungrounded = [], []
+    for url in urls:
+        path = urlsplit(url).path
+        if url in observed or (len(path) > 1 and path in observed):
+            grounded.append(url)
+        else:
+            ungrounded.append(url)
+    meta = {"checked": len(urls), "grounded": len(grounded), "ungrounded": len(ungrounded),
+            "method": "answer URL exact-or-path match against this turn's tool results",
+            "links_rewritten": False}
+    if not ungrounded:
+        meta["status"] = "aligned"
+        return answer, meta
+    meta["status"] = "partially_ungrounded"
+    note = (f"\n\n> 来源核对：本轮回答引用了 {len(urls)} 个链接，其中 {len(ungrounded)} 个未能在本轮"
+            "工具结果中找到对应访问记录（可能是模型推测或记忆内容），请谨慎引用。")
+    return answer + note, meta

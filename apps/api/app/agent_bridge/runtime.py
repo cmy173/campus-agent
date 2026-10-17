@@ -23,7 +23,7 @@ from .. import secrets_store
 from .settings import SettingsStore, harness_server
 from .files import ConversationFiles
 from .browser import BrowserHost
-from .response_grounding import assignment_deadline_summary, assignment_top_n_summary
+from .response_grounding import assignment_deadline_summary, assignment_top_n_summary, citation_grounding_summary
 from ..process_owner import spawn_owned
 
 # A warm runner is dropped after this much idle time, and at most this many stay alive.
@@ -567,6 +567,10 @@ class Runtime:
                         grounded = assignment_top_n_summary(response_events, turn.get("text"))
                         if grounded is None:
                             grounded = assignment_deadline_summary(response_events)
+                        if grounded is None:
+                            # Answer-side verification: disclose (never rewrite) links that
+                            # this turn's tool results never observed.
+                            grounded = citation_grounding_summary(response_events, answer)
                         if grounded is not None:
                             answer, grounding_meta = grounded
                             data = {**data, "response": answer}

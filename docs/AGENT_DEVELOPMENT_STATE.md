@@ -230,6 +230,10 @@
 | 浏览器产物专项验证（`verify-browser-outputs.mjs`，真实 Edge） | **ok=true，4/4**：截图落 workspace、绝对路径拒绝且无写入、快照不落源码树 |
 | 真实模型视觉任务（浏览器→截图→`read_image`→`publish_file`） | **succeeded，114.9 s / 25 次工具调用，`read_image` 0 报错**，422.7 KB PNG 已发布为会话文件（`var/takeover-tasks/browser-visual-20261017-131917/`） |
 | API 浏览器桥接测试（`tests/test_campus_browser_bridge.py`） | **15 passed**（5.6 s） |
+| 回答侧引用核对单测 + runner 复用测试 | **26 passed**（`test_response_grounding.py` + `test_agent_runner_reuse.py`） |
+| 真实 L1 回归（启用引用核对后，API 8024） | succeeded，**41.8 s / 14 次工具调用**；journal 出现 `response_grounding: aligned, checked=14, grounded=14`，回答未被追加噪声 |
+| 真实 BUS-04（fetch 白名单后，API 8023，n=1） | succeeded，48.8 s / 6 工具调用 / **0 工具错误**；产出 intl.zju 14 条真实活动清单（日期/地点/链接）；benchmark 记为“不可验证”后经**原始 journal 重放验证 14/14 引用可核对**，属评估轨迹截断的观测限制（见 4.15） |
+| 真实 MULTI-04（校园+公网综合，n=1） | **部分成功**，126.6 s / 14 工具 / 10 模型调用；campus notices（如实标注 LIMITED_SCOPE）+ 公网来源；1 次 `WEB_BLOCKED_URL` 后成功回退浏览器读官方页面 |
 | 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
 | 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
 | 真实 BUS-04 回归（benchmark runner，当前源码 API 8021，n=1） | **部分成功**：33.8 s，6 工具 / 6 模型调用；`campus.query`/`campus.sync` + `web_search` + 2 次 `web_fetch` 均被 `WEB_BLOCKED_URL`；未回退浏览器，未达完全成功（与 Codex 历史批次同类，无退化）。批次 `TAKEOVER-BUS04-N1-20261017` |
@@ -249,8 +253,8 @@
 
 - 上一任 Agent（Codex）留下了 **8019 端口上的旧源码 API 进程**（系统 Python，12:05 启动，无当前源码指纹）。本轮 L3 首测误连该服务得到无效结果（证据目录已重命名为 `var/takeover-tasks/_INVALID-L3-ran-against-stale-8019-server/`，**不要引用其结论**）；随后改用 8021 复测。不要杀非本会话创建的进程，改用空闲端口。
 - 用户自己的旧服务仍占 8000；本会话按轮次使用 8017/8018/8021/8022/8023 等当前源码服务（每个轮次重启以加载改动，旧端口进程由本会话停止）。
-  **当前源码 + 真实数据副本的 API 现在运行在 `127.0.0.1:8023`**（`tools/run_takeover_api.py`，state `var/takeover-state/realdata-5`，
-  含浏览器产物落盘修复）；如不需要，结束监听该端口的那个 Python 进程即可（它是本会话启动的，可安全停止）。
+  **当前源码 + 真实数据副本的 API 现在运行在 `127.0.0.1:8024`**（`tools/run_takeover_api.py`，state `var/takeover-state/realdata-6`，
+  含引用核对与浏览器产物落盘修复）；如不需要，结束监听该端口的那个 Python 进程即可（它是本会话启动的，可安全停止）。
 
 ### 4.10 长任务的流式异常 in-turn 重试修复（本轮第二个真实瓶颈）
 
@@ -342,6 +346,27 @@
 **结论：浏览器视觉能力现在真实可交付（截图可读、可发布），且不会再污染源码目录。**
 代价：视觉任务本身较重（25 次工具调用/114.9 s，含等待渲染与多轮截图排查），后续若频繁使用可优化提示与等待策略。
 
+### 4.15 回答侧引用核对：不隐藏、不改写地标记未核实链接（P2 答案验证）
+
+- 背景：BUS-04 真实运行产出了完整活动清单（intl.zju.edu.cn，14 条），benchmark 却判“不可验证”。用**原始 journal**（未截断的 44 KB
+  工具结果）重放后发现：14/14 引用 URL 都能在工具结果中找到（那 2 个“缺失”链接就在抓取到的列表页 HTML 里），
+  **benchmark 的持久化轨迹对长工具结果做了截断**，导致评估器看不见，属于评估观测限制，不是模型编造。
+- 但同时存在真实风险：真实回答里可能出现模型“按 ID 规律推测”的链接。因此新增回答侧核对，原则是**只披露、不改写**：
+  - `apps/api/app/agent_bridge/response_grounding.py::citation_grounding_summary`：抽取最终回答中的 URL，
+    与本轮 journal 工具结果做 exact-URL / path 匹配；全部命中 → `status=aligned`（回答原样保留）；
+    有未命中 → 在回答末尾追加一句“来源核对：本轮回答引用了 N 个链接，其中 K 个未能在本轮工具结果中找到对应访问记录……请谨慎引用”，
+    **不删除也不重写任何链接**；
+  - `apps/api/app/agent_bridge/runtime.py`：在窄渲染器（作业列表）之后接入；每次核对结果写一条 `response_grounding` journal 事件
+    （含 checked/grounded/ungrounded/status，不含链接内容）。
+- 验证：
+  | 验证 | 结果 |
+  |---|---|
+  | 单元测试（`apps/api/tests/test_response_grounding.py`） | 5 条用例覆盖：无链接不介入、精确命中、相对路径命中、未命中披露且回答原样保留、重复链接只计一次 |
+  | 与 runner 复用测试一起跑 | **26 passed**（`test_response_grounding.py` + `test_agent_runner_reuse.py`） |
+  | 真实 BUS-04 journal 离线重放 | `checked=14, grounded=14, ungrounded=0, status=aligned`，回答未被改写/未加噪声 |
+  | 真实 L1 回归（API 8024，启用核对后） | 见 4.7 回归表 |
+- 边界：这是**披露式**核验，不是事实正确性判定；路径匹配可能把同路径不同 query 视为命中；不改变 benchmark 评分标准。
+
 ---
 
 ## 5. 下一轮任务与阻碍
@@ -363,14 +388,13 @@
 **下一轮建议（按影响排序）**
 1. **刷新 `verify-browser.mjs` 回归门禁**：按当前安全策略（禁止模型 `browser_evaluate`、禁止模型输入密码/OTP）改写断言，
    否则该脚本持续失败、不能用于回归；产品行为本身是正确的。
-2. **扩大并验证白名单覆盖**：`www.math.zju.edu.cn` 已按 L1 证据补入；`stusom.zju.edu.cn` 等仍被拒，按真实任务证据逐项评审后再加，不用通配符。
-   `rd.zju.edu.cn` 只支持 http，https 会 `WEB_PROVIDER_ERROR`，可在恢复提示里说明而不自动降级协议。
-3. **工具被地址策略拒绝后的回退行为**：L1 已能直读，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有换来源/回退浏览器、直接给了部分答案。
-   下一步强化“被拒主机 → 换工具/换来源而非放弃”的恢复路径，并做真实 A/B。
+2. **benchmark 观测限制（不改评分）**：真实 BUS-04 回答 14/14 引用在原始 journal 可核对，但持久化轨迹截断了长工具结果，
+   导致评估器判“不可验证”。应改进证据保留/核验方式（保留可校验的摘要或哈希），而不是改评分标准。
+3. **工具被地址策略拒绝后的回退行为**：MULTI-04 已观察到成功回退浏览器，但 BUS-04 旧批次曾直接放弃；保留“被拒主机 → 换工具/换来源”的真实 A/B。
 4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
-5. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
-6. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-7. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 65.0s/12 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls。
+5. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
+6. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 41.8–65.0s/12–14 calls、L4 91.0s/32 calls、BUS-04 48.8s/6 calls、MULTI-04 126.6s/14 calls。
+7. 扩大白名单（按证据逐项）与 `rd.zju.edu.cn` 仅 http 的提示优化。
 
 ---
 
