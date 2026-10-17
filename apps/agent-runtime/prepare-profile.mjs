@@ -39,6 +39,9 @@ export async function prepareProfile(home, options = {}) {
     ['sdk-app-startup', '@deepseek-ai/dsh-sdk-app', { profile: 'campus' }],
     // Trusted callers may pass exact attachments; never infer from model text.
     ['campus', path('campus-plugin.mjs'), capabilityConfig],
+    // The project owns the fetch transport so public university sites that resolve to
+    // campus-private addresses remain readable, scoped to an exact host allowlist.
+    ['campus-web-fetch', path('campus-web-fetch.mjs')],
     ['sdk-jsonrpc-server', path('campus-sdk.mjs'), { maxTokensAsSuccess: false }],
     ...(options.mcpServers ?? []).map((config, index) => [
       'campus-mcp-' + index, path('campus-mcp.mjs'), mcpConfig(config),
@@ -78,6 +81,9 @@ export async function prepareProfile(home, options = {}) {
       ...(options.searchBaseURL ? { baseURL: options.searchBaseURL } : {}),
       ...(options.searchModel ? { model: options.searchModel } : {}),
     } },
+    // Replaced by the project-owned fetch provider above, which keeps the upstream
+    // public-address guard and adds the exact university host allowlist.
+    { id: 'web-fetch-http', disabled: true },
     ...(options.overrides ?? []),
     // Project-owned capability composition, not a change to the host DSH.
     // Keep the guard even if a tool is registered/loaded later.

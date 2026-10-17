@@ -47,9 +47,10 @@
 | Node `fetch` → `api-docs.deepseek.com` / `example.org` / `baidu.com` | 200 |
 | `curl.exe` → 任意公网 URL | 全部 `000`（受本会话沙箱限制；**不要用 curl 判断网络**） |
 | DNS：`www.zju.edu.cn` 等 | 解析为 `10.x` 校园私网地址 |
-| `web_fetch` 工具 → ZJU 域名 | `WEB_BLOCKED_URL`：上游 `HttpFetchProvider` 的公网地址安全策略拒绝非公网 IP |
+| `web_fetch` 工具 → ZJU 域名 | 2026-10-17 第二轮已改为**项目自有 fetch transport + 精确公开主机白名单**：`www/rd/bksy/zdbk/www.intl/www.chem/www.psych/www.math/lsi.zju.edu.cn` 可读；其他主机仍走上游公网策略 |
+| `web_fetch` → 私网/回环 IP 字面量 | 仍为 `WEB_BLOCKED_URL`（安全边界保留） |
 
-结论：**不是断网**。`web_search`（DeepSeek 原生检索，服务端执行）可用；`web_fetch` 对 ZJU 公开域名被地址策略挡住，这是 Level 1「搜索浙大公开活动并给来源」的关键工具层阻塞。
+结论：**不是断网**。`web_search`（DeepSeek 原生检索，服务端执行）可用；ZJU 公开站点已可通过 `web_fetch` 直接读取（真实审计 5/5 通过，见 4.13）。
 
 ### 1.5 已实现功能（真实可用，保留）
 
@@ -77,7 +78,11 @@
 
 ### L1 工具 / 网络层
 
-- `web_fetch` 对解析到 `10.x` 的 ZJU 公开域名返回 `WEB_BLOCKED_URL`（安全策略而非断网）。原因代码：`apps/agent-runtime/node_modules/@deepseek-ai/dsh-web-fetch-http/lib/index.js` 的 `resolvePublicAddresses`（`isPublicIpAddress` 拒绝 10/8）。
+- `web_fetch` 曾对解析到 `10.x` 的 ZJU 公开域名返回 `WEB_BLOCKED_URL`（上游公网地址策略）。**2026-10-17 第二轮已修复**：项目自有
+  `apps/agent-runtime/campus-web-fetch.mjs` 保留上游严格解析器，仅对精确的 ZJU 公开主机白名单放行校园私网地址，并继续拒绝
+  loopback / link-local / 组播 / 私网 IP 字面量；审计见 4.13。
+- 遗留：部分 ZJU 子域不在白名单（如 `www.math.zju.edu.cn` 已补入、`stusom.zju.edu.cn` 仍被拒）；`rd.zju.edu.cn` 只支持 http，
+  用 https 访问会得到 `WEB_PROVIDER_ERROR`。
 - 影响：Level 1「搜索浙大公开活动并给来源」只能依赖 `web_search` 摘要，或浏览器工具；直接读页面正文被阻断。
 - 注意：放开该策略属于**安全边界变更**，只能做“受信任校园公开域名白名单”式最小改动，不能全局放开私网。
 
@@ -219,7 +224,9 @@
 | API 计划/Agent 子集（plan actions、plans API、agent gateway、agent tools、agent constraints、plan campus constraints） | **154 passed**（51.3 s） |
 | 新增回归：`test_preview_without_saved_availability_uses_one_disclosed_temporary_window` | **15 passed**（`test_agent_plan_actions.py` 3.5 s） |
 | 真实场景 BAS-03（benchmark runner，当前源码 API） | 部分成功；`source_grounded` aligned，5/5 引用命中（批次 `TAKEOVER-BAS03-N1C-20261017`） |
-| Runtime 边界单测（`npm run test:audit`，apps/agent-runtime） | **87 passed**（2.6 s） |
+| Runtime 边界单测（`npm run test:audit`，apps/agent-runtime） | **93 passed**（原 87 + 新增 6 条 fetch 白名单策略测试，2.7 s） |
+| 校园 fetch transport 真实网络审计（`audit-campus-web-fetch.mjs`，无模型） | **5/5 检查通过**；ZJU 公开站点可读、公网可用、私网/回环仍拒绝（`docs/audit/campus-web-fetch.json`） |
+| 真实 L1 复测（fetch 白名单后，API 8021） | succeeded，**65.0 s / 12 次工具调用 / 19 个引用全部可回溯**（对比修复前 80.8 s / 15 次；证据 `var/takeover-tasks/L1-20261017-130424/`） |
 | 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
 | 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
 | 真实 BUS-04 回归（benchmark runner，当前源码 API 8021，n=1） | **部分成功**：33.8 s，6 工具 / 6 模型调用；`campus.query`/`campus.sync` + `web_search` + 2 次 `web_fetch` 均被 `WEB_BLOCKED_URL`；未回退浏览器，未达完全成功（与 Codex 历史批次同类，无退化）。批次 `TAKEOVER-BUS04-N1-20261017` |
@@ -272,8 +279,40 @@
 
 - 浏览器工具把截图默认写到 `apps/agent-runtime/`（源码目录），随后 `read_image` 被能力策略拒绝（`CAMPUS_CAPABILITY_DENIED`）；截图已移到证据目录。建议把浏览器产物默认落到会话工作区。
 - Benchmark 内置 `harness-dispatch` 离线层在受限沙箱内因 pytest 临时目录权限失败（环境限制）；本会话文件策略放宽后可正常跑。
-- L1 一次回答 80+s、15 次工具调用，偏慢；`web_fetch` 被拒后的浏览器回退路径可靠但成本高。
+- L1 一次回答 80+s 的问题已随 fetch 白名单修复降到 65 s（12 次调用）；剩余成本来自 2 次 web_search 与 9 次页面抓取。
+  非白名单 ZJU 子域仍会被拒（如 `stusom.zju.edu.cn`），需要按证据逐项评审补充。
 - `schedule_create` 这类本地可逆写操作目前不需要一次用户确认（与“本地可撤销修改自动执行”一致），但应在回答中明确告知已创建哪些提醒；本轮 L4 做到了。
+
+### 4.13 校园公开域名白名单：让 `web_fetch` 直读 ZJU 页面（本轮第三个真实瓶颈）
+
+- 现象：L1 首轮 `web_fetch` 对 `www.zju.edu.cn`、`lsi.zju.edu.cn` 返回 `WEB_BLOCKED_URL`（校园 DNS 解析到 10.x），只能回退浏览器：
+  15 次工具调用 / 80.8 s，且多一次 `load_tools`+截图+`read_image` 失败；BUS-04 回归中也因同一原因只拿到部分来源。
+- 修复（安全边界明确）：新增项目自有 fetch transport `apps/agent-runtime/campus-web-fetch.mjs`
+  - 复用上游 `HttpFetchProvider`，只替换域名解析器：**白名单内的精确主机**（9 个 ZJU 公开站点）允许解析到校园私网地址，
+    但继续拒绝 loopback / link-local / unspecified / multicast / IPv4-mapped 危险地址；
+  - 非白名单主机仍走上游 `resolvePublicAddresses`（公网单播才放行），私网 IP 字面量继续 `WEB_BLOCKED_URL`；
+  - 上游传输仍做地址钉扎 + 同源重定向限制（跨域重定向仍拒绝），白名单不能变成开放代理。
+  - `prepare-profile.mjs` 禁用 base 的 `web-fetch-http`，注册本项目 provider。
+- 无模型审计（真实网络，`node apps/agent-runtime/audit-campus-web-fetch.mjs`，报告 `docs/audit/campus-web-fetch.json`）：
+  | 用例 | 结果 |
+  |---|---|
+  | `https://www.zju.edu.cn/` | ✅ HTTP 200 可读 |
+  | `http://rd.zju.edu.cn/cs/list.htm` | ✅ HTTP 200，3,470 字符真实活动列表（438 ms） |
+  | `https://example.org/` | ✅ HTTP 200（公网仍可用） |
+  | `http://10.203.4.70/`（私网字面量） | ⛔ `WEB_BLOCKED_URL` |
+  | `http://127.0.0.1:8021/...`（回环字面量） | ⛔ `WEB_BLOCKED_URL` |
+- 单元测试：`node --test tests/campus-web-fetch.test.mjs` → **6 passed**；`npm run test:audit` → **93 passed**（原 87 + 新增 6）。
+- 真实 L1 前后对比（同一任务、真实模型、当前源码 API）：
+
+  | 指标 | 修复前（L1-20261017-124006） | 修复后（L1-20261017-130424） |
+  |---|---:|---:|
+  | 状态 | succeeded | succeeded |
+  | 耗时 | 80.8 s | **65.0 s（−20%）** |
+  | 工具调用 | 15 次（含浏览器 4 次 navigate、截图、read_image） | **12 次（全部 web_search / web_fetch，无浏览器）** |
+  | 失败工具 | `read_image` 能力拒绝 | 仅 2 次非白名单 ZJU 子域 `WEB_BLOCKED_URL`（agent 继续用其他来源，未中断） |
+  | 引用可核实性 | 15/17 URL 路径出现在真实快照 | **19/19 引用 URL 出现在工具结果中（0 ungrounded）** |
+
+**结论：Level 1 不再依赖浏览器回退即可读官方页面；这是有 before/after 真实证据的能力提升。**
 
 ---
 
@@ -283,7 +322,7 @@
 
 | 级别 | 用户任务 | 结论 | 证据 |
 |---|---|---|---|
-| L1 自主联网 | 搜索浙大最近公开学术活动并给来源 | **真实完成**（web_search + 浏览器读真实页面；15/17 引用路径可在真实快照核对） | `var/takeover-tasks/L1-20261017-124006/` |
+| L1 自主联网 | 搜索浙大最近公开学术活动并给来源 | **真实完成**：`web_search` + `web_fetch` 直读 ZJU 官方页面（白名单），65.0 s / 12 次调用，19/19 引用可在工具结果回溯 | `var/takeover-tasks/L1-20261017-130424/` |
 | L2 校园工具 | 查询明天有哪些课 | **工具链真实、未编造；真实课表未取得**（教务会话未授权 + courses 同步 UNSUPPORTED + 缓存无时间） | `var/takeover-tasks/L2-20261017-124250/` |
 | L3 多工具协同 | 结合课表安排两小时自习 | **真实完成（计划级）**：生成候选计划 + 正确拦截待用户接受；课表不确定性如实披露 | `var/takeover-tasks/L3-20261017-125011/` |
 | L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
@@ -294,13 +333,13 @@
 3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）**
-1. **修复 `web_fetch` 校园公开域名白名单**（最小安全边界：仅受信任的 ZJU 公开站点；保留私网/回环拒绝），让 Level 1 不必依赖浏览器也能读正文；同时降低 L1 的 15 次工具调用/80 s 成本。
-2. **工具被地址策略拒绝后的回退行为**：L1 自定义任务成功回退到浏览器，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有回退浏览器、直接给了部分答案。下一步要验证并强化“被拒主机 → 换工具而非放弃”的恢复路径（可在恢复提示里给出一条明确动作，并做真实 A/B）。
+1. **扩大并验证白名单覆盖**：L1 复测中 `www.math.zju.edu.cn` 命中后已补入白名单，但 `stusom.zju.edu.cn` 等仍被拒；按真实任务证据逐项评审后加入，不要用通配符一次性放开。`rd.zju.edu.cn` 只支持 http，https 访问会 `WEB_PROVIDER_ERROR`，可考虑给模型更明确的方案提示（不自动降级协议）。
+2. **工具被地址策略拒绝后的回退行为**：L1 已能直读，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有换来源/回退浏览器、直接给了部分答案。下一步强化“被拒主机 → 换工具/换来源而非放弃”的恢复路径，并做真实 A/B。
 3. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
 4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
 5. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
 6. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-7. 性能：真实任务耗时/工具次数（L1 80.8s/15 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls）纳入回归记录，避免退化。
+7. 性能：真实任务耗时/工具次数（L1 65.0s/12 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls）纳入回归记录，避免退化。
 
 ---
 
