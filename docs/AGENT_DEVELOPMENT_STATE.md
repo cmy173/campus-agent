@@ -234,6 +234,8 @@
 | 真实 L1 回归（启用引用核对后，API 8024） | succeeded，**41.8 s / 14 次工具调用**；journal 出现 `response_grounding: aligned, checked=14, grounded=14`，回答未被追加噪声 |
 | 真实 BUS-04（fetch 白名单后，API 8023，n=1） | succeeded，48.8 s / 6 工具调用 / **0 工具错误**；产出 intl.zju 14 条真实活动清单（日期/地点/链接）；benchmark 记为“不可验证”后经**原始 journal 重放验证 14/14 引用可核对**，属评估轨迹截断的观测限制（见 4.15） |
 | 真实 MULTI-04（校园+公网综合，n=1） | **部分成功**，126.6 s / 14 工具 / 10 模型调用；campus notices（如实标注 LIMITED_SCOPE）+ 公网来源；1 次 `WEB_BLOCKED_URL` 后成功回退浏览器读官方页面 |
+| 真实多轮任务（同一会话 2 轮：计划预览 → 改到下午） | **两轮均 succeeded**；第 1 轮 44.8 s / 8 工具，第 2 轮 **13.5 s / 1 工具**；真实生成新预览 `pln_5771d9e0` v3 并说明旧候选未变（`var/takeover-tasks/multi-turn-20261017-132940/`） |
+| 浏览器回归门禁刷新（`verify-browser.mjs`，真实 Edge） | **ok=true，13 项检查全过**（密码/任意脚本按当前策略断言拒绝） |
 | 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
 | 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
 | 真实 BUS-04 回归（benchmark runner，当前源码 API 8021，n=1） | **部分成功**：33.8 s，6 工具 / 6 模型调用；`campus.query`/`campus.sync` + `web_search` + 2 次 `web_fetch` 均被 `WEB_BLOCKED_URL`；未回退浏览器，未达完全成功（与 Codex 历史批次同类，无退化）。批次 `TAKEOVER-BUS04-N1-20261017` |
@@ -286,13 +288,11 @@
 
 ### 4.12 本轮发现但未修的次要问题
 
-- **`verify-browser.mjs` 验证脚本漂移（待刷新）**：它仍断言“模型可以 `browser_evaluate` 读写 localStorage、可以给密码框输入”，
-  但当前浏览器安全策略已禁止这两类操作（`BLOCKED_BROWSER_TOOLS` / `BROWSER_AUTH_REQUIRED`）。这是验证脚本过期，不是产品回归；
-  本轮的截图落盘验证改用新的 `verify-browser-outputs.mjs`。下一轮应刷新该脚本的断言（改为验证“被拒绝且不回显秘密”），
-  否则它不能作为回归门禁。
 - Benchmark 内置 `harness-dispatch` 离线层在受限沙箱内因 pytest 临时目录权限失败（环境限制）；本会话文件策略放宽后可正常跑。
 - `schedule_create` 这类本地可逆写操作目前不需要一次用户确认（与“本地可撤销修改自动执行”一致），但应在回答中明确告知已创建哪些提醒；本轮 L4 做到了。
 - 视觉任务成本偏高（打开页面→截图→读图→失败排查共 25 次工具调用/114.9 s）；可考虑在浏览器提示中给出更省的等待/截图策略。
+- `campus.query(courses)` 在会话过期时以 `isError=true + data.records(缓存)` 形式返回，模型可用但语义易被误解为完全失败；
+  评估改为 `status=partial`（见 4.16）。
 
 ### 4.13 校园公开域名白名单：让 `web_fetch` 直读 ZJU 页面（本轮第三个真实瓶颈）
 
@@ -367,6 +367,31 @@
   | 真实 L1 回归（API 8024，启用核对后） | 见 4.7 回归表 |
 - 边界：这是**披露式**核验，不是事实正确性判定；路径匹配可能把同路径不同 query 视为命中；不改变 benchmark 评分标准。
 
+### 4.16 多轮长任务延续 + 真实 stale 课表缓存（P2 上下文保持验证）
+
+- 真实任务（同一会话两次用户输入，API 8024，真实 provider）：
+  1. `结合我明天的课表，帮我安排两个小时自习。`
+  2. `把自习时间改到下午 14:00–16:00，其他尽量保持不变；说明你是否真的改成了新预览。`
+- 结果：**两轮均 succeeded**；第 1 轮 44.8 s / 8 次工具调用（`campus.academics`、`campus.query(courses)`、`plans.preview`×2、
+  `assignments.list`、`plans.apply` 被 `APPROVAL_REQUIRED` 正确拦截）；第 2 轮 **13.5 s / 仅 `plans.preview` 1 次工具调用**。
+- 第 2 轮真实生成了新预览 `pln_5771d9e0`（version 3，周日 14:00–16:00），并说明旧候选 `pln_c2d55dc1`（09:00–11:00）仍未被覆盖/删除、
+  仍未生效；说明它复用了上一轮的会话上下文、计划对象和约束，而不是重新开始。证据：`var/takeover-tasks/multi-turn-20261017-132940/`。
+- **重要发现（Level 2 的新可能）**：`campus.query(capability=courses)` 在教务会话过期时返回 `AUTH_REQUIRED`，但错误信封的
+  `data.records` 里带有 **2026-10-16 18:06 抓取的 zdbk 课表缓存**（`stale=true`，18 门课，全部在周一至周五）。
+  Agent 正确使用了这份 stale 缓存并明确标注“数据过期、未确认当前学期、可能缺周末/补课”。这意味着：
+  - Level 2「明天有哪些课」在**无 live 登录**时也可能给出有依据的答案（必须带 staleness 警告），不再是“本机无任何课表数据”；
+  - 工具层可改进点：`AUTH_REQUIRED` + 可用 stale 缓存时，返回 `status=partial`（数据+警告）比 `isError=true` 更准确，
+    可减少“有缓存却像失败”的误判（下一轮评估）。
+- 该轮也再次验证 runner 复用：第 2 轮 13.5 s 无冷启动。
+
+### 4.17 刷新 `verify-browser.mjs` 回归门禁（验证脚本漂移修复）
+
+- 旧脚本与当前浏览器安全策略冲突：仍断言“模型可 `browser_evaluate` 读写 localStorage、可向密码框输入”，而策略已禁止这两类操作。
+- 刷新内容：密码输入 → 断言 `BROWSER_AUTH_REQUIRED` 且不回显秘密；任意页面脚本 → 断言 `BROWSER_APPROVAL_REQUIRED`（重启后仍然拒绝）；
+  删除依赖 `browser_evaluate` 的 localStorage 持久化断言，保留 cookie 会话持久化与提交回执检查；其余检查不变。
+- 结果：`node apps/agent-runtime/verify-browser.mjs` → **ok=true，13 项检查全过**（真实 Edge，无模型调用）。
+  至此上一轮记录的唯一“验证脚本过期”项已关闭。
+
 ---
 
 ## 5. 下一轮任务与阻碍
@@ -376,8 +401,8 @@
 | 级别 | 用户任务 | 结论 | 证据 |
 |---|---|---|---|
 | L1 自主联网 | 搜索浙大最近公开学术活动并给来源 | **真实完成**：`web_search` + `web_fetch` 直读 ZJU 官方页面（白名单），65.0 s / 12 次调用，19/19 引用可在工具结果回溯 | `var/takeover-tasks/L1-20261017-130424/` |
-| L2 校园工具 | 查询明天有哪些课 | **工具链真实、未编造；真实课表未取得**（教务会话未授权 + courses 同步 UNSUPPORTED + 缓存无时间） | `var/takeover-tasks/L2-20261017-124250/` |
-| L3 多工具协同 | 结合课表安排两小时自习 | **真实完成（计划级）**：生成候选计划 + 正确拦截待用户接受；课表不确定性如实披露 | `var/takeover-tasks/L3-20261017-125011/` |
+| L2 校园工具 | 查询明天有哪些课 | **工具链真实、未编造**；教务 live 会话未授权，但 **10-16 的 stale 课表缓存可用**（18 门课，需带过期警告）；真实 live 课表仍不可得 | `var/takeover-tasks/L2-20261017-124250/`、`var/takeover-tasks/multi-turn-20261017-132940/` |
+| L3 多工具协同 | 结合课表安排两小时自习 | **真实完成（计划级）**：生成候选计划 + 正确拦截待用户接受；多轮“改到下午”成功生成新预览；课表不确定性如实披露 | `var/takeover-tasks/L3-20261017-125011/`、`var/takeover-tasks/multi-turn-20261017-132940/` |
 | L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
 
 **阻碍（需要用户/环境解锁，不能伪造）**
@@ -386,14 +411,14 @@
 3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）**
-1. **刷新 `verify-browser.mjs` 回归门禁**：按当前安全策略（禁止模型 `browser_evaluate`、禁止模型输入密码/OTP）改写断言，
-   否则该脚本持续失败、不能用于回归；产品行为本身是正确的。
-2. **benchmark 观测限制（不改评分）**：真实 BUS-04 回答 14/14 引用在原始 journal 可核对，但持久化轨迹截断了长工具结果，
+1. **`campus.query(courses)` 的 stale 缓存信封**：会话过期但有可用缓存时，从 `isError=true + data.records` 改为 `status=partial`
+   （数据 + `stale` 警告），避免“有数据却像完全失败”的误判；并用 L2「明天有哪些课」做真实 A/B（当前已能用缓存回答，但语义靠模型自行解释）。
+2. **L2/L3 真解锁**：真实登录 → 教务 live 课表 → “明天有哪些课/自习安排”端到端验证（需要用户在受控浏览器完成统一身份认证）。
+3. **benchmark 观测限制（不改评分）**：真实 BUS-04 回答 14/14 引用在原始 journal 可核对，但持久化轨迹截断了长工具结果，
    导致评估器判“不可验证”。应改进证据保留/核验方式（保留可校验的摘要或哈希），而不是改评分标准。
-3. **工具被地址策略拒绝后的回退行为**：MULTI-04 已观察到成功回退浏览器，但 BUS-04 旧批次曾直接放弃；保留“被拒主机 → 换工具/换来源”的真实 A/B。
-4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
+4. **工具被地址策略拒绝后的回退行为**：MULTI-04 已观察到成功回退浏览器；保留“被拒主机 → 换工具/换来源”的真实 A/B。
 5. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-6. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 41.8–65.0s/12–14 calls、L4 91.0s/32 calls、BUS-04 48.8s/6 calls、MULTI-04 126.6s/14 calls。
+6. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 41.8–65.0s、L4 91.0s/32 calls、BUS-04 48.8s/6 calls、MULTI-04 126.6s/14 calls、多轮第 2 轮 13.5s。
 7. 扩大白名单（按证据逐项）与 `rd.zju.edu.cn` 仅 http 的提示优化。
 
 ---
