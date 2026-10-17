@@ -144,8 +144,9 @@ class CampusEvidence:
 def read_campus_evidence() -> CampusEvidence:
     """Read the existing query cache and calendar snapshot under one owner lock.
 
-    The service.query used by CampusWorkspace.query(refresh=False) is cache-only;
-    call it directly to avoid the wrapper's optional auth/browser re-adoption.
+    The service.query used by CampusWorkspace.query(refresh=False) is cache-only and,
+    since the explicit-sync boundary change, the wrapper is equally offline; call the
+    service directly because this reader needs the repository/scopes view too.
     No connector_session, sync, calendar(), status() or academic_view() call.
     """
     now = datetime.now(timezone.utc)

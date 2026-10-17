@@ -63,6 +63,77 @@ def conversation(client):
     return response.json()["id"]
 
 
+def test_benchmark_tool_exposure_setting_requires_server_opt_in_and_stays_per_conversation(gateway, monkeypatch):
+    client, runtime, _, _ = gateway
+    payload = {"provider_id": "provider_a", "benchmark_tool_groups": ["campus_reviews"]}
+    monkeypatch.delenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', raising=False)
+    disabled = client.post('/api/v1/agent/conversations', json=payload)
+    assert disabled.status_code == 403
+    assert disabled.json()['error']['code'] == 'BENCHMARK_EXPERIMENT_DISABLED'
+
+    monkeypatch.setenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', '1')
+    enabled = client.post('/api/v1/agent/conversations', json=payload)
+    assert enabled.status_code == 201
+    cid = enabled.json()['id']
+    assert runtime.store.conversation(cid)['settings']['benchmark_tool_groups'] == ['campus_reviews']
+
+
+def test_benchmark_tool_exposure_capabilities_are_explicit_and_secret_free(gateway, monkeypatch):
+    client, _, _, _ = gateway
+    monkeypatch.delenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', raising=False)
+    assert client.get('/api/v1/agent/benchmark/tool-exposure').json() == {'enabled': False, 'groups': []}
+    monkeypatch.setenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', '1')
+    assert client.get('/api/v1/agent/benchmark/tool-exposure').json() == {
+        'enabled': True, 'groups': ['campus_reviews']}
+
+
+def test_benchmark_tool_exposure_filters_provider_schema_until_tool_receipt(gateway, monkeypatch):
+    client, runtime, tokens, _ = gateway
+    monkeypatch.setenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', '1')
+    created = client.post('/api/v1/agent/conversations', json={
+        'provider_id': 'provider_a', 'benchmark_tool_groups': ['campus_reviews']})
+    assert created.status_code == 201, created.text
+    turn_id = turn(client, created.json()['id'], key='tool-exposure-model')
+    token = tokens[turn_id]
+    schemas = [
+        {'name': 'campus_reviews_preflight', 'parameters': {'type': 'object'}},
+        {'name': 'campus_assignments_list', 'parameters': {'type': 'object'}},
+        {'name': 'load_tools', 'parameters': {'type': 'object'}},
+    ]
+    seen = []
+
+    def fake_call(_db, _settings, _messages, _max_tokens, runtime_tools):
+        seen.append([item['name'] for item in runtime_tools])
+        return {'content': 'ok', 'tool_calls': [], 'usage': {}}
+
+    monkeypatch.setattr(model, 'call_model', fake_call)
+    first = internal(client, token, 'model', {
+        'conversation_id': created.json()['id'], 'messages': [{'role': 'user', 'content': []}], 'tools': schemas})
+    assert first.status_code == 200, first.text
+    assert seen[-1] == ['campus_assignments_list', 'load_tools']
+
+    loaded_receipt = {'role': 'tool', 'toolCallId': 'loader-call', 'content': [{'type': 'text', 'text': json.dumps({
+        'available': ['campus_reviews_preflight'], 'loaded_groups': ['campus_reviews'], 'note': 'loaded'})}]}
+    second = internal(client, token, 'model', {
+        'conversation_id': created.json()['id'], 'messages': [
+            {'role': 'user', 'content': []},
+            {'role': 'assistant', 'content': [{'type': 'tool-call', 'id': 'loader-call',
+                'name': 'load_tools', 'arguments': json.dumps({'group': 'campus_reviews'})}]},
+            loaded_receipt], 'tools': schemas})
+    assert second.status_code == 200, second.text
+    assert seen[-1] == ['campus_reviews_preflight', 'campus_assignments_list', 'load_tools']
+
+    decoy_receipt = {'role': 'tool', 'toolCallId': 'unrelated-call', 'content': [{'type': 'text', 'text': json.dumps({
+        'loaded_groups': ['campus_reviews']})}]}
+    third = internal(client, token, 'model', {
+        'conversation_id': created.json()['id'], 'messages': [
+            {'role': 'user', 'content': []}, decoy_receipt], 'tools': schemas})
+    assert third.status_code == 200, third.text
+    assert seen[-1] == ['campus_assignments_list', 'load_tools'], 'unrelated tool output cannot open the deferred schema'
+    model_events = [event['data'] for event in runtime.store.events(turn_id)['items'] if event['kind'] == 'model_call']
+    assert model_events[0]['available_tools'] == ['campus_assignments_list', 'load_tools']
+
+
 def turn(client, cid, key="send-1", text="作业什么时候截止"):
     response = client.post(f"/api/v1/agent/conversations/{cid}/turns", headers={"Idempotency-Key": key}, json={"text": text})
     assert response.status_code == 202, response.text
@@ -370,14 +441,14 @@ def test_internal_auth_scope_contract_and_idempotent_call(gateway):
     tid = turn(client, cid)
     token = tokens[tid]
     assert client.post("/api/v1/agent/internal/schemas", json={}).status_code == 403
-    assert len(internal(client, token, "schemas", {}).json()) == 32
+    assert internal(client, token, "schemas", {}).json() == tools.schemas()
     request = {"conversation_id": cid, "call_id": "one", "name": "courses.list", "arguments": {}}
     first = internal(client, token, "tool", request)
     assert first.status_code == 200
     assert first.json()["data"]["items"][0]["title"] == "测试课程"
     assert internal(client, token, "tool", request).json() == first.json()
     events = runtime.store.events(tid)["items"]
-    assert len(events) == 1 and events[0]["kind"] == "tool_result"
+    assert [event["kind"] for event in events] == ["tool_started", "tool_result"]
     assert internal(client, token, "tool", request | {"arguments": {"limit": 1}}).status_code == 409
     assert internal(client, token, "tool", request | {"conversation_id": "other"}).status_code == 403
     failure = internal(client, token, "tool", request | {"call_id": "bad", "arguments": {"user_id": "other"}})

@@ -30,6 +30,15 @@ def test_selected_ports_do_not_overlap():
     assert dev.choose_port(port, {port}) != port
 
 
+def test_dev_platform_flags_are_explicit_and_cannot_silently_disable_connectors():
+    parser = dev.build_parser()
+    assert parser.parse_args([]).platforms == ["xzzd"]
+    assert parser.parse_args(["--platforms", "xzzd", "zykt"]).platforms == ["xzzd", "zykt"]
+    assert parser.parse_args(["--no-platforms"]).platforms == []
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--platforms"])
+
+
 def test_initialization_checks_running_web_before_install(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["dev.py", "--setup"])
     monkeypatch.setattr(dev, "project_web_processes", lambda: [123])

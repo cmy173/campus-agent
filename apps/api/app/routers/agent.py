@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -36,6 +37,8 @@ class ConversationRequest(tools.Input):
     # Compatibility field only: saved, enabled provider configuration is consent.
     send_to_provider: bool | None = None
     course_id: str | None = Field(default=None, min_length=1, max_length=128)
+    # Benchmark-only schema exposure treatment; never grants tool capability.
+    benchmark_tool_groups: list[Literal['campus_reviews']] = Field(default_factory=list, max_length=4)
 
 
 class TurnRequest(tools.Input):
@@ -83,8 +86,89 @@ class ModelRequest(tools.Input):
     attribution_headers: dict[str, str] = Field(default_factory=dict)
 
 
+def _loaded_tool_groups(messages: list[dict[str, Any]]) -> set[str]:
+    """Read loader receipts only when tied to the matching assistant tool-call ID."""
+    loaded: set[str] = set()
+    loader_calls: set[str] = set()
+
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool-call":
+                continue
+            call_id = block.get("id")
+            name = block.get("name")
+            arguments = block.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (TypeError, ValueError):
+                    continue
+            if (isinstance(call_id, str) and name == "load_tools" and isinstance(arguments, dict)
+                    and arguments.get("group") == "campus_reviews"):
+                loader_calls.add(call_id)
+
+    def inspect(value: Any, depth: int = 0) -> None:
+        if depth > 8:
+            return
+        if isinstance(value, str):
+            if len(value) > 32_000:
+                return
+            try:
+                inspect(json.loads(value), depth + 1)
+            except (TypeError, ValueError):
+                return
+        elif isinstance(value, dict):
+            groups = value.get("loaded_groups")
+            if isinstance(groups, list):
+                loaded.update(item for item in groups if isinstance(item, str) and len(item) <= 64)
+            for item in value.values():
+                inspect(item, depth + 1)
+        elif isinstance(value, list):
+            for item in value[:128]:
+                inspect(item, depth + 1)
+
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            continue
+        call_id = message.get("toolCallId") or message.get("tool_call_id")
+        if isinstance(call_id, str) and call_id in loader_calls:
+            inspect(message.get("content"))
+    return loaded
+
+
+def _model_visible_tool_schemas(
+    schemas: list[dict[str, Any]], deferred_groups: tuple[str, ...], messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Apply the benchmark exposure treatment at the trusted model request boundary.
+
+    Registry entries and execution authorization remain unchanged. Only schemas sent to
+    the provider are deferred, and a tool-role loader receipt opens the group later.
+    """
+    if "campus_reviews" not in deferred_groups or "campus_reviews" in _loaded_tool_groups(messages):
+        return schemas
+    visible = []
+    for item in schemas:
+        function = item.get("function") if isinstance(item.get("function"), dict) else item
+        name = function.get("name") if isinstance(function, dict) else None
+        if isinstance(name, str) and name.startswith("campus_reviews_"):
+            continue
+        visible.append(item)
+    return visible
+
+
 class ModelLeaseRequest(tools.Input):
     conversation_id: str = Field(min_length=1, max_length=128)
+
+
+class ModelObservationRequest(ModelLeaseRequest):
+    duration_ms: float = Field(ge=0, le=600_000)
+    tools: list[dict[str, Any]] = Field(default_factory=list, max_length=256)
+    selected_tools: list[str] = Field(default_factory=list, max_length=64)
 
 
 class NativeToolLeaseRequest(ModelLeaseRequest):
@@ -132,6 +216,8 @@ class ModelErrorRequest(ModelLeaseRequest):
                   'PROVIDER_CHANGED', 'PROVIDER_DISABLED', 'BUDGET_EXCEEDED', 'CONSENT_REQUIRED']
     message: str = Field(min_length=1, max_length=512)
     retryable: bool
+    duration_ms: float = Field(default=0, ge=0, le=600_000)
+    tools: list[dict[str, Any]] = Field(default_factory=list, max_length=256)
 
 
 class SearchTestRequest(tools.Input):
@@ -185,6 +271,12 @@ def public_conversation(item: dict) -> dict:
 @router.get('/settings')
 def read_settings(owner: str = Depends(browser_owner)):
     return get_runtime().settings.public()
+
+
+@router.get('/benchmark/tool-exposure')
+def benchmark_tool_exposure(owner: str = Depends(browser_owner)):
+    enabled = os.environ.get('CAMPUS_BENCH_ALLOW_TOOL_GROUPS') == '1'
+    return {"enabled": enabled, "groups": ["campus_reviews"] if enabled else []}
 
 
 @router.get('/conversations/{conversation_id}/browser', response_model=BrowserStatus)
@@ -274,6 +366,10 @@ def test_search(req: SearchTestRequest, owner: str = Depends(browser_owner), db:
 
 @router.post("/conversations", status_code=201)
 def create_conversation(req: ConversationRequest, owner: str = Depends(browser_owner), db: Session = Depends(get_db)):
+    if req.benchmark_tool_groups and os.environ.get('CAMPUS_BENCH_ALLOW_TOOL_GROUPS') != '1':
+        raise ApiError(403, 'BENCHMARK_EXPERIMENT_DISABLED', '此 API 实例未启用校园工具暴露实验')
+    if len(set(req.benchmark_tool_groups)) != len(req.benchmark_tool_groups):
+        raise ApiError(422, 'VALIDATION_FAILED', 'benchmark_tool_groups 不允许重复')
     cfg = db.get(m.ProviderConfig, req.provider_id)
     if cfg is None:
         raise ApiError(404, "NOT_FOUND", "所选模型配置不存在")
@@ -281,12 +377,18 @@ def create_conversation(req: ConversationRequest, owner: str = Depends(browser_o
         raise ApiError(403, "PROVIDER_DISABLED", "该模型服务已停用，可在设置中启用或选择其他模型")
     if cfg.protocol != "openai_chat_completions":
         raise ApiError(400, "UNSUPPORTED", "当前对话仅支持 Chat Completions 兼容服务")
+    if req.benchmark_tool_groups:
+        provider_runtime = model.runtime_configuration(db, {"provider": model.snapshot(cfg)})
+        if provider_runtime["provider"] != "campus-model":
+            raise ApiError(400, "BENCHMARK_EXPERIMENT_UNSUPPORTED",
+                           "工具暴露实验要求通过校园模型网关发送工具 schema")
     course_ids = list(db.scalars(select(m.Course.id).where(m.Course.archived_at.is_(None))))
     if req.course_id and req.course_id not in course_ids:
         raise ApiError(403, "SCOPE_DENIED", "所选课程不在本机可用范围内")
     connection_ids = list(db.scalars(select(m.Connection.id)))
     item = get_runtime().store.create(owner, {"provider": model.snapshot(cfg), "send_to_provider": True,
-        "course_ids": course_ids, "connection_ids": connection_ids, "job_ids": [], "current_course_id": req.course_id})
+        "course_ids": course_ids, "connection_ids": connection_ids, "job_ids": [], "current_course_id": req.course_id,
+        "benchmark_tool_groups": req.benchmark_tool_groups})
     # Start the runtime while the user is still typing: composing the upstream profile is
     # what makes a cold first turn wait. Best effort and never on the request path.
     get_runtime().prewarm_async(item["id"])
@@ -617,6 +719,9 @@ def internal_tool(req: ToolRequest, authority=Depends(runtime_authority), db: Se
         recovered_ctx = runtime.auth_recovery_tool_context(turn, db)
         if recovered_ctx is not None:
             ctx = recovered_ctx
+        started = time.perf_counter()
+        runtime.store.event(turn["id"], "tool_started", {"call_id": req.call_id, "name": req.name,
+                            "argument_keys": sorted(req.arguments.keys())[:80]})
         try:
             result = tools.execute(req.name, req.arguments, db, ctx)
         except ApiError as exc:
@@ -639,7 +744,8 @@ def internal_tool(req: ToolRequest, authority=Depends(runtime_authority), db: Se
             runtime.store.grant_imported_courses(conversation["id"], verified)
         runtime.store.cache_call(turn["id"], req.call_id, cached_request, result)
         runtime.store.event(turn["id"], "tool_result", {"call_id": req.call_id, "name": req.name,
-                            "arguments": req.arguments, "result": result})
+                            "arguments": req.arguments, "result": result,
+                            "duration_ms": round((time.perf_counter() - started) * 1000, 2)})
         if hasattr(runtime, 'defer_authentication'):
             runtime.defer_authentication(turn, req.name, req.arguments, result)
         return result
@@ -653,12 +759,52 @@ def internal_model(req: ModelRequest, authority=Depends(runtime_authority), db: 
     if len(json.dumps(req.messages)) > 250000:
         raise ApiError(400, "BUDGET_EXCEEDED", "会话内容超出本轮发送预算")
     runtime.store.reserve_model(turn["id"])
+    started = time.perf_counter()
+    visible_tools = _model_visible_tool_schemas(
+        req.tools or [], runtime._benchmark_tool_groups(conversation["settings"]), req.messages,
+    )
+    tool_names = []
+    for item in visible_tools:
+        if isinstance(item, dict):
+            fn = item.get("function") if isinstance(item.get("function"), dict) else item
+            name = fn.get("name") if isinstance(fn, dict) else None
+            if isinstance(name, str):
+                tool_names.append(name[:128])
     try:
         # The authenticated Harness registry supplies native/skill/MCP tools.
         # Transport headers remain server-owned; domain schemas cannot be replaced.
-        return model.call_model(db, conversation["settings"], req.messages, req.max_tokens, req.tools)
+        response = model.call_model(db, conversation["settings"], req.messages, req.max_tokens, visible_tools)
+        usage = response.get("usage") if isinstance(response, dict) else None
+        choices = response.get("choices") if isinstance(response, dict) else None
+        selected = []
+        # call_model returns the normalized bridge shape (tool_calls with name),
+        # not the provider's raw OpenAI choices envelope. Read that primary shape
+        # first so tool selection telemetry is present on this path as well.
+        normalized_calls = response.get("tool_calls") if isinstance(response, dict) else None
+        if isinstance(normalized_calls, list):
+            selected.extend(call.get("name", "")[:128] for call in normalized_calls
+                            if isinstance(call, dict) and isinstance(call.get("name"), str))
+        elif isinstance(choices, list):
+            for choice in choices:
+                msg = choice.get("message", {}) if isinstance(choice, dict) else {}
+                calls = msg.get("tool_calls", []) if isinstance(msg, dict) else []
+                for call in calls if isinstance(calls, list) else []:
+                    fn = call.get("function", {}) if isinstance(call, dict) else {}
+                    if isinstance(fn, dict) and isinstance(fn.get("name"), str):
+                        selected.append(fn["name"][:128])
+        runtime.store.event(turn["id"], "model_call", {
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "available_tools": tool_names[:256], "selected_tools": selected[:64],
+            "tool_schema_snapshot": model.tool_schema_snapshot(visible_tools),
+            "message_count": len(req.messages), "request_chars": len(json.dumps(req.messages, ensure_ascii=False)),
+            "usage": usage if isinstance(usage, dict) else None,
+        })
+        return response
     except (ApiError, ProviderCallError) as exc:
-        runtime.store.event(turn["id"], "model_error", {"code": exc.code, "message": exc.message, "retryable": exc.retryable})
+        runtime.store.event(turn["id"], "model_error", {"code": exc.code, "message": exc.message,
+                            "retryable": exc.retryable, "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                            "available_tools": tool_names[:256],
+                            "tool_schema_snapshot": model.tool_schema_snapshot(visible_tools)})
         raise ApiError(getattr(exc, "status_code", 502), exc.code, exc.message, retryable=exc.retryable) from None
 
 
@@ -669,6 +815,27 @@ def internal_model_lease(req: ModelLeaseRequest, authority=Depends(runtime_autho
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
     model.runtime_configuration(db, conversation['settings'])
     runtime.store.reserve_model(turn['id'])
+    return {'ok': True}
+
+
+@router.post('/internal/model-observation')
+def internal_model_observation(req: ModelObservationRequest, authority=Depends(runtime_authority)):
+    runtime, turn, conversation = authority
+    if req.conversation_id != conversation['id']:
+        raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
+    names = []
+    for item in req.tools:
+        fn = item.get('function') if isinstance(item.get('function'), dict) else item
+        name = fn.get('name') if isinstance(fn, dict) else None
+        if isinstance(name, str):
+            names.append(name[:128])
+    runtime.store.event(turn['id'], 'model_call', {
+        'duration_ms': round(req.duration_ms, 2),
+        'available_tools': names[:256],
+        'selected_tools': [name[:128] for name in req.selected_tools if isinstance(name, str)][:64],
+        'tool_schema_snapshot': model.tool_schema_snapshot(req.tools),
+        'source': 'native_provider_llm_stream',
+    })
     return {'ok': True}
 
 
@@ -709,5 +876,13 @@ def internal_model_error(req: ModelErrorRequest, authority=Depends(runtime_autho
     runtime, turn, conversation = authority
     if req.conversation_id != conversation['id']:
         raise ApiError(403, 'RUNTIME_DENIED', '运行时授权不属于指定会话')
-    runtime.store.event(turn['id'], 'model_error', req.model_dump(exclude={'conversation_id'}))
+    data = req.model_dump(exclude={'conversation_id', 'tools'})
+    data['available_tools'] = [
+        (item.get('function') if isinstance(item.get('function'), dict) else item).get('name', '')[:128]
+        for item in req.tools
+        if isinstance(item, dict) and isinstance((item.get('function') if isinstance(item.get('function'), dict) else item).get('name'), str)
+    ][:256]
+    data['tool_schema_snapshot'] = model.tool_schema_snapshot(req.tools)
+    data['source'] = 'native_provider_llm_stream'
+    runtime.store.event(turn['id'], 'model_error', data)
     return {'ok': True}

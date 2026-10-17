@@ -172,25 +172,68 @@ class CampusWorkspace:
             self.manager.disconnect(OWNER, delete=clear_cache)
             return self.status()
 
-    def query(self, capability, query, platform=None, *, refresh=False):
+    def query(self, capability, query, platform=None, *, refresh=False, allow_recovery=True):
+        """Read the cache, or explicitly synchronize the school site.
+
+        ``refresh=False`` is a pure cache read: it never opens a school connection,
+        never reads browser cookies and never submits a stored password. It returns
+        the cached records with their real freshness/fetched_at plus a structured
+        connection error when no live authorized session can confirm them.
+
+        ``refresh=True`` is the explicit sync entry (agent ``campus.sync``,
+        ``POST /campus/sync``, trusted recovery probe). Only it may make a remote
+        request.
+
+        ``allow_recovery`` separates the two callers of that entry:
+
+        * the user's/model's explicit ``campus.sync`` keeps ``allow_recovery=True`` and
+          therefore its bounded, authorized re-authentication (at most one stored-credential
+          login or already-authorized browser-session re-adoption, then one retry);
+        * the trusted read-only recovery probe passes ``allow_recovery=False``: it refreshes
+          the original read **with the session that is already validated** and, when that
+          session is not ready, returns the structured AUTH error so the caller keeps the
+          checkpoint. It never starts a password login or browser-cookie adoption, so an
+          unrelated platform's successful check cannot turn into authentication here.
+        """
         operation = self.manager.service.sync if refresh else self.manager.service.query
         with self.manager.lock(OWNER):
-            grant = self._check_browser_grant()
+            self._check_browser_grant()
             result = operation(capability, query, UserContext(OWNER), platform=platform).model_dump(mode="json")
-            if not refresh and not result.get("error"):
-                # CampusService.query is cache-only and can return empty/no-error
-                # even without a session. Keep cached records but do not represent
-                # that as a live private connection; also allow restart recovery.
-                adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
-                if adapter.spec.authentication != "public":
-                    try:
-                        self.manager.connector_session(adapter.spec.platform_id, OWNER)
-                    except CampusError as exc:
-                        error = standard_error(exc)
-                        result["error"] = error.model_dump(mode="json")
-                        result["freshness"] = "stale" if result.get("fetched_at") else "unknown"
+            if not refresh:
+                return self._cache_read_result(capability, query, platform, result)
+            return self._resync_result(capability, query, platform, result, allow_recovery=allow_recovery)
+
+    def _cache_read_result(self, capability, query, platform, result):
+        """Cached records stay usable, but a cache read never becomes an auth attempt."""
+        if not result.get("error"):
+            # CampusService.query is cache-only and can return empty/no-error even
+            # without a session. Keep cached records but do not represent that as a
+            # live private connection; also allow restart recovery.
+            adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
+            if adapter.spec.authentication != "public":
+                # Reading the in-memory session state is local: no connection is
+                # opened and no browser credential is read. It only separates
+                # "the cache holds this data" from "a live private session confirms it".
+                try:
+                    self.manager.connector_session(adapter.spec.platform_id, OWNER)
+                except CampusError as exc:
+                    error = standard_error(exc)
+                    result["error"] = error.model_dump(mode="json")
+                    result["freshness"] = "stale" if result.get("fetched_at") else "unknown"
+        return result
+
+    def _resync_result(self, capability, query, platform, result, *, allow_recovery=True):
+        """Explicit sync: at most one authorized re-authentication, then one retry.
+
+        With ``allow_recovery=False`` (the trusted read-only probe) no authentication is
+        started at all: an auth error is returned as-is so the caller keeps its checkpoint.
+        """
+        with self.manager.lock(OWNER):
             error = result.get("error") or {}
             if error.get("code") not in {"AUTH_REQUIRED", "AUTH_EXPIRED", "SESSION_EXPIRED"}:
+                return result
+            if not allow_recovery:
+                # Trusted read-only refresh: use the already validated session only.
                 return result
             adapter, _, _, _ = self.manager.service._resolve(capability, query, UserContext(OWNER), platform)
             if adapter.spec.authentication == "public":

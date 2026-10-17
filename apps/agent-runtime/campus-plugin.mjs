@@ -67,8 +67,16 @@ export class CampusModelAdapter extends LlmAdapter {
 export async function apply(ctx, config = {}) {
   installCapabilityPolicy(ctx, config);
   installWebRecovery(ctx);
-  ctx.effect(() => registerToolLoader(ctx));
-  ctx.on('agent/created', ({ agent }) => { installToolMask(agent); });
+  // The benchmark exposure treatment is fixed before profile composition so its
+  // Harness registry masks apply only to inherited tools; the API is the
+  // authoritative model-schema boundary for plugin-owned campus tools.
+  const deferGroups = (process.env.CAMPUS_BENCH_DEFER_TOOL_GROUPS || '').split(',').filter(Boolean);
+  ctx.effect(() => registerToolLoader(ctx, { deferGroups }));
+  ctx.on('agent/created', ({ agent }) => {
+    // Benchmark-only exposure treatment. It changes schema visibility, never tool
+    // authorization; tool execution remains subject to the normal capability policy.
+    installToolMask(agent, { deferGroups });
+  });
   // No model-facing environment resolver or arbitrary shell exporter. A future
   // document exporter must be a dedicated argument-validated capability.
 
@@ -138,15 +146,22 @@ export async function apply(ctx, config = {}) {
   ctx.effect(() => ctx.llm.registerAdapter(['campus-model'], new CampusModelAdapter()));
   ctx.on('llm/stream', async function* (options, next) {
     const conversation_id = process.env.CAMPUS_CONVERSATION_ID || String(options.sessionId);
+    const modelStarted = Date.now();
+    let modelFailed = false;
+    const selectedTools = [];
     try {
       if (options.provider !== 'campus-model') {
         await bridge('/api/v1/agent/internal/model-lease', { conversation_id }, options.signal);
       }
       for await (const chunk of next()) {
+        if (chunk.type === 'block-end' && chunk.block?.type === 'tool-call'
+            && typeof chunk.block.name === 'string') selectedTools.push(chunk.block.name);
         if (options.provider !== 'campus-model' && chunk.type === 'finish' && ['error', 'aborted'].includes(chunk.reason?.kind)) {
+          modelFailed = true;
           const failure = nativeModelFailure(chunk.reason.failure);
           if (chunk.reason.kind === 'error' && chunk.reason.failure?.code !== 'IMAGE_OFFLOAD_REQUIRED' && !options.signal?.aborted) {
-            try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure }); }
+            try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure,
+              duration_ms: Math.max(0, Date.now() - modelStarted), tools: options.tools || [] }); }
             catch { /* Keep the upstream failure authoritative when journaling is unavailable. */ }
           }
           // The upstream session log also records finish chunks. Preserve error
@@ -165,10 +180,21 @@ export async function apply(ctx, config = {}) {
         }
         yield chunk;
       }
+      if (options.provider !== 'campus-model' && !modelFailed && !options.signal?.aborted) {
+        try {
+          await bridge('/api/v1/agent/internal/model-observation', {
+            conversation_id,
+            duration_ms: Math.max(0, Date.now() - modelStarted),
+            tools: options.tools || [],
+            selected_tools: selectedTools,
+          }, options.signal);
+        } catch { /* Telemetry must not change the provider result. */ }
+      }
     } catch (error) {
       if (options.provider !== 'campus-model' && !options.signal?.aborted) {
         const failure = nativeModelFailure(error);
-        try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure }); }
+        try { await bridge('/api/v1/agent/internal/model-error', { conversation_id, ...failure,
+          duration_ms: Math.max(0, Date.now() - modelStarted), tools: options.tools || [] }); }
         catch { /* A stopped turn cannot create new runtime-authorized events. */ }
       }
       throw error;

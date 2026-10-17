@@ -47,4 +47,4 @@ API 回归：在 `apps/api` 下使用独立 STUDY_DATABASE_URL / CAMPUS_AGENT_HO
 
 未验证：真实校园账户、付费模型回答质量、普通学生试点及公开多用户部署。依赖审计与运行限制见 agent-acceptance.md；本轮不宣称生产就绪。
 
-干净目录重建步骤及文件SHA见 agent-clean-rebuild.json。复制源码时排除 .venv/node_modules/var/dist/.git 和缓存，再依次执行 setup、前端 npm run build、tools/dev.py --platforms --api-port 18001 --web-port 15175 --smoke-test 及 tools/verify_agent_runtime.py；端口冲突时选空闲端口。
+干净目录重建步骤及文件SHA见 agent-clean-rebuild.json。复制源码时排除 .venv/node_modules/var/dist/.git 和缓存，再依次执行 setup、前端 npm run build、tools/dev.py --no-platforms --api-port 18001 --web-port 15175 --smoke-test 及 tools/verify_agent_runtime.py；需要实测校园连接器时显式传 --platforms xzzd。端口冲突时选空闲端口。

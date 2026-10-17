@@ -1387,6 +1387,10 @@ def handle_sync(db: Session, job: Job) -> JobResult:
     payload = dict(job.payload or {})
     connection_id = payload.get("connection_id")
     full = bool(payload.get("full", False))
+    kinds = payload.get("kinds")
+    if kinds is not None and (not isinstance(kinds, list)
+                              or any(kind not in {"assignments", "resources"} for kind in kinds)):
+        raise JobFailed("INVALID_PAYLOAD", "同步范围 kinds 无效", retryable=False)
     connection = db.get(Connection, connection_id) if isinstance(connection_id, str) else None
     if connection is None:
         raise JobFailed("INVALID_PAYLOAD", f"连接不存在：{connection_id}", retryable=False)
@@ -1437,7 +1441,8 @@ def handle_sync(db: Session, job: Job) -> JobResult:
         if checkpoint is None:
             since = None if full else get_cursor(db, connection.id, course_id)
             try:
-                envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since, "full": full})
+                envelope = adapter(conn_info, {"course_id": course_id, "since_cursor": since,
+                                               "full": full, "kinds": kinds})
                 stats = apply_sync_result(db, connection=connection, course_id=course_id, envelope=envelope)
                 store_cursor(db, connection_id=connection.id, course_id=course_id,
                              cursor=(envelope.get("cursor") or {}).get("next"),

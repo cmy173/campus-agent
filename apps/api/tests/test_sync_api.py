@@ -273,7 +273,21 @@ def test_sync_endpoint_accepts_and_worker_applies(client: TestClient, sync_env: 
     # 适配器收到的触发参数形状（B→A 边界）
     call_conn, call_req = sync_env.calls[0]
     assert call_conn == {"platform": PLATFORM, "connection_id": CONN_ID}
-    assert call_req == {"course_id": COURSE_ID, "since_cursor": None, "full": False}
+    assert call_req == {"course_id": COURSE_ID, "since_cursor": None, "full": False, "kinds": None}
+
+
+def test_sync_endpoint_passes_requested_data_kinds_to_the_adapter(client: TestClient, sync_env: FakeAdapter) -> None:
+    sync_env.result = _envelope(assignments=[])
+    resp = _post_sync(client, body={"kinds": ["assignments"]})
+    assert resp.status_code == 202, resp.text
+    job_id = resp.json()["job"]["id"]
+    from app.db import SessionLocal
+    from app.models import Job
+    with SessionLocal() as db:
+        stored = db.get(Job, job_id)
+        assert stored.payload["kinds"] == ["assignments"]
+    assert _drain_until(job_id) == "succeeded"
+    assert sync_env.calls[0][1]["kinds"] == ["assignments"]
 
 
 def test_sync_envelope_errors_are_isolated(client: TestClient, sync_env: FakeAdapter) -> None:
@@ -313,7 +327,8 @@ def test_sync_idempotent_replay_and_active_dedupe(client: TestClient, sync_env: 
     assert dedupe.status_code == 202 and dedupe.json()["job"]["id"] == job_id
 
     other_key = _post_sync(client, body={"full": True}, key="sync-key-0002")
-    assert other_key.status_code == 202 and other_key.json()["job"]["id"] == job_id
+    assert other_key.status_code == 409
+    assert other_key.json()["error"]["code"] == "SYNC_SCOPE_CONFLICT"
 
     reuse = _post_sync(client, body={"full": True}, key="sync-key-0001")
     assert reuse.status_code == 409
@@ -568,7 +583,8 @@ class ProtocolAdapter:
         self.connection_id = connection_id
 
     def sync_course(self, course_id, since_cursor=None, kinds=None):
-        return {"kind": "protocol", "course_id": course_id, "since_cursor": since_cursor, "conn": self.connection_id}
+        return {"kind": "protocol", "course_id": course_id, "since_cursor": since_cursor,
+                "kinds": kinds, "conn": self.connection_id}
 """,
         encoding="utf-8",
     )
@@ -583,8 +599,11 @@ class ProtocolAdapter:
     assert out["kind"] == "native" and out["connection"]["connection_id"] == "conn_x"
 
     bridged = resolve_sync_adapter("clsplat")
-    out2 = bridged({"platform": "clsplat", "connection_id": "conn_y"}, {"course_id": "crs_y", "since_cursor": "cur_z", "full": False})
-    assert out2 == {"kind": "protocol", "course_id": "crs_y", "since_cursor": "cur_z", "conn": "conn_y"}
+    out2 = bridged({"platform": "clsplat", "connection_id": "conn_y"},
+                   {"course_id": "crs_y", "since_cursor": "cur_z", "full": False,
+                    "kinds": ["assignments"]})
+    assert out2 == {"kind": "protocol", "course_id": "crs_y", "since_cursor": "cur_z",
+                    "kinds": ["assignments"], "conn": "conn_y"}
 
 
 def test_protocol_adapter_error_is_translated(tmp_path, monkeypatch) -> None:

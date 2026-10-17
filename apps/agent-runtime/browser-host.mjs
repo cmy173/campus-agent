@@ -323,6 +323,8 @@ async function dispatch(body) {
   if (body.method === 'open') {
     if (!headed || !context) { await stop(); headed = true; await launch(); }
     if (body.url) await raw('browser_navigate', { url: body.url });
+    const page = context.pages().at(-1);
+    if (page) await page.bringToFront();
     return { running: true, headed: true };
   }
   if (body.method === 'confirm' || body.method === 'reject') {

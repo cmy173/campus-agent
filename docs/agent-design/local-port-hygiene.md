@@ -12,7 +12,7 @@ test bench、审计脚本或一次被 `Start-Process` 分离出去的 `tools/dev
 |---|---|---|
 | 5173 | 网页（Vite） | `tools/dev.py` |
 | 8000 | API（uvicorn） | `tools/dev.py` |
-| 8765 / 8766 | 学在浙大 / 智云课堂连接器 | `tools/dev.py --platforms` |
+| 8765 / 8766 | 学在浙大 / 智云课堂连接器 | `tools/dev.py --platforms xzzd [zykt]` |
 | 15173 / 18080 / 19191 | 合成验收 test bench（网页 / API / 受控模型） | `tools/round2_testbench.py` |
 | 3080 | DeepSeek Harness Web GUI | 不属于本项目，**不要动** |
 

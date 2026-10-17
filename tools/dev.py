@@ -151,18 +151,18 @@ def project_web_processes():
             if prefix in (row.get("CommandLine") or "").casefold().replace("/", "\\")]
 
 
-def main():
-    os.environ.setdefault("PYTHONUTF8", "1")
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup", action="store_true", help="初始化依赖（需要网络）")
     parser.add_argument("--check", action="store_true", help="只检查环境，不修改数据库")
-    parser.add_argument("--platforms", nargs="*", choices=("xzzd", "zykt"), default=["xzzd"], help="打开受控登录窗口；传空列表可只启动网页")
+    platform_group = parser.add_mutually_exclusive_group()
+    platform_group.add_argument("--platforms", nargs="+", choices=("xzzd", "zykt"), default=["xzzd"],
+                                help="启动指定校园平台的受控浏览器连接器（默认：xzzd）")
+    platform_group.add_argument("--no-platforms", dest="platforms", action="store_const", const=[],
+                                help="只启动 API 和网页，不启动校园连接器")
     parser.add_argument("--api-port", type=int, default=8000)
     parser.add_argument("--web-port", type=int, default=5173)
-    parser.add_argument("--smoke-test", action="store_true", help="启动并检查网页代理后自动关闭本次服务；配合 --platforms 不打开浏览器")
+    parser.add_argument("--smoke-test", action="store_true", help="启动并检查网页代理后自动关闭本次服务")
     parser.add_argument("--open-browser", action="store_true", help="服务就绪后打开网页")
     parser.add_argument("--stop-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--ttl-seconds", type=int, default=0,
@@ -170,7 +170,15 @@ def main():
     parser.add_argument("--hidden", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--auto-ports", action="store_true", help="端口被占用时自动选择空闲端口")
     parser.add_argument("--state-file", type=Path, help=argparse.SUPPRESS)
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    args = build_parser().parse_args()
     child_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" and args.hidden else 0
 
     def spawn(command, **kwargs):

@@ -12,6 +12,8 @@ def test_health(client: TestClient) -> None:
     body = resp.json()
     assert body["status"] == "ok"
     assert body["version"]
+    assert len(body["agent_source_sha256"]) == 64
+    assert all(char in "0123456789abcdef" for char in body["agent_source_sha256"])
     assert body["time"].endswith("Z")
 
 

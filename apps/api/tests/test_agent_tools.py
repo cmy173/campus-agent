@@ -1,5 +1,7 @@
 """Independent synthetic DB: strict contracts, scoping, date precision and evidence."""
-from datetime import date, datetime, timezone
+import base64
+from types import SimpleNamespace
+from datetime import date, datetime, timedelta, timezone
 from dataclasses import replace
 
 import pytest
@@ -8,8 +10,10 @@ from sqlalchemy.orm import Session
 
 from app import models as m
 from app.agent_bridge.tools import SPECS, ToolContext, execute, schemas
+from app.agent_bridge.review_actions import job_wait_window
 from app.db import Base
 from app.errors import ApiError
+from connectors.campus.campus_common import CampusError
 
 
 @pytest.fixture
@@ -60,10 +64,12 @@ def test_plan_cannot_disclose_foreign_task_in_unscheduled_or_warning(db, context
 
 
 def test_inventory_is_exact_and_inputs_closed():
-    assert len(SPECS) == 32
-    assert len({s["model_name"] for s in schemas()}) == 32
+    assert len(SPECS) == 34
+    assert len({s["model_name"] for s in schemas()}) == 34
     assert {'campus.status', 'campus.query', 'campus.sync', 'campus.academics', 'campus.notice.read',
             'campus.imported.read', 'campus.webvpn.entry', 'campus.notice.import'} <= set(SPECS)
+    assert 'campus.credentials.status' in SPECS
+    assert 'assignments.next_by_course' in SPECS
     # The agent must be able to discover/import courses from 学在浙大 (and refresh them)
     # instead of only searching whatever happened to be imported locally.
     assert {'connections.courses', 'connections.courses.import', 'connections.sync'} <= set(SPECS)
@@ -72,6 +78,110 @@ def test_inventory_is_exact_and_inputs_closed():
     assert {'artifacts.export', 'reviews.preflight', 'reviews.generate',
             'reviews.read', 'reviews.export'} <= set(SPECS)
     assert all(s["input_schema"]["additionalProperties"] is False for s in schemas())
+
+
+def test_status_tool_descriptions_limit_personal_state_reads_to_relevant_tasks():
+    specs = {item["name"]: item for item in schemas()}
+    for name in ("campus.status", "connections.status"):
+        description = specs[name]["description"]
+        assert "普通校园知识" in description
+        assert "不要读取个人" in description
+        assert "仅当用户询问" in description
+        assert "不要先调用本工具" in description
+        assert "不能证明某项缓存存在、完整或最新" in description
+
+
+def test_campus_query_and_sync_descriptions_constrain_unverified_arguments():
+    for name in ("campus.query", "campus.sync"):
+        description = SPECS[name][1]
+        assert "不要臆造" in description
+    assert "query保持空对象或省略" in SPECS["campus.query"][1]
+    assert "不支持wait_seconds" in SPECS["campus.sync"][1]
+    assert "直接调用一次campus.sync(capability=notices)" in SPECS["campus.sync"][1]
+    assert "通知标题原文作为Markdown链接文本" in SPECS["campus.sync"][1]
+    assert "source必须逐字取自对应记录" in SPECS["campus.sync"][1]
+
+
+def test_college_notice_read_contract_limits_public_notice_summaries_and_returns_recovery_guidance(db, context, monkeypatch):
+    description = SPECS["campus.notice.read"][1]
+    assert "capability=college_notices" in description
+    assert "校级notices公开摘要不支持正文读取" in description
+    assert "不要调用或重试" in description
+
+    class Service:
+        def cached_college_notice(self, _user, _record_id):
+            raise CampusError("UNSUPPORTED", "通知记录标识无效")
+
+    workspace = SimpleNamespace(manager=SimpleNamespace(service=Service()))
+    monkeypatch.setattr("app.campus_workspace.get_campus_workspace", lambda: workspace)
+    with pytest.raises(ApiError) as error:
+        execute("campus.notice.read", {"record_id": "public-notice-id"}, db, context)
+    assert error.value.code == "UNSUPPORTED"
+    assert "college_notices" in error.value.message
+    assert "校级 notices" in error.value.message
+    assert "直接使用列表字段" in error.value.message
+
+
+def test_missing_college_notice_returns_scope_specific_nonretry_guidance(db, context, monkeypatch):
+    workspace = SimpleNamespace(manager=SimpleNamespace(service=SimpleNamespace(
+        cached_college_notice=lambda _user, _record_id: None)))
+    monkeypatch.setattr("app.campus_workspace.get_campus_workspace", lambda: workspace)
+    with pytest.raises(ApiError) as error:
+        execute("campus.notice.read", {"record_id": "ckc:12345"}, db, context)
+    assert error.value.code == "NOT_FOUND"
+    assert "college_notices" in error.value.message
+    assert "校级 notices 摘要无需读取正文" in error.value.message
+
+
+def test_credentials_status_returns_only_nonsecret_state_and_never_logs_in(db, context, monkeypatch):
+    class Workspace:
+        login_attempts = 0
+        def status(self):
+            return {"browser_session_authorized": False, "connected": False,
+                    "connectors": [{"platform_id": "zdbk", "connected": False}]}
+
+    monkeypatch.setattr("app.campus_workspace.get_campus_workspace", lambda: Workspace())
+    monkeypatch.setattr("app.campus_credentials.all_status", lambda: {
+        "items": [{"scope": "passport", "configured": True, "auto_relogin": True,
+                   "username_hint": "32***32", "saved_at": "private-time", "password": "never-return"},
+                  {"scope": "webvpn", "configured": False, "auto_relogin": False,
+                   "username_hint": None, "saved_at": None}]
+    })
+    result = execute("campus.credentials.status", {}, db, context)
+    assert result["status"] == "ok"
+    assert result["coverage"] == {"scope": "local_auth_metadata", "complete": True, "missing": []}
+    assert result["freshness"]["fetched_at"] is not None
+    assert result["freshness"]["stale"] is False
+    assert any("不验证学校端" in warning for warning in result["warnings"])
+    assert result["data"]["credentials"] == [
+        {"scope": "passport", "configured": True, "auto_relogin": True},
+        {"scope": "webvpn", "configured": False, "auto_relogin": False},
+    ]
+    assert result["data"]["browser_session_authorized"] is False
+    assert result["data"]["campus_workspace_connected"] is False
+    assert "username_hint" not in str(result)
+    assert "private-time" not in str(result)
+    assert "never-return" not in str(result)
+
+
+def test_general_campus_status_does_not_include_saved_credential_metadata(db, context, monkeypatch):
+    class Workspace:
+        def status(self):
+            return {"connected": False, "browser_session_authorized": False,
+                    "credentials": {"passport": {"username_hint": "32***32", "saved_at": "private-time"}},
+                    "last_auto_login": "private-login-time", "browser_authorization": {"grant_id": "private-grant"}}
+
+    monkeypatch.setattr("app.campus_workspace.get_campus_workspace", lambda: Workspace())
+    result = execute("campus.status", {}, db, context)
+    assert result["status"] == "ok"
+    assert result["coverage"] == {"scope": "local_campus_connection_metadata", "complete": True, "missing": []}
+    assert result["freshness"]["fetched_at"] is not None
+    assert any("不主动验证远端连通性" in warning for warning in result["warnings"])
+    assert "credentials" not in result["data"]
+    assert "last_auto_login" not in result["data"]
+    assert "browser_authorization" not in result["data"]
+    assert "private-time" not in str(result)
+    assert "private-grant" not in str(result)
 
 
 def test_reviews_generate_exposes_the_explicit_new_generation_signal():
@@ -217,7 +327,106 @@ def test_unknown_deadline_kept_in_date_window(db, context):
     assert [i["id"] for i in result["data"]["items"]] == ["asg_a"]
     assert result["data"]["items"][0]["due_at"] is None
     assert result["data"]["items"][0]["due_precision"] == "unknown"
+    assert "instructions" not in result["data"]["items"][0]
     assert result["warnings"]
+
+
+def test_assignment_instructions_are_loaded_only_when_requested(db, context):
+    compact = execute("assignments.list", {}, db, context)
+    detailed = execute("assignments.list", {"include_instructions": True}, db, context)
+    compact_item = next(item for item in compact["data"]["items"] if item["id"] == "asg_a")
+    detailed_item = next(item for item in detailed["data"]["items"] if item["id"] == "asg_a")
+    assert "instructions" not in compact_item
+    assert detailed_item["instructions"] == "提交正文和数据附件"
+
+
+def test_assignment_due_soon_sort_and_cursor_keep_stable_order(db, context):
+    db.add_all([
+        m.Assignment(id="asg_due_late", course_id="crs_a", title="晚截止", due_at=datetime(2026, 11, 2, tzinfo=timezone.utc), due_precision="minute"),
+        m.Assignment(id="asg_due_soon", course_id="crs_a", title="早截止", due_at=datetime(2026, 11, 1, tzinfo=timezone.utc), due_precision="minute"),
+    ])
+    foreign = db.get(m.Assignment, "asg_b")
+    foreign.due_at = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+    foreign.due_precision = "minute"
+    db.flush()
+    first = execute("assignments.list", {"order_by": "due_soon", "limit": 2}, db, context)
+    assert [item["id"] for item in first["data"]["items"]] == ["asg_due_soon", "asg_due_late"]
+    assert [item["course_title"] for item in first["data"]["items"]] == ["微积分", "微积分"]
+    assert [item["course_term"] for item in first["data"]["items"]] == ["2026秋", "2026秋"]
+    assert first["data"]["next_cursor"], first["data"]
+    second = execute("assignments.list", {"order_by": "due_soon", "limit": 2,
+        "cursor": first["data"]["next_cursor"]}, db, context)
+    assert [item["id"] for item in second["data"]["items"]] == ["asg_a"]
+    assert second["data"]["next_cursor"] is None
+
+
+def test_assignment_next_by_course_selects_next_due_and_paginates_grouped_rows(db, context):
+    db.add_all([
+        m.Assignment(id="asg_due_late", course_id="crs_a", title="晚截止", due_at=datetime(2026, 11, 2, tzinfo=timezone.utc), due_precision="minute"),
+        m.Assignment(id="asg_due_soon", course_id="crs_a", title="早截止", due_at=datetime(2026, 11, 1, tzinfo=timezone.utc), due_precision="minute"),
+    ])
+    foreign = db.get(m.Assignment, "asg_b")
+    foreign.due_at = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+    foreign.due_precision = "minute"
+    db.flush()
+    scoped = replace(context, course_ids=frozenset({"crs_a", "crs_b"}))
+    first = execute("assignments.next_by_course", {"limit": 1}, db, scoped)
+    assert [item["id"] for item in first["data"]["items"]] == ["asg_due_soon"]
+    assert first["data"]["items"][0]["course_title"] == "微积分"
+    assert first["data"]["items"][0]["due_at_local"] == "2026-11-01T08:00:00+08:00"
+    assert first["data"]["items"][0]["course_status"] == "next_due"
+    assert first["data"]["items"][0]["unknown_deadline_count"] == 1
+    assert first["data"]["next_cursor"]
+    second = execute("assignments.next_by_course", {"limit": 1,
+        "cursor": first["data"]["next_cursor"]}, db, scoped)
+    assert second["data"]["items"][0]["course_title"] == "另一账号课程"
+    assert second["data"]["items"][0]["course_status"] == "next_due"
+    assert second["data"]["items"][0]["assignment_title"] == "私有作业"
+    assert second["data"]["next_cursor"] is None
+    assert any("本机缓存" in item for item in second["warnings"])
+
+
+def test_assignment_next_by_course_reports_every_scoped_course_with_cache_status(db, context):
+    db.add(m.Course(id="crs_c", title="无作业课程", term="2026秋"))
+    db.flush()
+    restricted = execute("assignments.next_by_course", {"limit": 50}, db, context)
+    assert {item["course_id"] for item in restricted["data"]["items"]} == {"crs_a"}
+    scoped = replace(context, course_ids=frozenset({"crs_a", "crs_b", "crs_c"}))
+    result = execute("assignments.next_by_course", {"limit": 50}, db, scoped)
+    items = {item["course_id"]: item for item in result["data"]["items"]}
+    assert set(items) == {"crs_a", "crs_b", "crs_c"}
+    assert items["crs_a"]["course_status"] == "unknown_deadline_only"
+    assert items["crs_b"]["course_status"] == "unknown_deadline_only"
+    assert items["crs_c"]["course_status"] == "no_cached_assignments"
+    assert all(item["assignment_title"] is None and item["due_at_local"] is None
+               for item in items.values())
+
+
+def test_assignment_next_by_course_rejects_cursor_from_previous_contract(db, context):
+    old_cursor = base64.urlsafe_b64encode(b"k:2026-11-01T00:00:00+00:00|assignment-id").decode()
+    with pytest.raises(ApiError) as error:
+        execute("assignments.next_by_course", {"cursor": old_cursor}, db, context)
+    assert error.value.code == "VALIDATION_FAILED"
+
+
+def test_assignment_schema_explains_timezone_and_narrow_pagination():
+    schema = next(item for item in schemas() if item["name"] == "assignments.list")
+    props = schema["input_schema"]["properties"]
+    assert "带时区的 ISO-8601" in props["due_after"]["description"]
+    assert "next_cursor" in props["cursor"]["description"]
+    assert props["include_instructions"]["default"] is False
+    assert "due_soon" in props["order_by"]["description"]
+    assert "按截止时间升序" in schema["description"]
+    assert props["limit"]["default"] == 20
+    specialized = next(item for item in schemas() if item["name"] == "assignments.next_by_course")
+    assert "unknown_deadline_only" in specialized["description"]
+    assert "无需再调用courses.list或assignments.list" in specialized["description"]
+
+
+def test_courses_schema_does_not_invite_assignment_course_name_lookup():
+    schema = next(item for item in schemas() if item["name"] == "courses.list")
+    assert "不要仅为把 assignments.list 返回的 course_id 转成课程名而调用" in schema["description"]
+    assert "assignments.list 已逐项返回 course_title 和 course_term" in schema["description"]
 
 
 def test_date_must_have_timezone(db, context):
@@ -256,6 +465,74 @@ def test_job_does_not_expose_payload(db, context):
     assert result["data"]["status"] == "queued"
     assert "payload" not in result["data"]
     assert "secret" not in str(result)
+
+
+def test_jobs_read_waits_in_tool_call_for_owned_campus_sync(monkeypatch, db, context):
+    sync = m.Job(id="job_sync_wait", type="sync", status="running", payload=None)
+    db.add(sync)
+    db.flush()
+    reads = []
+    states = iter(("running", "running", "succeeded"))
+    def get_job(job_id, session):
+        reads.append(job_id)
+        return {"id": job_id, "type": "sync", "status": next(states), "errors": [], "result_refs": []}
+    monkeypatch.setattr("app.agent_bridge.tools.jobs.get_job", get_job)
+    monkeypatch.setattr("app.agent_bridge.tools.time.sleep", lambda _seconds: None)
+    sync_context = ToolContext("local", "conv_a", frozenset({"crs_a"}),
+                               job_ids=frozenset({"job_sync_wait"}))
+    result = execute("jobs.read", {"job_id": "job_sync_wait", "wait_seconds": 14}, db, sync_context)
+    assert result["data"]["status"] == "succeeded"
+    assert reads == ["job_sync_wait"] * 3
+
+
+def test_jobs_read_omitted_wait_defaults_to_bounded_observation_for_sync(monkeypatch, db, context):
+    sync = m.Job(id="job_sync_default_wait", type="sync", status="running", payload=None)
+    db.add(sync)
+    db.flush()
+    reads = []
+    states = iter(("running", "succeeded"))
+
+    def get_job(job_id, session):
+        reads.append(job_id)
+        return {"id": job_id, "type": "sync", "status": next(states), "errors": [], "result_refs": []}
+
+    monkeypatch.setattr("app.agent_bridge.tools.jobs.get_job", get_job)
+    monkeypatch.setattr("app.agent_bridge.tools.time.sleep", lambda _seconds: None)
+    sync_context = ToolContext("local", "conv_a", frozenset({"crs_a"}),
+                               job_ids=frozenset({"job_sync_default_wait"}))
+    result = execute("jobs.read", {"job_id": "job_sync_default_wait"}, db, sync_context)
+    assert result["data"]["status"] == "succeeded"
+    assert reads == ["job_sync_default_wait"] * 2
+
+
+def test_jobs_read_explicit_zero_stays_immediate(monkeypatch, db, context):
+    sync = m.Job(id="job_sync_now", type="sync", status="running", payload=None)
+    db.add(sync)
+    db.flush()
+    reads = []
+
+    def get_job(job_id, session):
+        reads.append(job_id)
+        return {"id": job_id, "type": "sync", "status": "running", "errors": [], "result_refs": []}
+
+    monkeypatch.setattr("app.agent_bridge.tools.jobs.get_job", get_job)
+    sync_context = ToolContext("local", "conv_a", frozenset({"crs_a"}),
+                               job_ids=frozenset({"job_sync_now"}))
+    result = execute("jobs.read", {"job_id": "job_sync_now", "wait_seconds": 0}, db, sync_context)
+    assert result["data"]["status"] == "running"
+    assert reads == ["job_sync_now"]
+
+
+def test_sync_observation_wait_budget_is_shared_from_job_acceptance(db):
+    created = datetime.now(timezone.utc) - timedelta(seconds=57)
+    sync = m.Job(id="job_sync_cap", type="sync", status="running", created_at=created)
+    db.add(sync)
+    db.flush()
+    window = job_wait_window(db, sync.to_contract(), 14)
+    assert 0 <= window <= 4
+    sync.created_at = datetime.now(timezone.utc) - timedelta(seconds=61)
+    db.flush()
+    assert job_wait_window(db, sync.to_contract(), 14) == 0
 
 
 def test_untrusted_principal_denied(db):

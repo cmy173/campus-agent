@@ -27,6 +27,7 @@ test('loader schema requires a nonempty group or tool selection', () => {
   const schema = ctx.tools.get('load_tools').parameters;
   assert.deepEqual(schema.anyOf, [{ required: ['group'] }, { required: ['tools'] }]);
   assert.equal(schema.properties.tools.minItems, 1);
+  assert(!schema.properties.group.enum.includes('campus_reviews'), 'control schema keeps the existing group catalog');
 });
 
 test('exact-name requests explain whole-group loading and unknown names', async () => {
@@ -77,5 +78,34 @@ test('loader rejects empty, unknown-group and duplicate tool arguments', async (
   const loader = ctx.tools.get('load_tools');
   for (const args of [{}, { group: 'not-a-group' }, { tools: [] }, { tools: ['job_list', 'job_list'] }, { group: 'jobs', owner: 'model' }]) {
     await assert.rejects(loader.execute(args, {}), /invalid tool args/);
+  }
+});
+
+test('review tools are deferred only when the experiment is enabled and can be loaded as a whole group', async () => {
+  const setup = deferGroups => {
+    const ctx = new Context(); ctx.provide('systemPrompt', { tools() {} }); new ToolRuntime(ctx);
+    for (const name of ['campus_reviews_preflight', 'campus_reviews_generate', 'campus_reviews_read', 'campus_reviews_export', 'campus_assignments_list']) {
+      ctx.tools.register(definition(name));
+    }
+    registerToolLoader(ctx, { deferGroups });
+    const agent = {}; const scope = createScope(ctx, agent); agent.ctx = scope.ctx;
+    installToolMask(agent, { deferGroups });
+    return { ctx, agent, scope };
+  };
+  const control = setup([]);
+  const treatment = setup(['campus_reviews']);
+  const names = agent => agent.ctx.tools.schemas(agent).map(schema => schema.name);
+  try {
+    assert(names(control.agent).includes('campus_reviews_generate'), 'default behavior keeps every domain tool visible');
+    assert(!control.ctx.tools.get('load_tools').parameters.properties.group.enum.includes('campus_reviews'));
+    assert(!names(treatment.agent).some(name => name.startsWith('campus_reviews_')));
+    assert(names(treatment.agent).includes('campus_assignments_list'), 'experiment is limited to the review family');
+    assert(treatment.ctx.tools.get('load_tools').parameters.properties.group.enum.includes('campus_reviews'));
+    const result = await treatment.ctx.tools.get('load_tools', treatment.agent).execute({ group: 'campus_reviews' }, { agent: treatment.agent });
+    assert.equal(result.loaded_groups.includes('campus_reviews'), true);
+    assert(names(treatment.agent).filter(name => name.startsWith('campus_reviews_')).length === 4);
+    assert(names(control.agent).includes('campus_reviews_generate'), 'treatment cannot alter the independent control runtime');
+  } finally {
+    await treatment.scope.dispose(); await control.scope.dispose();
   }
 });

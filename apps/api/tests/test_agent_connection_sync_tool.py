@@ -59,7 +59,7 @@ def test_a_connected_platform_is_synced_instead_of_answering_from_an_empty_cache
     jobs = enqueued(db)
     assert len(jobs) == 1
     # The job is the same reviewed read-only sync the UI enqueues, scoped to bound courses.
-    assert jobs[0].payload == {"connection_id": XZZD, "course_ids": [COURSE], "full": False}
+    assert jobs[0].payload == {"connection_id": XZZD, "course_ids": [COURSE], "full": False, "kinds": None}
     assert any("jobs.read" in warning for warning in result["warnings"])
 
 
@@ -68,6 +68,17 @@ def test_a_second_call_while_one_is_active_reuses_the_job(db):
     second = tools.execute("connections.sync", {"platform": "xzzd"}, db, ctx(request_key="turn:call2"))
     assert second["job_id"] == first["job_id"]
     assert second["data"]["jobs"][0]["reused"] is True
+    assert len(enqueued(db)) == 1
+
+
+def test_assignment_only_sync_records_a_narrow_scope_and_does_not_reuse_full_sync(db):
+    first = tools.execute("connections.sync", {"platform": "xzzd", "kinds": ["assignments"]}, db, ctx())
+    job = enqueued(db)[0]
+    assert job.payload["kinds"] == ["assignments"]
+    assert first["data"]["jobs"][0]["status"] == "queued"
+    with pytest.raises(ApiError) as error:
+        tools.execute("connections.sync", {"platform": "xzzd"}, db, ctx(request_key="turn:full"))
+    assert error.value.code == "SYNC_SCOPE_CONFLICT"
     assert len(enqueued(db)) == 1
 
 
@@ -239,4 +250,4 @@ def test_the_platform_sync_tool_is_registered_with_a_bound_write_effect():
     assert spec["model_name"] == "campus_connections_sync"
     assert spec["effects"] == "write"  # it changes local data and calls the school's read APIs
     assert spec["input_schema"]["additionalProperties"] is False
-    assert set(spec["input_schema"]["properties"]) == {"platform", "connection_id", "wait_seconds"}
+    assert set(spec["input_schema"]["properties"]) == {"platform", "connection_id", "kinds", "wait_seconds"}

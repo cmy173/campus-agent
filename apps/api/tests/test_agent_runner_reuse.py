@@ -14,6 +14,7 @@ import time
 import pytest
 
 from app.agent_bridge import runtime as runtime_module
+from app.agent_bridge.response_grounding import assignment_deadline_summary, assignment_top_n_summary
 from app.agent_bridge.store import Store
 
 
@@ -66,7 +67,9 @@ class FakeStore:
         self.grants.pop(cid, None)
 
     def events(self, tid, after=0):
-        return {'items': []}
+        items = [{'seq': seq, 'kind': kind, 'data': data} for seq, (event_tid, kind, data)
+                 in enumerate(self.recorded, 1) if event_tid == tid and seq > after]
+        return {'items': items, 'next_cursor': items[-1]['seq'] if items else after}
 
 
 class FakeProcess:
@@ -130,6 +133,26 @@ def test_changed_profile_replaces_the_process(runtime):
     assert spawned is True and second['proc'] is not first['proc']
     assert len(runtime.spawned) == 2
     assert runtime.store.bound == [], 'a fresh process keeps its own token; nothing is rebound'
+
+
+def test_benchmark_tool_exposure_profile_is_allowlisted_and_part_of_runner_signature(runtime, monkeypatch):
+    configuration = {'provider': 'p', 'model': 'm', 'key': None, 'provider_id': 'provider_a'}
+    runtime_settings = {'search': {'key': None}, 'skill_dirs': [], 'mcp_servers': []}
+    monkeypatch.setenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', '1')
+    monkeypatch.setattr(runtime.store, 'conversation', lambda _cid: {'settings': {
+        'benchmark_tool_groups': ['campus_reviews', 'not-allowlisted']}})
+    env = runtime._runner_env('conv_reuse', 'token', configuration, runtime_settings)
+    assert env['CAMPUS_BENCH_DEFER_TOOL_GROUPS'] == 'campus_reviews'
+    groups = runtime._benchmark_tool_groups({'benchmark_tool_groups': ['campus_reviews', 'not-allowlisted']})
+    treatment = runtime._runner_signature(configuration, runtime_settings, runtime.home,
+                                          benchmark_tool_groups=groups)
+
+    control_groups = runtime._benchmark_tool_groups({'benchmark_tool_groups': []})
+    control = runtime._runner_signature(configuration, runtime_settings, runtime.home,
+                                        benchmark_tool_groups=control_groups)
+    assert treatment != control, 'runner reuse must not cross benchmark tool-exposure conditions'
+    monkeypatch.setenv('CAMPUS_BENCH_ALLOW_TOOL_GROUPS', '0')
+    assert runtime._benchmark_tool_groups({'benchmark_tool_groups': ['campus_reviews']}) == ()
 
 
 def test_dead_process_is_replaced(runtime):
@@ -220,10 +243,11 @@ def test_prewarm_failure_discards_the_process(runtime, monkeypatch):
     assert 'conv_broken' not in runtime.store.grants
 
 
-def fail_turn(instance, monkeypatch, stdout, tid='turn_fail', recorded=None):
+def fail_turn(instance, monkeypatch, stdout, tid='turn_fail', recorded=None, initial_events=(), user_text='你好'):
     """Drive one turn through `_run_owned` with a runner that emitted `stdout` and then ended."""
-    turn = {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running', 'text': '你好', 'attachment_ids': []}
+    turn = {'id': tid, 'conversation_id': 'conv_reuse', 'status': 'running', 'text': user_text, 'attachment_ids': []}
     instance.store.turns[tid] = turn
+    instance.store.recorded.extend((tid, kind, data) for kind, data in initial_events)
     if recorded is not None:
         instance.store.failures[tid] = recorded
     monkeypatch.setattr(instance, '_runtime_inputs',
@@ -269,3 +293,150 @@ def test_a_turn_that_ends_without_an_answer_reports_the_recorded_cause(runtime, 
 def test_a_turn_without_any_recorded_cause_stays_generic(runtime, monkeypatch):
     _, status, _, error = fail_turn(runtime, monkeypatch, '')
     assert status == 'failed' and error['code'] == 'RUNTIME_FAILED'
+
+
+def test_per_course_deadline_tool_result_is_rendered_from_trusted_rows(runtime, monkeypatch):
+    result = {"status": "partial", "data": {"items": [{
+        "id": "private_assignment", "course_title": "PRIVATE COURSE", "assignment_title": "PRIVATE TASK",
+        "due_at": "2026-11-02T16:00:00Z", "due_at_local": "2026-11-03T00:00:00+08:00",
+        "submission_status": "unknown", "source_ref": {"platform": "xzzd"},
+    }]}}
+    initial_events = [("tool_result", {"name": "assignments.next_by_course", "result": result})]
+    frame = {"kind": "result", "turn": 1, "data": {"conversation_id": "conv_reuse",
+        "response": "作业截止日期可能是 2026-11-04。"}}
+    finished = fail_turn(runtime, monkeypatch, json.dumps(frame) + "\n", initial_events=initial_events)
+    response = finished[2]
+    assert "PRIVATE COURSE" in response and "PRIVATE TASK" in response
+    assert "2026-11-03T00:00:00+08:00" in response
+    assert "2026-11-04" not in response
+    assert "本机缓存" in response and "不能证明学校平台全量" in response
+    assert any(kind == "response_grounding" and data["rendered_from_tool_data"]
+               for _, kind, data in runtime.store.recorded)
+    saved_result = next(data for _, kind, data in runtime.store.recorded if kind == "result")
+    assert saved_result["response"] == response
+
+
+def _assignment_list_events(items, *, order_by='due_soon', limit=2, extra_tool=None):
+    events = [
+        {'kind': 'harness_event', 'data': {'event': {'type': 'tool/call', 'data': {
+            'name': 'campus_assignments_list', 'callId': 'assignments-call',
+            'arguments': {'order_by': order_by, 'limit': limit}}}}},
+        {'kind': 'tool_result', 'data': {'name': 'assignments.list', 'call_id': 'assignments-call',
+            'arguments': {'order_by': order_by, 'limit': limit},
+            'result': {'status': 'partial', 'data': {'items': items, 'next_cursor': 'opaque'}}}},
+    ]
+    if extra_tool:
+        events.append({'kind': 'tool_started', 'data': {'name': extra_tool}})
+    return events
+
+
+def test_assignment_top_n_renderer_uses_cached_rows_and_china_timezone_without_persisting_private_metadata():
+    events = _assignment_list_events([
+        {'id': 'private-a', 'course_id': 'private-course', 'course_title': 'PRIVATE COURSE',
+         'course_term': '2026秋', 'title': 'PRIVATE ASSIGNMENT',
+         'due_at': '2026-11-02T16:00:00Z', 'submission_status': 'not_submitted'},
+        {'id': 'private-b', 'course_id': 'private-course', 'course_title': 'PRIVATE COURSE',
+         'course_term': '2026秋', 'title': '第二项', 'due_at': None,
+         'submission_status': 'unknown'},
+    ])
+    grounded = assignment_top_n_summary(events, '请列出截止时间最近的2项作业')
+    assert grounded is not None
+    answer, meta = grounded
+    assert '2026-11-03T00:00:00+08:00' in answer
+    assert answer.index('2026-11-03') < answer.index('截止时间未知')
+    assert 'PRIVATE COURSE' in answer and 'PRIVATE ASSIGNMENT' in answer
+    assert '本机缓存' in answer and '不能证明学校平台全量' in answer
+    assert meta['rows'] == 2 and meta['unsupported_dates'] == 0
+    assert 'private-course' not in json.dumps(meta) and '2026-11-03' not in json.dumps(meta)
+    assert 'PRIVATE ASSIGNMENT' not in json.dumps(meta)
+
+
+def test_assignment_top_n_renderer_deduplicates_overlapping_tool_pages_by_private_id():
+    items = [
+        {'id': 'private-a', 'course_id': 'private-course', 'course_title': 'Course',
+         'title': 'Task A', 'due_at': '2026-11-02T16:00:00Z'},
+        {'id': 'private-b', 'course_id': 'private-course', 'course_title': 'Course',
+         'title': 'Task B', 'due_at': '2026-11-03T16:00:00Z'},
+    ]
+    first = _assignment_list_events(items, limit=3)
+    second = _assignment_list_events(items, limit=3)
+    grounded = assignment_top_n_summary(first + second, '最近的3项作业')
+    assert grounded is not None
+    answer, meta = grounded
+    assert answer.count('Task A') == 1 and answer.count('Task B') == 1
+    assert meta['rows'] == 2 and meta['duplicate_rows_collapsed'] == 2
+    assert 'private-a' not in json.dumps(meta) and 'private-b' not in json.dumps(meta)
+
+
+def test_assignment_top_n_renderer_requires_exact_query_and_trusted_course_labels():
+    rows = [{'id': 'a', 'course_id': 'c', 'course_title': 'Course', 'title': 'Task',
+             'due_at': '2026-11-02T16:00:00Z'}]
+    assert assignment_top_n_summary(_assignment_list_events(rows, order_by='id'), '最近的2项作业') is None
+    assert assignment_top_n_summary(_assignment_list_events(rows, extra_tool='campus_sync'), '最近的2项作业') is None
+    missing_label = [{k: v for k, v in rows[0].items() if k != 'course_title'}]
+    assert assignment_top_n_summary(_assignment_list_events(missing_label), '最近的2项作业') is None
+    assert assignment_top_n_summary(_assignment_list_events(rows), '每门课程的下一项截止作业') is None
+
+
+def test_assignment_top_n_answer_is_rendered_after_agent_rewrites_a_supported_date(runtime, monkeypatch):
+    result = {'status': 'partial', 'data': {'items': [{
+        'id': 'private-assignment', 'course_id': 'private-course', 'course_title': 'PRIVATE COURSE',
+        'course_term': '2026秋', 'title': 'PRIVATE ASSIGNMENT', 'due_at': '2026-11-02T16:00:00Z',
+        'submission_status': 'not_submitted'}], 'next_cursor': None}}
+    events = [('tool_result', {'name': 'assignments.list', 'call_id': 'c1',
+        'arguments': {'order_by': 'due_soon', 'limit': 1}, 'result': result})]
+    frame = {'kind': 'result', 'turn': 1, 'data': {'conversation_id': 'conv_reuse',
+        'response': '作业的截止日期可能是 2026-11-04。'}}
+    response = fail_turn(runtime, monkeypatch, json.dumps(frame) + '\n', initial_events=events,
+        user_text='请列出截止时间最近的1项作业。')[2]
+    assert 'PRIVATE COURSE' in response and 'PRIVATE ASSIGNMENT' in response
+    assert '2026-11-03T00:00:00+08:00' in response and '2026-11-04' not in response
+    assert '本机缓存' in response and '不能证明学校平台全量' in response
+    assert any(kind == 'response_grounding' and data['source'] == 'assignments.list'
+               for _, kind, data in runtime.store.recorded)
+
+
+def _deadline_page(call_id, cursor, next_cursor, course, due):
+    return [
+        {'kind': 'harness_event', 'data': {'event': {'type': 'tool/call', 'data': {
+            'name': 'campus_assignments_next_by_course', 'callId': call_id,
+            'arguments': {'limit': 1, **({'cursor': cursor} if cursor else {})}}}}},
+        {'kind': 'tool_result', 'data': {'name': 'assignments.next_by_course', 'call_id': call_id,
+            'result': {'status': 'ok', 'data': {'items': [{
+                'course_title': course, 'assignment_title': 'Task', 'due_at_local': due}],
+                'next_cursor': next_cursor}}}},
+    ]
+
+
+def test_deadline_renderer_marks_only_unconsumed_pagination_cursors_incomplete():
+    first_page = _deadline_page('page-1', None, 'opaque-cursor', 'Course A', '2026-11-03T00:00:00+08:00')
+    second_page = _deadline_page('page-2', 'opaque-cursor', None, 'Course B', '2026-11-04T00:00:00+08:00')
+    complete = assignment_deadline_summary(first_page + second_page)
+    assert complete is not None
+    assert '结果仍有未读取的后续课程页' not in complete[0]
+    assert 'Course A' in complete[0] and 'Course B' in complete[0]
+
+    incomplete = assignment_deadline_summary(first_page)
+    assert incomplete is not None
+    assert '结果仍有未读取的后续课程页' in incomplete[0]
+
+
+def test_deadline_renderer_explains_courses_without_known_due_dates():
+    result = {'status': 'partial', 'coverage': {'complete': False}, 'data': {'items': [
+        {'course_id': 'a', 'course_title': 'Course A', 'course_status': 'next_due',
+         'assignment_title': 'Task A', 'due_at_local': '2026-11-03T00:00:00+08:00',
+         'cached_assignment_count': 2, 'unknown_deadline_count': 1},
+        {'course_id': 'b', 'course_title': 'Course B', 'course_status': 'unknown_deadline_only',
+         'assignment_title': None, 'due_at_local': None,
+         'cached_assignment_count': 1, 'unknown_deadline_count': 1},
+        {'course_id': 'c', 'course_title': 'Course C', 'course_status': 'no_cached_assignments',
+         'assignment_title': None, 'due_at_local': None,
+         'cached_assignment_count': 0, 'unknown_deadline_count': 0},
+    ], 'next_cursor': None}}
+    rendered = assignment_deadline_summary([{'kind': 'tool_result', 'data': {
+        'name': 'assignments.next_by_course', 'call_id': 'statuses-1', 'result': result}}])
+    assert rendered is not None
+    assert 'Course A' in rendered[0] and '2026-11-03T00:00:00+08:00' in rendered[0]
+    assert 'Course B' in rendered[0] and '截止时间未知' in rendered[0]
+    assert 'Course C' in rendered[0] and '本机缓存没有作业记录' in rendered[0]
+    assert rendered[1]['courses'] == 3 and rendered[1]['rows'] == 1
