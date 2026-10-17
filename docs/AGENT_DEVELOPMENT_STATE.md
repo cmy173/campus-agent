@@ -510,8 +510,28 @@
 - 交付物：`artifacts.export` 生成 **PDF 272,199 字节（`%PDF-` 魔数校验通过）+ Markdown 14,593 字节**，
   另创建 4 条本地复习提醒（10-22 set4 收尾、10-25、11-01、11-12 期中冲刺）。
 - 证据：`var/takeover-tasks/l4-fresh-sync/`（transcript + 两个交付文件）。
-- 意义：证明「连接器 → 真实同步 → 真实资料 → 长任务规划 → 可验证产物」整条链路在真实数据上闭环，
+- 意义：证明「连接器 → 真实同步 → 真实资料 → 长任务规划 → 可验证产物」整条数据链在真实数据上闭环，
   且答案对缺失资料如实标注，没有用默认/旧缓存冒充。
+
+### 4.24 附件格式覆盖：先查清 228 个 pending 到底是什么，再补 XLSX（本轮）
+
+- **先证伪再动手**：228 个 pending 曾被推测为「缺 .doc/.xls 解析器」。实际按平台真实返回分类（101 个 <64MB 的全量探测）：
+  | 类别 | 数量 | 结论 |
+  |---|---|---|
+  | `preview_only`（平台只允许预览） | 50 | 合法不可下载，**不该支持** |
+  | 可下载但被扩展名白名单拒 | 51 | `.ppt` 30、`.zip` 15、`.mp4` 2、`.xlsx` 2、`.rar` 1、`.doc` 1 |
+  另外 127 个 pending 是 >64MB 的**视频**（如「while循环」「Vincent and the Doctor」），与解析器无关。
+- **字节级核对**：`.ppt`/`.doc` 是 OLE2 复合文档（`d0cf11e0a1b11ae1`），需二进制解析依赖；`.xlsx` 是 OOXML（`504b0304`），
+  与现有 DOCX 同构、纯标准库可解；实测一个 `.zip` 的魔数是 `e4525c7b…`（**不是 ZIP**），此前判 `CORRUPT_FILE` 是**正确的**，不应放行。
+- **修复**：新增 `packages/learning/src/learning/parse/xlsx.py`（zipfile + ElementTree，每行一个 chunk，locator 记 sheet/row，
+  公式只取缓存值，空表 → `needs_ocr` 而非伪造内容），并接入 `detect_format`、`_PARSERS`、`units_label` 与
+  `apps/api/app/storage.py::EXTENSION_MIME`（白名单 → `pdf/pptx/docx/xlsx/zip`）。
+- **真实端到端验证**：真实文件 `excel练习.xlsx`（1,700,419 字节）单独解析 → **ready，1005 chunks**（含真实课件文本）；
+  重启 worker 重跑同步 `job_02cddc58` → **succeeded，errors=0**；两个 xlsx 资源 `pending → ready`（各有真实 `file_id`、各 1005 chunks）。
+  计数变化：pending **228 → 226**、ready **36 → 38**、`UNSUPPORTED_MEDIA_TYPE` **36 → 34**（正好少了 2 个 xlsx）。
+- **明确未做（能力边界）**：`.ppt`(30)/`.doc`(1) 需新增 OLE2 解析依赖，`.rar`/`.mp4` 不属于文档解析范围，`preview_only` 属平台授权限制——
+  这些继续保持「元数据保留 + 明确警告」，不假装已读取。
+- 测试：新增 5 条解析用例；学习解析 43 passed、API 文件/工具 75 passed；提交 `a011da2`。
 
 ---
 
@@ -533,8 +553,10 @@
 1. **zykt（智云课堂）会话已恢复**：用户登录后连接器与应用侧均 `ok`，实时读到 8 门课程；若再次失效会明确报 `auth_required` 并给出登录入口。
    xzzd 已 `ok`，实时读到 33 门课程（分页读完）。
 2. **xzzd 同步的附件级失败已修复**：输入决定型问题（格式不支持/内容与扩展名不符/超过 64MB 护栏）不再让同步失败，
-   现以 `job.warnings` 呈现；真实复测 `job_c42f6e5e` → succeeded / errors=0 / warnings=3。
-   仍未覆盖：`.doc`/`.xls` 等旧格式与超限文件的**内容解析**（当前只保留元数据），如需要应作为独立能力扩展。
+   现以 `job.warnings` 呈现；真实复测 `job_c42f6e5e` / `job_02cddc58` → succeeded / errors=0。
+   **XLSX 已支持**（见 4.24，2 个真实 `.xlsx` 已解析为 ready，各 1005 chunks）。
+   仍未覆盖（均为已知边界，非缺陷）：`.ppt` 30 个 / `.doc` 1 个需 OLE2 解析依赖；`.rar`/`.mp4` 不属文档解析；
+   50 个 `preview_only` 属平台授权限制；127 个 >64MB 视频不参与解析。
 3. 真实 benchmark 必须用当前源码服务；用户旧服务已不在 8000 监听，本轮验证使用 `tools/run_takeover_api.py`（8030）并另起 `app.worker`。
 4. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
