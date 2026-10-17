@@ -2,9 +2,9 @@
 
 - 更新时间：2026-10-17（Asia/Shanghai）
 - 接管者：DeepSeek Harness 接管会话（下称 Lead）；上一任开发 Agent：Codex
-- 分支 / HEAD：从 `codex/personal-assistant-v2` @ `650a934` 派生独立分支 `takeover/real-task-20261017`；
-  该分支的第一个提交是**接管快照**：既包含 Codex 留下的未提交改动（原样保留、未丢弃），也包含本轮 Lead 的修复与文档。
-  需要回到接管前状态时：`git checkout codex/personal-assistant-v2`（原分支指针未动）。
+- 分支 / HEAD：从 `codex/personal-assistant-v2` @ `650a934` 派生独立分支 `takeover/real-task-20261017`
+  @ `343bb4a`；该提交是**接管快照**：既包含 Codex 留下的未提交改动（原样保留、未丢弃），也包含本轮 Lead 的修复与文档。
+  需要回到接管前状态时：`git checkout codex/personal-assistant-v2`（原分支指针未动，远端未推送）。
 - 本文件的用途：任何后续开发 Agent 先读这里，再读 `docs/campus-agent-benchmark.md`、`docs/audit/pr-validation.md`，即可从上次进度继续，不重复审计。
 
 > 纪律：不覆盖用户未提交改动；重大改动走可回滚提交；不伪造工具结果、不用 Mock 冒充真实端到端成功；不推送远端。
