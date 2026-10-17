@@ -464,6 +464,24 @@
   | API：agent tools / campus boundary / agent gateway / runner reuse / connection sync / browser bridge / credentials / auth resume | **193 passed**（87.9 s） |
   | Benchmark 单测（tool map + runner） | **101 passed**（3.1 s） |
 
+### 4.22 启动 xzzd / zykt 平台连接器（用户指示自主启动）
+
+- 启动命令（与 `tools/dev.py` 一致）：`python -m connectors.browser.session_runner serve --platform <xzzd|zykt> --port <8765|8766> --b-api http://127.0.0.1:8030`
+- **必须用项目解释器** `apps/api/.venv/Scripts/python.exe`：系统 Python 缺 `playwright`，用 `python` 启动会立刻 `ModuleNotFoundError` 退出。
+  系统 Python 也缺 `learning`，启动 worker 同理要用 `apps/api/.venv/Scripts/python.exe -m app.worker`（需与 API 相同的 `STUDY_*`/`CAMPUS_*` 环境）。
+- 端口 8765/8766 启动前均为空闲，无需释放；两服务 `/health` 均返回 `ok=true, session_available=true`（xzzd cookie 27 条，zykt 10 条）。
+- 状态（连接器 `/check` 与应用 `POST /api/v1/connections/<id>/check` 一致）：
+  | 平台 | 状态 | 说明 |
+  |---|---|---|
+  | xzzd 学在浙大 | **ok** | 应用已通过连接器实时读到 18 门真实课程（`observed_at 2026-10-17T06:08Z`），并受理了真实同步 job |
+  | zykt 智云课堂 | **auth_required** | 持久会话已失效（上游返回 200 + `success:false` + `Unauthorized/401`）；受控窗口已打开在登录页，需用户登录一次 |
+- 修复（`connectors/adapters/zykt.py`）：原来把 `200 + success=false` 一律归为 `UPSTREAM_CHANGED`，连接器再降级为 `network_error`，应用无法提示登录；
+  现在只把**带 401/403/Unauthorized 语义**的失败归为 `AUTH_EXPIRED`（给出登录入口），其他失败仍按 upstream_changed。
+  测试 `connectors/tests/test_zykt.py` → **30 passed**（新增两条分类用例）；提交 `2fdd7ec`。
+- **未解决/需如实记录**：xzzd 真实同步 job `job_e9f5dece` 在 attachments 阶段**停滞**（progress 0.606、37 个错误，20 秒内无变化仍 running）。
+  错误分布：22 个 `UNSUPPORTED_MEDIA_TYPE`（元数据保留）、15 个 `CORRUPT_FILE`（附件内容与格式不符）。
+  这是真实平台附件处理路径的问题，不是连接器未启动；本轮**未**把它修复，也未把它当作同步成功。
+
 ---
 
 ## 5. 下一轮任务与阻碍
@@ -481,10 +499,12 @@
 | L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
 
 **阻碍（需要用户/环境解锁，不能伪造）**
-1. **学在浙大/智云课堂连接器**：本地连接器服务（8765/8766）未启动，作业/课件的实时同步仍不可用；需要在启动器里显式启动对应平台。
-   教务（zdbk）课表与已实现能力可经自动重登真实读取（见 4.18）。
-2. 真实 benchmark 必须用当前源码服务；用户旧服务已不在 8000 监听，本轮验证统一使用 `tools/run_takeover_api.py` 启动的当前源码 API（最后一次为 8030）。
-3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
+1. **zykt（智云课堂）需要用户登录一次**：连接器窗口已打开在 `https://classroom.zju.edu.cn/`，持久会话已失效（`auth_required`）；
+   登录后需重跑 `POST /api/v1/connections/conn_zykt/check` 复核。xzzd 已 `ok`，可真实读取课程（见 4.22）。
+2. **xzzd 真实同步在 attachments 阶段停滞**：`job_e9f5dece` progress 0.606、37 个错误（22 UNSUPPORTED_MEDIA_TYPE + 15 CORRUPT_FILE）后不再推进。
+   本轮未修复；需排查附件下载/解析路径的超时与收敛（真实任务失败发生在「资料导入」阶段，不是连接器或 Harness 层）。
+3. 真实 benchmark 必须用当前源码服务；用户旧服务已不在 8000 监听，本轮验证使用 `tools/run_takeover_api.py`（8030）并另起 `app.worker`。
+4. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）—— 本阶段目标已完成，以下为后续增强项**
 1. **跨重启的登录与限流保护**：同一 API 进程内已可复用课表会话（4.20 第 2 轮 6.7 s / 1 工具，无重复登录）；但 API/runner 重启后的首次 `campus.sync(courses)`
