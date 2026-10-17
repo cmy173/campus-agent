@@ -913,18 +913,22 @@ def execute(name: str, arguments: dict, db: Session, ctx: ToolContext, *,
                     "note": "凭据已保存、自动重登开关、浏览器复用授权和当前连接是不同状态；此本机状态快照不能验证学校是否接受凭据或证明登录失败原因。读取此工具不会尝试登录或访问校园网络。",
                 }
             elif name in {"campus.query", "campus.sync"}:
-                data = workspace.query(args["capability"], args["query"], args["platform"],
-                                       refresh=name == "campus.sync", allow_recovery=allow_auth_recovery)
                 capability = args["capability"]
-                error_code = (data.get("error") or {}).get("code")
-                if capability == "courses" and (error_code in {"UNSUPPORTED", None} and not data.get("records")):
+                if capability == "courses":
                     # The connector adapters never implemented `courses`; the real ZDBK
-                    # timetable lives in the campus manager's snapshot. A sync may use its
-                    # bounded stored-credential session; a query stays cache-only.
-                    legacy = (workspace.sync_timetable(allow_recovery=allow_auth_recovery)
-                              if name == "campus.sync" else workspace.timetable_records())
-                    if legacy.get("records") or name == "campus.sync":
-                        data = legacy
+                    # timetable lives in the campus manager's snapshot (workbench-era code
+                    # the Agent path never migrated). Prefer it directly instead of going
+                    # through the connector first: that path would trigger one redundant
+                    # automatic login and clear the snapshot it just wiped.
+                    data = (workspace.sync_timetable(allow_recovery=allow_auth_recovery)
+                            if name == "campus.sync" else workspace.timetable_records())
+                    if not data.get("records"):
+                        # Keep the legacy connector cache as a last-resort read.
+                        data = workspace.query(capability, args["query"], args["platform"],
+                                               refresh=False, allow_recovery=allow_auth_recovery)
+                else:
+                    data = workspace.query(capability, args["query"], args["platform"],
+                                           refresh=name == "campus.sync", allow_recovery=allow_auth_recovery)
                 data.setdefault("capability", capability)
                 return _campus_query_envelope(data)
             elif name == "campus.academics":

@@ -576,3 +576,43 @@ def test_campus_query_complete_cache_without_error_is_ok():
     assert envelope["status"] == "ok"
     assert envelope["coverage"]["complete"] is True
     assert envelope["freshness"]["stale"] is False
+
+
+def _fake_timetable_workspace(calls):
+    class Fake:
+        def timetable_records(self):
+            calls.append("timetable_records")
+            return {"records": [{"name": "常微分方程", "weekday": "1"}], "completeness": "partial",
+                    "freshness": "fresh", "fetched_at": "2026-10-17T13:46:43+08:00",
+                    "platform": "zdbk", "source": "zdbk-timetable", "warnings": [],
+                    "next_cursor": None, "error": None}
+
+        def sync_timetable(self, *, allow_recovery=True):
+            calls.append(("sync_timetable", allow_recovery))
+            return self.timetable_records()
+
+        def query(self, *args, **kwargs):
+            calls.append("connector_query")
+            raise AssertionError("connector path must not run when the timetable snapshot has records")
+
+        def status(self):
+            return {"connected": True}
+    return Fake()
+
+
+def test_campus_courses_tools_prefer_the_migrated_timetable_snapshot(db, monkeypatch):
+    import app.campus_workspace as campus_workspace
+    from app.agent_bridge import tools as tools_module
+
+    calls: list = []
+    monkeypatch.setattr(campus_workspace, "get_campus_workspace", lambda: _fake_timetable_workspace(calls))
+    ctx = ToolContext("local", "conv_snapshot", frozenset(), allow_uncoursed_tasks=True, request_key="turn:call")
+    result = execute("campus.query", {"capability": "courses", "query": {}}, db, ctx)
+    assert result["status"] == "partial"
+    assert result["data"]["records"][0]["name"] == "常微分方程"
+    assert calls == ["timetable_records"]
+
+    calls.clear()
+    synced = execute("campus.sync", {"capability": "courses", "query": {}}, db, ctx)
+    assert synced["data"]["records"][0]["name"] == "常微分方程"
+    assert calls == [("sync_timetable", True), "timetable_records"]
