@@ -478,10 +478,22 @@
 - 修复（`connectors/adapters/zykt.py`）：原来把 `200 + success=false` 一律归为 `UPSTREAM_CHANGED`，连接器再降级为 `network_error`，应用无法提示登录；
   现在只把**带 401/403/Unauthorized 语义**的失败归为 `AUTH_EXPIRED`（给出登录入口），其他失败仍按 upstream_changed。
   测试 `connectors/tests/test_zykt.py` → **30 passed**（新增两条分类用例）；提交 `2fdd7ec`。
-- **未解决/需如实记录**：xzzd 真实同步 job `job_e9f5dece` 在 attachments 阶段**停滞**（progress 0.606、37 个错误，20 秒内无变化仍 running）。
-  错误分布：22 个 `UNSUPPORTED_MEDIA_TYPE`（元数据保留）、15 个 `CORRUPT_FILE`（附件内容与格式不符）。
-  这是真实平台附件处理路径的问题，不是连接器未启动；本轮**未**把它修复，也未把它当作同步成功。
-  （后续观察：错误数继续增长到 44，progress 仍 0.606，说明仍在逐个处理附件而非死锁，但未收敛。）
+- **更正上一轮的误判**：xzzd 同步 job `job_e9f5dece` 并非停滞，它最终以 `partial_failed / phase=done / progress=1.0` 正常收尾（06:30:40Z），
+  52 个错误全部是附件级问题。上一轮基于 20 秒采样窗口写下的“停滞/不收敛”结论**是错的**，此处更正。
+- **真实缺陷与修复（本轮）**：附件级「输入决定型」失败被计入 job errors，导致整次同步显示 `partial_failed`：
+  | 代码 | 数量 | 含义 |
+  |---|---|---|
+  | `UNSUPPORTED_MEDIA_TYPE` | 36 | 扩展名不在 `.pdf/.pptx/.docx/.zip` 白名单 |
+  | `CORRUPT_FILE` | 15 | 字节不以 `%PDF-`/`PK\x03\x04` 开头（真实课件里存在 .doc/.xls 等） |
+  | `PERMISSION_DENIED`（实为 PD-1 尺寸护栏） | 1 | 759 MB 文件 > 64 MiB 上限 |
+  这些重试也无法改变、且元数据已保留，因此**不应让整次同步失败**。
+  修复（`apps/api/app/worker.py`）：把这三类归为 skip，累计到 job payload 并在收尾时写入契约形状的 `job.warnings`；
+  PD-1 尺寸上限用**资源自身 size 与连接器同一常量 `MAX_DOWNLOAD_BYTES`** 判定（不依赖 denial 文案），
+  因此「小文件被真正拒绝权限」仍如实报错。
+  期间发现契约 `fetch-outcome.schema.json` 的 `denial.reason` 是枚举（`preview_only/permission_denied/copyright_restricted`），
+  不能新增 `too_large`，故最终在 worker 侧按尺寸分类，未改动契约。
+  **真实验证**：`job_c42f6e5e` → **succeeded，errors=0，warnings=3**（36 unsupported / 15 mismatched / 1 oversized）。
+  测试：适配器+同步+worker 相关套件 **180 passed**；提交 `5c140c6`。
 - **补充：zykt 会话已恢复**（用户登录后）：连接器与应用侧均为 `ok`，应用实时读到 **8 门真实课程**（`errors=0`）；
   Agent 真实任务验证：输入“查询两个平台的课程列表并说明是否实时”，**succeeded / 79.7 s / 6 次 `connections.courses`**，
   回答给出 xzzd 33 门（分页读完）、zykt 8 门，并说明“平台实时读取、非本机缓存”（证据 `var/takeover-tasks/connectors-check/`）。
@@ -505,8 +517,9 @@
 **阻碍（需要用户/环境解锁，不能伪造）**
 1. **zykt（智云课堂）会话已恢复**：用户登录后连接器与应用侧均 `ok`，实时读到 8 门课程；若再次失效会明确报 `auth_required` 并给出登录入口。
    xzzd 已 `ok`，实时读到 33 门课程（分页读完）。
-2. **xzzd 真实同步在 attachments 阶段不收敛**：`job_e9f5dece` progress 0.606、错误 44 个（29 UNSUPPORTED_MEDIA_TYPE + 15 CORRUPT_FILE）后仍 running。
-   本轮未修复；需排查附件下载/解析路径的超时与收敛（失败发生在「资料导入」阶段，不是连接器或 Harness 层）。
+2. **xzzd 同步的附件级失败已修复**：输入决定型问题（格式不支持/内容与扩展名不符/超过 64MB 护栏）不再让同步失败，
+   现以 `job.warnings` 呈现；真实复测 `job_c42f6e5e` → succeeded / errors=0 / warnings=3。
+   仍未覆盖：`.doc`/`.xls` 等旧格式与超限文件的**内容解析**（当前只保留元数据），如需要应作为独立能力扩展。
 3. 真实 benchmark 必须用当前源码服务；用户旧服务已不在 8000 监听，本轮验证使用 `tools/run_takeover_api.py`（8030）并另起 `app.worker`。
 4. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
