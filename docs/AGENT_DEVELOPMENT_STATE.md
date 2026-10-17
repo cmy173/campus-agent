@@ -227,6 +227,9 @@
 | Runtime 边界单测（`npm run test:audit`，apps/agent-runtime） | **93 passed**（原 87 + 新增 6 条 fetch 白名单策略测试，2.7 s） |
 | 校园 fetch transport 真实网络审计（`audit-campus-web-fetch.mjs`，无模型） | **5/5 检查通过**；ZJU 公开站点可读、公网可用、私网/回环仍拒绝（`docs/audit/campus-web-fetch.json`） |
 | 真实 L1 复测（fetch 白名单后，API 8021） | succeeded，**65.0 s / 12 次工具调用 / 19 个引用全部可回溯**（对比修复前 80.8 s / 15 次；证据 `var/takeover-tasks/L1-20261017-130424/`） |
+| 浏览器产物专项验证（`verify-browser-outputs.mjs`，真实 Edge） | **ok=true，4/4**：截图落 workspace、绝对路径拒绝且无写入、快照不落源码树 |
+| 真实模型视觉任务（浏览器→截图→`read_image`→`publish_file`） | **succeeded，114.9 s / 25 次工具调用，`read_image` 0 报错**，422.7 KB PNG 已发布为会话文件（`var/takeover-tasks/browser-visual-20261017-131917/`） |
+| API 浏览器桥接测试（`tests/test_campus_browser_bridge.py`） | **15 passed**（5.6 s） |
 | 原生 provider 协议验证（`node apps/agent-runtime/verify-official-provider.mjs`，含新增 malformed-stream 重试用例） | **ok=true**（修复后；A/B 见 4.10） |
 | 真实 L4 长任务复测（重试策略修复后，API 8021） | succeeded，91.0 s，32 次工具调用，PDF 218,585 B + MD 8,564 B（证据 `var/takeover-tasks/L4-20261017-125742/`） |
 | 真实 BUS-04 回归（benchmark runner，当前源码 API 8021，n=1） | **部分成功**：33.8 s，6 工具 / 6 模型调用；`campus.query`/`campus.sync` + `web_search` + 2 次 `web_fetch` 均被 `WEB_BLOCKED_URL`；未回退浏览器，未达完全成功（与 Codex 历史批次同类，无退化）。批次 `TAKEOVER-BUS04-N1-20261017` |
@@ -277,11 +280,13 @@
 
 ### 4.12 本轮发现但未修的次要问题
 
-- 浏览器工具把截图默认写到 `apps/agent-runtime/`（源码目录），随后 `read_image` 被能力策略拒绝（`CAMPUS_CAPABILITY_DENIED`）；截图已移到证据目录。建议把浏览器产物默认落到会话工作区。
+- **`verify-browser.mjs` 验证脚本漂移（待刷新）**：它仍断言“模型可以 `browser_evaluate` 读写 localStorage、可以给密码框输入”，
+  但当前浏览器安全策略已禁止这两类操作（`BLOCKED_BROWSER_TOOLS` / `BROWSER_AUTH_REQUIRED`）。这是验证脚本过期，不是产品回归；
+  本轮的截图落盘验证改用新的 `verify-browser-outputs.mjs`。下一轮应刷新该脚本的断言（改为验证“被拒绝且不回显秘密”），
+  否则它不能作为回归门禁。
 - Benchmark 内置 `harness-dispatch` 离线层在受限沙箱内因 pytest 临时目录权限失败（环境限制）；本会话文件策略放宽后可正常跑。
-- L1 一次回答 80+s 的问题已随 fetch 白名单修复降到 65 s（12 次调用）；剩余成本来自 2 次 web_search 与 9 次页面抓取。
-  非白名单 ZJU 子域仍会被拒（如 `stusom.zju.edu.cn`），需要按证据逐项评审补充。
 - `schedule_create` 这类本地可逆写操作目前不需要一次用户确认（与“本地可撤销修改自动执行”一致），但应在回答中明确告知已创建哪些提醒；本轮 L4 做到了。
+- 视觉任务成本偏高（打开页面→截图→读图→失败排查共 25 次工具调用/114.9 s）；可考虑在浏览器提示中给出更省的等待/截图策略。
 
 ### 4.13 校园公开域名白名单：让 `web_fetch` 直读 ZJU 页面（本轮第三个真实瓶颈）
 
@@ -314,6 +319,27 @@
 
 **结论：Level 1 不再依赖浏览器回退即可读官方页面；这是有 before/after 真实证据的能力提升。**
 
+### 4.14 浏览器模型可见产物落盘到会话工作区（修复 `read_image` 被拒 + 源码目录污染）
+
+- 现象（L1 首轮真实轨迹）：`browser_take_screenshot` 把图片写到 `apps/agent-runtime/`（源码目录）；随后模型调用 `read_image`
+  被能力策略拒绝（`CAMPUS_CAPABILITY_DENIED`），白花一次工具调用，也无法把截图交付给用户。
+- 分层定位（工具/文件权限层）：浏览器 daemon 属于 **API 进程**（不是 runner 子进程），旧实现以 `CAMPUS_BROWSER_HOME`
+  （私有目录，能力策略禁止模型读取）+ Playwright MCP 的“workspace root = 进程 cwd”解析相对文件名，导致截图落在源码目录。
+- 修复：
+  1. `apps/api/app/agent_bridge/browser.py`：启动浏览器 daemon 时传入 `CAMPUS_BROWSER_WORKSPACE`（App 工作区）。
+  2. `apps/agent-runtime/browser-host.mjs`：上游 `outputDir` 与文件名解析根目录改为 `<workspace>/browser-outputs`；
+     转发调用时用 `_meta.cwd` 钉住该目录；绝对文件名降级为 basename（浏览器 action 策略本身也拒绝模型传入绝对路径）；
+     页面快照/内联内容读取路径同步更新（保持模型可见的页面正文不被截断）。
+- 验证：
+  | 验证 | 结果 |
+  |---|---|
+  | 专项真实 Edge 验证 `node apps/agent-runtime/verify-browser-outputs.mjs` | **ok=true，4/4**：相对名截图落在 workspace、绝对路径被策略拒绝且无写入、页面快照留在 workspace、源码目录无残留 |
+  | 真实模型端到端（浏览器打开 ZJU 英文站 → 截图 → `read_image` → `publish_file`） | **succeeded，114.9 s / 25 次工具调用**；`read_image` **0 次报错**，模型真实描述了截图内容（页面标题/导航/分页/活动区 0 高度），并把 422.7 KB PNG 发布为会话文件；证据 `var/takeover-tasks/browser-visual-20261017-131917/` |
+  | 文件落点检查 | 截图/快照只在 `var/takeover-state/realdata-5/workspace/browser-outputs/`；`apps/agent-runtime/` 无 `*.png`、无 `browser-outputs` |
+
+**结论：浏览器视觉能力现在真实可交付（截图可读、可发布），且不会再污染源码目录。**
+代价：视觉任务本身较重（25 次工具调用/114.9 s，含等待渲染与多轮截图排查），后续若频繁使用可优化提示与等待策略。
+
 ---
 
 ## 5. 下一轮任务与阻碍
@@ -333,13 +359,16 @@
 3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）**
-1. **扩大并验证白名单覆盖**：L1 复测中 `www.math.zju.edu.cn` 命中后已补入白名单，但 `stusom.zju.edu.cn` 等仍被拒；按真实任务证据逐项评审后加入，不要用通配符一次性放开。`rd.zju.edu.cn` 只支持 http，https 访问会 `WEB_PROVIDER_ERROR`，可考虑给模型更明确的方案提示（不自动降级协议）。
-2. **工具被地址策略拒绝后的回退行为**：L1 已能直读，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有换来源/回退浏览器、直接给了部分答案。下一步强化“被拒主机 → 换工具/换来源而非放弃”的恢复路径，并做真实 A/B。
-3. **浏览器产物落盘目录**改到会话工作区，修复 `read_image` 被拒（`CAMPUS_CAPABILITY_DENIED`）；`browser_take_screenshot` 默认把文件写进了 `apps/agent-runtime/`。
+1. **刷新 `verify-browser.mjs` 回归门禁**：按当前安全策略（禁止模型 `browser_evaluate`、禁止模型输入密码/OTP）改写断言，
+   否则该脚本持续失败、不能用于回归；产品行为本身是正确的。
+2. **扩大并验证白名单覆盖**：`www.math.zju.edu.cn` 已按 L1 证据补入；`stusom.zju.edu.cn` 等仍被拒，按真实任务证据逐项评审后再加，不用通配符。
+   `rd.zju.edu.cn` 只支持 http，https 会 `WEB_PROVIDER_ERROR`，可在恢复提示里说明而不自动降级协议。
+3. **工具被地址策略拒绝后的回退行为**：L1 已能直读，但 BUS-04 回归中两次 `WEB_BLOCKED_URL` 后没有换来源/回退浏览器、直接给了部分答案。
+   下一步强化“被拒主机 → 换工具/换来源而非放弃”的恢复路径，并做真实 A/B。
 4. **L2/L3 解锁后**：真实登录 → 教务课表 → “明天有哪些课/自习安排”端到端验证；届时应删除默认窗口兜底或使其只在用户同意后使用。
 5. 用 `runner.py` 对 BUS-04（公开校园活动）、MULTI-03/04、ERR 系列做真实回归；对每个修复保留 before/after 批次。
 6. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-7. 性能：真实任务耗时/工具次数（L1 65.0s/12 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls）纳入回归记录，避免退化。
+7. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 65.0s/12 calls、L4 91.0s/32 calls、BUS-04 33.8s/6 calls。
 
 ---
 
