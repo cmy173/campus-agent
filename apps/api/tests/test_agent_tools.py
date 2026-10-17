@@ -539,3 +539,40 @@ def test_untrusted_principal_denied(db):
     with pytest.raises(ApiError) as error:
         execute("courses.list", {}, db, ToolContext("another-user", "conv_a"))
     assert error.value.code == "SCOPE_DENIED"
+
+
+# --- campus.query/sync envelope: usable stale cache is partial data, not a failure ---
+from app.agent_bridge.tools import _campus_query_envelope  # noqa: E402
+
+
+def _campus_data(*, error=None, records=None, completeness="partial", freshness="stale"):
+    return {"capability": "courses", "error": error, "records": records or [],
+            "completeness": completeness, "freshness": freshness,
+            "fetched_at": "2026-10-16T18:06:48+08:00", "platform": "zdbk", "source": "courses",
+            "warnings": [], "next_cursor": None, "last_attempt_at": None}
+
+
+def test_campus_query_auth_error_with_cached_records_is_partial_not_error():
+    envelope = _campus_query_envelope(_campus_data(
+        error={"code": "AUTH_REQUIRED", "message": "需要登录"}, records=[{"id": "course_1", "name": "线性代数"}]))
+    assert envelope["status"] == "partial"
+    assert envelope["error"]["code"] == "AUTH_REQUIRED"          # recovery info kept
+    assert envelope["data"]["records"] == [{"id": "course_1", "name": "线性代数"}]
+    assert envelope["coverage"]["complete"] is False
+    assert envelope["freshness"]["stale"] is True
+    assert any("本地缓存" in warning for warning in envelope["warnings"])
+    assert envelope["evidence"][0]["source_id"] == "course_1"
+
+
+def test_campus_query_auth_error_without_records_remains_error():
+    envelope = _campus_query_envelope(_campus_data(error={"code": "AUTH_REQUIRED", "message": "需要登录"}))
+    assert envelope["status"] == "error"
+    assert envelope["data"]["records"] == []
+    assert envelope["warnings"] == []
+
+
+def test_campus_query_complete_cache_without_error_is_ok():
+    envelope = _campus_query_envelope(_campus_data(completeness="complete", freshness="fresh"))
+    assert envelope["status"] == "ok"
+    assert envelope["coverage"]["complete"] is True
+    assert envelope["freshness"]["stale"] is False

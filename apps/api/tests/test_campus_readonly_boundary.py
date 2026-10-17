@@ -1,4 +1,4 @@
-"""C01/C02: a campus cache read never becomes authentication, browser access or a school request.
+﻿"""C01/C02: a campus cache read never becomes authentication, browser access or a school request.
 
 Boundary counters are taken on the three entries this workspace owns and that the
 contract names:
@@ -345,3 +345,94 @@ def test_recovery_probe_refuses_when_the_refresh_tool_is_not_read_only(monkeypat
         Harness().probe_authenticated_read({"conversation_id": "c1", "payload": {"pending_tool": {
             "name": "campus.query", "arguments": {"capability": "courses", "query": {}, "platform": None}}}})
     assert executed == []
+
+
+def _cached_course_row():
+    return {"records": [{"id": "course_cached", "name": "线性代数", "weekday": 7, "start_period": 1}],
+            "source": "courses", "platform": "zdbk", "fetched_at": "2026-10-16T18:06:48+08:00",
+            "last_attempt_at": "2026-10-16T18:06:48+08:00", "freshness": "stale",
+            "completeness": "partial", "next_cursor": None, "warnings": [], "error": None}
+
+
+def test_sync_resolve_failure_preserves_known_cache_instead_of_erasing_it(workspace, monkeypatch):
+    """A sync that cannot resolve its platform must not replace cached records with a blank row."""
+    from connectors.campus.campus_common import CampusError
+
+    repository = workspace.manager.service.repository
+    repository.write("local", "zdbk", "courses", "{}", _cached_course_row())
+
+    def unresolved(*args, **kwargs):
+        raise CampusError("UNSUPPORTED", "平台或能力尚未支持")
+
+    monkeypatch.setattr(workspace.manager.service, "_resolve", unresolved)
+
+    result = workspace.query("courses", {}, refresh=True, allow_recovery=False)
+
+    assert result["error"]["code"] == "UNSUPPORTED"
+    assert result["records"] == _cached_course_row()["records"]      # returned for this call
+    assert result["freshness"] == "stale"
+    assert any(warning.get("code") == "CACHE_RETAINED" for warning in result["warnings"])
+    stored = repository.read("local", "zdbk", "courses", "{}")
+    assert stored["records"] == _cached_course_row()["records"]      # not erased on disk
+
+
+def test_sync_fetch_failure_under_a_different_scope_preserves_known_cache(workspace, monkeypatch):
+    """A failed fetch with a cache-scope miss must not erase the newest cached records either."""
+    from types import SimpleNamespace
+    from connectors.campus.campus_common import CampusError
+
+    repository = workspace.manager.service.repository
+    repository.write("local", "zdbk", "courses", '{"semester":"1|秋"}', _cached_course_row())
+
+    def failing_fetch(*args, **kwargs):
+        raise CampusError("UNSUPPORTED", "平台或能力尚未支持")
+
+    adapter = SimpleNamespace(spec=SimpleNamespace(platform_id="zdbk", authentication="public"),
+                              fetch=failing_fetch)
+    monkeypatch.setattr(workspace.manager.service, "_resolve",
+                        lambda *args, **kwargs: (adapter, {}, None, '{"semester":null}'))
+    monkeypatch.setattr(workspace.manager.service, "_read",
+                        lambda *args, **kwargs: workspace.manager.service._blank("courses", "zdbk"))
+
+    result = workspace.query("courses", {}, refresh=True, allow_recovery=False)
+
+    assert result["error"]["code"] == "UNSUPPORTED"
+    assert result["records"] == _cached_course_row()["records"]
+    assert result["freshness"] == "stale"
+    assert any(warning.get("code") == "CACHE_RETAINED" for warning in result["warnings"])
+    newest = repository.read_latest("local", "courses")
+    assert newest["records"] == _cached_course_row()["records"]
+
+
+def _timetable_snapshot():
+    return {"profile": None, "grades": None,
+            "courses": {"data": [{"name": "常微分方程", "weekday": "1", "start_period": "6", "weeks": "",
+                                  "year": "2026", "semester": "1|秋", "stale": False}],
+                        "fetched_at": "2026-10-17T13:44:51+08:00", "stale": False,
+                        "complete": True, "terms": [], "warnings": []}}
+
+
+def test_timetable_records_exposes_the_synced_snapshot_without_network(workspace):
+    workspace.manager.repository.write("local", _timetable_snapshot())
+    records = workspace.timetable_records()
+    assert records["records"][0]["name"] == "常微分方程"
+    assert records["fetched_at"] == "2026-10-17T13:44:51+08:00"
+    assert records["freshness"] == "fresh"
+    assert records["completeness"] == "complete"
+    assert records["platform"] == "zdbk" and records["error"] is None
+
+
+def test_sync_timetable_failure_keeps_known_snapshot_and_reports_error(workspace, monkeypatch):
+    from connectors.campus.campus_common import CampusError
+
+    workspace.manager.repository.write("local", _timetable_snapshot())
+    monkeypatch.setattr(workspace.manager, "status", lambda owner: {"connected": True})
+
+    def failing_sync(owner):
+        raise CampusError("SESSION_EXPIRED", "教务会话已失效，保留缓存")
+
+    monkeypatch.setattr(workspace.manager, "sync", failing_sync)
+    result = workspace.sync_timetable(allow_recovery=False)
+    assert result["error"]["code"] in {"AUTH_EXPIRED", "SESSION_EXPIRED"}
+    assert result["records"][0]["name"] == "常微分方程"
+    assert result["freshness"] == "stale"

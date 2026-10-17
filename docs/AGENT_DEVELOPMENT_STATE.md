@@ -1,4 +1,4 @@
-# Campus Agent 开发状态（接管记录）
+﻿# Campus Agent 开发状态（接管记录）
 
 - 更新时间：2026-10-17（Asia/Shanghai）
 - 接管者：DeepSeek Harness 接管会话（下称 Lead）；上一任开发 Agent：Codex
@@ -36,7 +36,9 @@
 ### 1.3 真实数据与授权状态
 
 - `var/personal.db`：`courses=33`、`assignments=147`、`resources=269`、`resource_versions=269`、`content_chunks=12640`、`connections=2`。这是真实校园缓存数据（非模拟），可支撑 Level 2 的“读取本地课表/作业”类问题。
-- 校园登录态 / 浏览器授权：`browser_session_authorized=false`、`conn_zykt=service_unavailable`（最后一次检查 2026-10-15）。**私有校园端到端仍未授权**，任何声称“已真实连通校园账号”的结论都不成立。
+- 校园登录态 / 浏览器授权：`browser_session_authorized=false`，但本机保存的 passport 凭证可自动重登（2026-10-17 13:44 实测 `AUTO_LOGIN_OK`），
+  随后真实 zdbk 课表同步成功（36 条，2026-10-17 13:46，见 4.18）。`conn_zykt=service_unavailable`；学在浙大/智云课堂本地连接器服务（8765/8766）未启动，
+  因此作业/课件的实时同步仍不可用。**不要把“浏览器 grant 未授权”等同于“整个校园私有数据不可用”**；也不要把自动重登当作已证明学校端所有能力可用。
 - 公开通知工具（`campus.sync(notices)` → `zdbk_public`）可匿名读取近期待办摘要，但 `completeness=partial / LIMITED_SCOPE`：只有近期置顶摘要，没有正文和历史。
 
 ### 1.4 网络（2026-10-17 实测）
@@ -392,6 +394,48 @@
 - 结果：`node apps/agent-runtime/verify-browser.mjs` → **ok=true，13 项检查全过**（真实 Edge，无模型调用）。
   至此上一轮记录的唯一“验证脚本过期”项已关闭。
 
+### 4.18 **Level 2 真实端到端打通**：课表迁移 + 自动重登 + 缓存保留（本轮核心成果）
+
+- 发现的真实断点（三层，逐层修复）：
+  1. **Agent 工具拿不到课表**：`campus.sync/query(courses)` 走连接器适配器，返回 `UNSUPPORTED`。真正的课表属于
+     workbench 时代 `CampusManager`（`connectors/campus/campus.py`）的 snapshot，Agent 工具层从未迁移——正是“业务模块依赖旧工作台”的遗留问题。
+  2. **有可用缓存却像完全失败**：会话过期但缓存可用时，`campus.query` 信封是 `status=error`（见 4.16）。
+  3. **失败的 sync 会清空缓存**：`CampusService._sync_locked` 在解析失败时写入空白行覆盖旧缓存；登录成功时 `login()` 按设计清空旧账号快照；
+     随后失败的 sync 又把“清空状态”持久化，造成数据丢失。
+- 修复：
+  1. `apps/api/app/campus_workspace.py`：新增 `timetable_records()`（只读 snapshot，无网络）与
+     `sync_timetable(allow_recovery=...)`（**仅**用已有连接或一次有界已存凭证自动重登，然后执行真实只读教务同步；不打开浏览器、不索要密码）。
+  2. `apps/api/app/agent_bridge/tools.py`：`campus.query/sync(courses)` 连接器返回 `UNSUPPORTED` 或空记录时，回退到教务课表 snapshot；
+     `campus.sync` 可触发有界同步，`campus.query` 保持纯缓存读取。
+  3. `apps/api/app/agent_bridge/tools.py::_campus_query_envelope`：错误+可用缓存 → `status=partial`（保留 data/error/警告），不再谎报完全失败。
+  4. `connectors/campus/campus_service.py`：解析失败或 scope 未命中导致取不到旧缓存时，用 `read_latest` 保留最近缓存（`CACHE_RETAINED`）；
+     `campus_repository.py` 新增 `read_latest()`。
+- **真实端到端验证（API 8029，真实学校会话）**：
+  | 指标 | 实测 |
+  |---|---|
+  | 用户输入 | `查询我明天有哪些课。` |
+  | 状态 / 耗时 | **succeeded / 33.5 s** |
+  | 工具调用 | **3 次**：`campus.academics` → `campus.sync(courses)` → `campus.academics` |
+  | 真实数据 | `campus.sync` 返回 **36 条真实 ZDBK 课表记录**，`fetched_at=2026-10-17T13:46:43+08:00`（刚同步，不是缓存猜测） |
+  | 最终回答 | **“明天（2026-10-18，周日）你没有课”**，并列出本周周一至周五的真实课程、时间、地点；如实说明校历为推算值、并指出周二两门课时间冲突需到教务核对 |
+  | 人工干预 | 0 次（自动重登复用已保存凭证；未要求用户登录/复制任何内容） |
+  | 证据 | `var/takeover-tasks/L2-20261017-134619/`、状态 `var/takeover-state/realdata-11/`（snapshot 36 条） |
+- **结论：Level 2 由“工具链真实但无数据”升级为真实完成**（真实学校课表 + 日期解析 + 来源/边界说明）。
+  注意：`campus.academics` 在该会话仍返回空 agenda（校历/term 解析未补齐），但 `campus.sync` 的记录已足够回答并按日期过滤；
+  这属于后续可优化点，不影响本轮真实结论。
+- 风险与边界（如实记录）：
+  - 自动重登使用的是本机已保存的校园凭证（应用设置中已授权 auto_relogin）；每次 `campus.sync(courses)` 在会话失效时可能触发一次真实登录，
+    已受冷却时间约束，但**频繁任务仍可能触发学校限流**。下一轮应缓存“本轮已登录”状态或复用 runner 会话。
+  - 连接器能力（xzzd/zykt 的作业/资料）仍依赖本地连接器服务（8765/8766 未启动）；本项修复不改变这一边界。
+  - 课表 snapshot 的 `stale/complete` 标记仍偏保守（本次 `freshness=stale`、`complete=false`），回答中已披露；可继续校准。
+
+### 4.19 回归测试（本轮新增/复跑）
+
+| 套件 | 结果 |
+|---|---|
+| `test_campus_readonly_boundary.py` + `test_agent_tools.py`（新增 5 条：缓存保留 ×2、信封 partial、课表只读 ×2） | **67 passed** |
+| 真实 L2（修复前 → 修复后） | 修复前 46–96 s 且回答“查不到/无法确认” → 修复后 **33.5 s / 3 工具 / 36 条真实课表 / 明确回答** |
+
 ---
 
 ## 5. 下一轮任务与阻碍
@@ -401,25 +445,27 @@
 | 级别 | 用户任务 | 结论 | 证据 |
 |---|---|---|---|
 | L1 自主联网 | 搜索浙大最近公开学术活动并给来源 | **真实完成**：`web_search` + `web_fetch` 直读 ZJU 官方页面（白名单），65.0 s / 12 次调用，19/19 引用可在工具结果回溯 | `var/takeover-tasks/L1-20261017-130424/` |
-| L2 校园工具 | 查询明天有哪些课 | **工具链真实、未编造**；教务 live 会话未授权，但 **10-16 的 stale 课表缓存可用**（18 门课，需带过期警告）；真实 live 课表仍不可得 | `var/takeover-tasks/L2-20261017-124250/`、`var/takeover-tasks/multi-turn-20261017-132940/` |
+| L2 校园工具 | 查询明天有哪些课 | **真实完成**：自动复用已保存凭证重登 → 真实同步 36 条教务课表（2026-10-17 13:46）→ 回答“明天周日没有课”并列本周课程/时间/地点，附校历与冲突说明；0 人工干预 | `var/takeover-tasks/L2-20261017-134619/` |
 | L3 多工具协同 | 结合课表安排两小时自习 | **真实完成（计划级）**：生成候选计划 + 正确拦截待用户接受；多轮“改到下午”成功生成新预览；课表不确定性如实披露 | `var/takeover-tasks/L3-20261017-125011/`、`var/takeover-tasks/multi-turn-20261017-132940/` |
 | L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
 
 **阻碍（需要用户/环境解锁，不能伪造）**
-1. **校园私有会话**：`browser_session_authorized=false`、`conn_zykt=service_unavailable`、zdbk 登录页需要用户在受控浏览器里完成统一身份认证。解锁前 Level 2 的真实课表、Level 3 的真实课表约束无法端到端验证。
-2. 用户 8000 端口旧服务仍在运行（旧代码、无源码指纹）；真实 benchmark 必须用当前源码服务（8017/8018/8021 或用户重启）。
+1. **学在浙大/智云课堂连接器**：本地连接器服务（8765/8766）未启动，作业/课件的实时同步仍不可用；需要在启动器里显式启动对应平台。
+   教务（zdbk）课表与已实现能力可经自动重登真实读取（见 4.18）。
+2. 用户 8000 端口旧服务仍在运行（旧代码、无源码指纹）；真实 benchmark 必须用当前源码服务（本轮 8029 或用户重启）。
 3. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
 **下一轮建议（按影响排序）**
-1. **`campus.query(courses)` 的 stale 缓存信封**：会话过期但有可用缓存时，从 `isError=true + data.records` 改为 `status=partial`
-   （数据 + `stale` 警告），避免“有数据却像完全失败”的误判；并用 L2「明天有哪些课」做真实 A/B（当前已能用缓存回答，但语义靠模型自行解释）。
-2. **L2/L3 真解锁**：真实登录 → 教务 live 课表 → “明天有哪些课/自习安排”端到端验证（需要用户在受控浏览器完成统一身份认证）。
-3. **benchmark 观测限制（不改评分）**：真实 BUS-04 回答 14/14 引用在原始 journal 可核对，但持久化轨迹截断了长工具结果，
-   导致评估器判“不可验证”。应改进证据保留/核验方式（保留可校验的摘要或哈希），而不是改评分标准。
-4. **工具被地址策略拒绝后的回退行为**：MULTI-04 已观察到成功回退浏览器；保留“被拒主机 → 换工具/换来源”的真实 A/B。
+1. **会话复用与限流保护**：`campus.sync(courses)` 在会话失效时会触发一次真实自动登录；应缓存“本轮已登录”状态（或复用 runner 生命周期），
+   避免多任务连续触发学校限流；并用真实任务做 3 次重复验证。
+2. **校历/学期解析补齐**：`campus.academics` 在同步后仍返回空 agenda（term/校历未确认）；修复后“明天有哪些课”可直接用 academics，
+   回答里的“日期按默认校历推算”提示也能变成真实校历。
+3. **xzzd/zykt 连接器启动引导**：L2 目前只覆盖教务课表；作业/资料依赖本地连接器，应在启动器与服务就绪上补齐自动启动或明确提示。
+4. **benchmark 观测限制（不改评分）**：真实 BUS-04 回答 14/14 引用在原始 journal 可核对，但持久化轨迹截断了长工具结果；
+   应改进证据保留/核验方式（保留可校验的摘要或哈希），而不是改评分标准。
 5. 长任务检查点续跑（若 in-turn 重试仍失败）：保留已完成的工具结果与部分回答，而不是整轮丢弃。
-6. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 41.8–65.0s、L4 91.0s/32 calls、BUS-04 48.8s/6 calls、MULTI-04 126.6s/14 calls、多轮第 2 轮 13.5s。
-7. 扩大白名单（按证据逐项）与 `rd.zju.edu.cn` 仅 http 的提示优化。
+6. 视觉任务成本优化（25 次工具调用/114.9 s）与性能基线：L1 41.8–65.0s、L2 33.5s/3 calls、L4 91.0s/32 calls、BUS-04 48.8s/6 calls、MULTI-04 126.6s/14 calls、多轮第 2 轮 13.5s。
+7. 扩大 fetch 白名单（按证据逐项）与 `rd.zju.edu.cn` 仅 http 的提示优化。
 
 ---
 

@@ -43,6 +43,17 @@ class SQLiteCacheRepository:
                               (owner, platform, capability)).fetchall()
         return [row['scope'] for row in rows]
 
+    def read_latest(self, owner, capability):
+        """Newest cached result for a capability, whatever platform/scope wrote it.
+
+        Used when a sync cannot even resolve a platform: that failure must report the
+        error without replacing already-known cached data with a blank row.
+        """
+        with self.store.connect() as db:
+            row = db.execute('SELECT result FROM connector_cache WHERE owner=? AND capability=? '
+                             'ORDER BY rowid DESC LIMIT 1', (owner, capability)).fetchone()
+        return json.loads(row['result']) if row else None
+
     def delete(self, owner):
         with self.store.connect() as db:
             db.execute('DELETE FROM connector_cache WHERE owner=?', (owner,))

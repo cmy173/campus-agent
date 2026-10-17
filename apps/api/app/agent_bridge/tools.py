@@ -647,6 +647,41 @@ def _discovery_result(courses, continuations, errors, chosen, **stats):
             "stats": {"platforms": len({c["platform"] for c in courses}), "courses": len(courses), **stats}}
 
 
+_STALE_CACHE_WARNING = ("学校会话未授权或已失效：以下为本地缓存数据（可能过期），不代表学校端当前状态；"
+                        "需要实时数据请在授权窗口登录后重试")
+
+
+def _campus_query_envelope(data: dict) -> dict:
+    """Build the campus.query/sync envelope without turning usable cache into failure.
+
+    A dead school session still leaves the last verified cache readable. Reporting that
+    as `status=error` made the model treat available data as a failed query. Records plus
+    a connection error are `partial` data with the structured error kept for recovery.
+    """
+    error = data.get("error")
+    records = data.get("records") or []
+    warnings = list(data.get("warnings") or [])
+    if error and records:
+        status = "partial"
+        warnings.append(_STALE_CACHE_WARNING)
+    elif error:
+        status = "error"
+    elif data.get("completeness") == "complete":
+        status = "ok"
+    else:
+        status = "partial"
+    return {"status": status,
+            "data": data,
+            "evidence": [{"source_id": str(r.get("id") or r.get("code") or i),
+                          "source_system": data["platform"], "observed_at": r.get("fetched_at") or data.get("fetched_at"),
+                          "url": r.get("source") or r.get("origin")} for i, r in enumerate(records)],
+            "coverage": {"scope": "campus:" + data.get("capability", ""),
+                         "complete": status == "ok" and data.get("completeness") == "complete",
+                         "missing": [] if status == "ok" else ["学校数据完整性未确认"]},
+            "freshness": {"fetched_at": data.get("fetched_at"), "stale": data.get("freshness") != "fresh"},
+            "warnings": warnings, "next_cursor": data.get("next_cursor"), "job_id": None, "error": error}
+
+
 def _continuation(connection: dict, found: dict, args: dict) -> list[dict]:
     cursor = found.get("next_cursor")
     return ([{"connection_id": connection["id"], "platform": connection["platform"],
@@ -880,16 +915,18 @@ def execute(name: str, arguments: dict, db: Session, ctx: ToolContext, *,
             elif name in {"campus.query", "campus.sync"}:
                 data = workspace.query(args["capability"], args["query"], args["platform"],
                                        refresh=name == "campus.sync", allow_recovery=allow_auth_recovery)
-                error = data.get("error")
-                records = data.get("records") or []
-                return {"status": "error" if error else "ok" if data["completeness"] == "complete" else "partial",
-                    "data": data, "evidence": [{"source_id": str(r.get("id") or r.get("code") or i),
-                        "source_system": data["platform"], "observed_at": r.get("fetched_at") or data.get("fetched_at"),
-                        "url": r.get("source") or r.get("origin")} for i,r in enumerate(records)],
-                    "coverage": {"scope": "campus:"+args["capability"], "complete": data["completeness"] == "complete",
-                        "missing": [] if data["completeness"] == "complete" else ["学校数据完整性未确认"]},
-                    "freshness": {"fetched_at": data.get("fetched_at"), "stale": data["freshness"] != "fresh"},
-                    "warnings": data.get("warnings", []), "next_cursor": data.get("next_cursor"), "job_id": None, "error": error}
+                capability = args["capability"]
+                error_code = (data.get("error") or {}).get("code")
+                if capability == "courses" and (error_code in {"UNSUPPORTED", None} and not data.get("records")):
+                    # The connector adapters never implemented `courses`; the real ZDBK
+                    # timetable lives in the campus manager's snapshot. A sync may use its
+                    # bounded stored-credential session; a query stays cache-only.
+                    legacy = (workspace.sync_timetable(allow_recovery=allow_auth_recovery)
+                              if name == "campus.sync" else workspace.timetable_records())
+                    if legacy.get("records") or name == "campus.sync":
+                        data = legacy
+                data.setdefault("capability", capability)
+                return _campus_query_envelope(data)
             elif name == "campus.academics":
                 if args["day"]:
                     # Validate, then pass the ISO string: the connector parses it itself.

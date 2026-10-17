@@ -281,6 +281,60 @@ class CampusWorkspace:
                 self._browser_retry_after = 0.0
             return retried
 
+    def timetable_records(self):
+        """The synced ZDBK timetable snapshot shaped like a connector cache result.
+
+        This is cache-only (no network): the workbench-era campus manager owns the
+        timetable, while the connector adapters never implemented ``courses``. Exposing
+        the snapshot here is what lets the Agent answer timetable questions.
+        """
+        snapshot = self.manager.repository.read(OWNER) or {}
+        courses = snapshot.get("courses") or {}
+        rows = []
+        for row in courses.get("data") or []:
+            row = dict(row)
+            if courses.get("stale"):
+                row["stale"] = True
+            rows.append(row)
+        fetched_at = courses.get("fetched_at")
+        stale = bool(courses.get("stale") or not fetched_at)
+        return {"records": rows,
+                "completeness": "complete" if courses.get("complete") else "partial",
+                "freshness": "stale" if stale else "fresh",
+                "fetched_at": fetched_at, "last_attempt_at": fetched_at,
+                "platform": "zdbk", "source": "zdbk-timetable", "capability": "courses",
+                "warnings": list(courses.get("warnings") or []),
+                "next_cursor": None, "error": None}
+
+    def sync_timetable(self, *, allow_recovery=True):
+        """Refresh the real ZDBK timetable with at most one stored-credential login.
+
+        The connector-adapter sync returns UNSUPPORTED for ``courses``; the timetable is
+        owned by the workbench-era campus manager. Without this entry the Agent could not
+        read a live timetable even when the app already has a valid stored session. No
+        password prompt or browser interaction is started: only an already connected
+        session or one bounded authorized re-login, then a real read-only sync.
+        """
+        with self.manager.lock(OWNER):
+            state = self.manager.status(OWNER)
+            if not state.get("connected") and allow_recovery and time.monotonic() >= self._credential_retry_after:
+                outcome = self.auto_relogin_locked()
+                if not outcome.get("ok"):
+                    failure = self.timetable_records()
+                    failure["error"] = {"code": str(outcome.get("code") or "AUTH_REQUIRED"),
+                                        "message": "校园登录需要用户完成验证，已保留上次课表缓存",
+                                        "retryable": False}
+                    failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                    return failure
+            try:
+                self.manager.sync(OWNER)
+            except CampusError as exc:
+                failure = self.timetable_records()
+                failure["error"] = standard_error(exc).model_dump(mode="json")
+                failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                return failure
+            return self.timetable_records()
+
     def credential_status(self) -> dict:
         return campus_credentials.all_status() | {
             "last_login": self.last_login,
