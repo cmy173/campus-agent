@@ -481,6 +481,10 @@
 - **未解决/需如实记录**：xzzd 真实同步 job `job_e9f5dece` 在 attachments 阶段**停滞**（progress 0.606、37 个错误，20 秒内无变化仍 running）。
   错误分布：22 个 `UNSUPPORTED_MEDIA_TYPE`（元数据保留）、15 个 `CORRUPT_FILE`（附件内容与格式不符）。
   这是真实平台附件处理路径的问题，不是连接器未启动；本轮**未**把它修复，也未把它当作同步成功。
+  （后续观察：错误数继续增长到 44，progress 仍 0.606，说明仍在逐个处理附件而非死锁，但未收敛。）
+- **补充：zykt 会话已恢复**（用户登录后）：连接器与应用侧均为 `ok`，应用实时读到 **8 门真实课程**（`errors=0`）；
+  Agent 真实任务验证：输入“查询两个平台的课程列表并说明是否实时”，**succeeded / 79.7 s / 6 次 `connections.courses`**，
+  回答给出 xzzd 33 门（分页读完）、zykt 8 门，并说明“平台实时读取、非本机缓存”（证据 `var/takeover-tasks/connectors-check/`）。
 
 ---
 
@@ -499,10 +503,10 @@
 | L4 长任务 | 整理资料 + 复习计划 | **真实完成**：真实资料读取 + PDF/Markdown 交付 + 缺口披露；首次因流式异常整轮失败，本轮已加 in-turn 重试（A/B 证据 4.10），修复后重跑 succeeded | `var/takeover-tasks/L4-20261017-124633/`、`var/takeover-tasks/L4-20261017-125742/` |
 
 **阻碍（需要用户/环境解锁，不能伪造）**
-1. **zykt（智云课堂）需要用户登录一次**：连接器窗口已打开在 `https://classroom.zju.edu.cn/`，持久会话已失效（`auth_required`）；
-   登录后需重跑 `POST /api/v1/connections/conn_zykt/check` 复核。xzzd 已 `ok`，可真实读取课程（见 4.22）。
-2. **xzzd 真实同步在 attachments 阶段停滞**：`job_e9f5dece` progress 0.606、37 个错误（22 UNSUPPORTED_MEDIA_TYPE + 15 CORRUPT_FILE）后不再推进。
-   本轮未修复；需排查附件下载/解析路径的超时与收敛（真实任务失败发生在「资料导入」阶段，不是连接器或 Harness 层）。
+1. **zykt（智云课堂）会话已恢复**：用户登录后连接器与应用侧均 `ok`，实时读到 8 门课程；若再次失效会明确报 `auth_required` 并给出登录入口。
+   xzzd 已 `ok`，实时读到 33 门课程（分页读完）。
+2. **xzzd 真实同步在 attachments 阶段不收敛**：`job_e9f5dece` progress 0.606、错误 44 个（29 UNSUPPORTED_MEDIA_TYPE + 15 CORRUPT_FILE）后仍 running。
+   本轮未修复；需排查附件下载/解析路径的超时与收敛（失败发生在「资料导入」阶段，不是连接器或 Harness 层）。
 3. 真实 benchmark 必须用当前源码服务；用户旧服务已不在 8000 监听，本轮验证使用 `tools/run_takeover_api.py`（8030）并另起 `app.worker`。
 4. 真实校历/调课数据源、实时空教室/座位数据未接入（能力缺口，不得假装）。
 
