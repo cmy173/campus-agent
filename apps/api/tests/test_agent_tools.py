@@ -1,4 +1,4 @@
-"""Independent synthetic DB: strict contracts, scoping, date precision and evidence."""
+﻿"""Independent synthetic DB: strict contracts, scoping, date precision and evidence."""
 import base64
 from types import SimpleNamespace
 from datetime import date, datetime, timedelta, timezone
@@ -616,3 +616,63 @@ def test_campus_courses_tools_prefer_the_migrated_timetable_snapshot(db, monkeyp
     synced = execute("campus.sync", {"capability": "courses", "query": {}}, db, ctx)
     assert synced["data"]["records"][0]["name"] == "常微分方程"
     assert calls == [("sync_timetable", True), "timetable_records"]
+
+
+# --- attachment skip accounting: input-determined problems are warnings, not job failures ---
+from app.worker import ATTACHMENT_SKIP_CODES, _note_skipped_attachment, _skipped_attachment_warnings  # noqa: E402
+
+
+def test_attachment_skip_codes_are_the_input_determined_ones():
+    assert ATTACHMENT_SKIP_CODES == {"UNSUPPORTED_MEDIA_TYPE", "CORRUPT_FILE", "FILE_TOO_LARGE"}
+
+
+def test_skipped_attachments_accumulate_and_become_contract_warnings():
+    payload: dict = {}
+    _note_skipped_attachment(payload, "UNSUPPORTED_MEDIA_TYPE")
+    _note_skipped_attachment(payload, "UNSUPPORTED_MEDIA_TYPE")
+    _note_skipped_attachment(payload, "CORRUPT_FILE")
+    assert payload["skipped_attachments"] == {"UNSUPPORTED_MEDIA_TYPE": 2, "CORRUPT_FILE": 1}
+    warnings = _skipped_attachment_warnings(payload.get("skipped_attachments"))
+    codes = {w["code"] for w in warnings}
+    assert codes == {"UNSUPPORTED_MEDIA_TYPE", "CORRUPT_FILE"}
+    by_code = {w["code"]: w["message"] for w in warnings}
+    assert "2 个" in by_code["UNSUPPORTED_MEDIA_TYPE"]
+    assert "1 个" in by_code["CORRUPT_FILE"]
+    assert all(isinstance(w["message"], str) and w["message"] for w in warnings)
+
+
+def test_no_skipped_attachments_means_no_warnings():
+    assert _skipped_attachment_warnings(None) == []
+    assert _skipped_attachment_warnings({}) == []
+    assert _skipped_attachment_warnings({"CORRUPT_FILE": 0}) == []
+
+
+def test_size_guard_denial_is_an_input_determined_skip_not_a_permission_failure():
+    """PD-1 oversize is a policy cap, not a lost permission; a real no-access still fails."""
+    from app.worker import _fetch_synced_document, JobFailed, MAX_DOWNLOAD_BYTES
+
+    class _Resource:
+        id = "res_x"
+        size_bytes = MAX_DOWNLOAD_BYTES + 1
+
+    class _SmallResource:
+        id = "res_y"
+        size_bytes = 1024
+
+    def denied(_external_id):
+        return {"status": "denied", "handle": None,
+                "denial": {"reason": "permission_denied", "message": "超出解析护栏（PD-1）"}}
+
+    seen = {}
+    try:
+        _fetch_synced_document(None, _Resource(), {"external_id": "42"}, denied)
+    except JobFailed as exc:
+        seen["code"] = exc.code
+    assert seen.get("code") == "FILE_TOO_LARGE"
+
+    seen.clear()
+    try:
+        _fetch_synced_document(None, _SmallResource(), {"external_id": "43"}, denied)
+    except JobFailed as exc:
+        seen["code"] = exc.code
+    assert seen.get("code") == "PERMISSION_DENIED"   # a real denial for a small file still fails
