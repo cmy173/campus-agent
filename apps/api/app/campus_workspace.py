@@ -333,6 +333,16 @@ class CampusWorkspace:
                 failure["error"] = standard_error(exc).model_dump(mode="json")
                 failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
                 return failure
+            except Exception:
+                # A malformed/unexpected client failure must still reach the model as a
+                # structured tool result (with the last cached timetable), never as a raw
+                # exception that looks like the whole tool is broken.
+                failure = self.timetable_records()
+                failure["error"] = {"code": "TIMETABLE_SYNC_FAILED",
+                                    "message": "教务课表同步未完成，已保留上次缓存；请稍后重试",
+                                    "retryable": True}
+                failure["freshness"] = "stale" if failure.get("fetched_at") else "unknown"
+                return failure
             return self.timetable_records()
 
     def credential_status(self) -> dict:

@@ -436,3 +436,18 @@ def test_sync_timetable_failure_keeps_known_snapshot_and_reports_error(workspace
     assert result["error"]["code"] in {"AUTH_EXPIRED", "SESSION_EXPIRED"}
     assert result["records"][0]["name"] == "常微分方程"
     assert result["freshness"] == "stale"
+
+
+def test_sync_timetable_unexpected_client_failure_is_a_structured_tool_error(workspace, monkeypatch):
+    workspace.manager.repository.write("local", _timetable_snapshot())
+    monkeypatch.setattr(workspace.manager, "status", lambda owner: {"connected": True})
+
+    def broken_sync(owner):
+        raise AttributeError("grades")
+
+    monkeypatch.setattr(workspace.manager, "sync", broken_sync)
+    result = workspace.sync_timetable(allow_recovery=False)
+    assert result["error"]["code"] == "TIMETABLE_SYNC_FAILED"
+    assert result["error"]["retryable"] is True
+    assert result["records"][0]["name"] == "常微分方程"   # cached timetable retained
+    assert result["freshness"] == "stale"

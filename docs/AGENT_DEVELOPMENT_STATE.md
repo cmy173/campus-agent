@@ -450,6 +450,20 @@
   | 2 | 那后天（2026-10-19）呢？顺便告诉我这学期第几周 | succeeded / **6.7 s** / **1 次工具（`campus.academics`）** | 无重复同步/登录；正确列出周一 2 门课、空档与周次（第 6 教学周），并标注校历未核验 |
 - 结论：连续问课表时，第 2 轮只读缓存/日历，不再触发学校请求；课表会话在进程内可复用。跨 API 重启后的首次同步仍会触发一次自动重登（见下一轮风险项）。
 
+### 4.21 回归扩大化发现并修复一个真实鲁棒性缺陷（本轮收尾）
+
+- 把 API 相关测试扩大到 8 个套件后，发现 `test_campus_browser_bridge` 失败：`sync_timetable` 只捕获 `CampusError`，
+  底层客户端若抛出其他异常（测试 fake 的 `AttributeError`）会直接冒泡成“工具坏了”。
+- 修复（`apps/api/app/campus_workspace.py`）：`sync_timetable` 增加兜底捕获，返回结构化
+  `TIMETABLE_SYNC_FAILED`（`retryable=true`）并保留上次课表缓存；新增对应单测。
+- 同时把该校验“认证恢复”语义的测试改用 `grades`（连接器依然支持的能力）：`courses` 已切到迁移后的课表 snapshot，
+  不应再用连接器恢复逻辑代表它；测试意图（同一安全 workspace、有界重试、无需再次确认）保持不变。
+- 回归结果（本轮实测）：
+  | 套件 | 结果 |
+  |---|---|
+  | API：agent tools / campus boundary / agent gateway / runner reuse / connection sync / browser bridge / credentials / auth resume | **193 passed**（87.9 s） |
+  | Benchmark 单测（tool map + runner） | **101 passed**（3.1 s） |
+
 ---
 
 ## 5. 下一轮任务与阻碍

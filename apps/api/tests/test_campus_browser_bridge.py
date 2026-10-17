@@ -1,4 +1,4 @@
-"""Trusted browser -> campus session bridge, entirely synthetic cookies/HTTP."""
+﻿"""Trusted browser -> campus session bridge, entirely synthetic cookies/HTTP."""
 import json
 
 import pytest
@@ -196,9 +196,11 @@ def test_model_auth_recovery_uses_same_safe_workspace_without_new_confirmation(w
     monkeypatch.setattr(workspace.manager.service, "query", lambda *a, **k: FullResult())
     monkeypatch.setattr(workspace.manager.service, "sync", lambda *a, **k: FullResult())
     with Session(create_engine("sqlite:///:memory:")) as db:
-        cached = execute("campus.query", {"capability": "courses"}, db, ToolContext("local", "synthetic-conversation"))
+        # `courses` now reads the migrated timetable snapshot; this test keeps covering the
+        # connector recovery path, which is still used by grades.
+        cached = execute("campus.query", {"capability": "grades"}, db, ToolContext("local", "synthetic-conversation"))
         assert cached["error"]["code"] == "AUTH_EXPIRED" and len(requests) == 1
-        result = execute("campus.sync", {"capability": "courses"}, db, ToolContext("local", "synthetic-conversation"))
+        result = execute("campus.sync", {"capability": "grades"}, db, ToolContext("local", "synthetic-conversation"))
     assert result["error"] is None and result["status"] == "partial"
     assert result["data"]["records"][0]["id"] == "synthetic"
     assert len(requests) == 3  # cache read, one requested sync, one bounded retry
