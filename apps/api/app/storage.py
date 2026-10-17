@@ -25,10 +25,12 @@ EXTENSION_MIME = {
     ".pdf": "application/pdf",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    # .xlsx（真实课件形态，如「excel练习.xlsx」）：同为 OOXML 压缩包，可解析
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     # .zip 课件包（A21/A22 实测真实资源形态）：仅存档与下载，不解析（parse_status=skipped）
     ".zip": "application/zip",
 }
-EXTENSIONS_HINT = "pdf/pptx/docx/zip"
+EXTENSIONS_HINT = "pdf/pptx/docx/xlsx/zip"
 
 _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
